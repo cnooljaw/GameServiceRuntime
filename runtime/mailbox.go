@@ -67,6 +67,7 @@ func (m *mailbox) pop() (mailboxItem, bool) {
 }
 
 func (m *mailbox) notEmpty() bool { m.mu.Lock(); defer m.mu.Unlock(); return len(m.items) > 0 }
+func (m *mailbox) depth() int     { m.mu.Lock(); defer m.mu.Unlock(); return len(m.items) }
 func (m *mailbox) discard() {
 	m.mu.Lock()
 	m.items = nil
