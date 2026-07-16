@@ -97,6 +97,36 @@ func TestRuntimeInspectWorksAfterClose(t *testing.T) {
 	}
 }
 
+func TestRuntimeInspectReportsClosingStatus(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", ShutdownTimeout: time.Second})
+	service := &inspectionBlockingHandleService{started: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() {
+		select {
+		case <-service.release:
+		default:
+			close(service.release)
+		}
+		_ = runtime.Close(context.Background())
+	})
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Send(ref, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	<-service.started
+
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- runtime.Close(context.Background()) }()
+	eventually(t, func() bool { return runtime.Inspect().Status == gsr.RuntimeClosing })
+
+	close(service.release)
+	if err := <-closeResult; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRuntimeInspectReportsPendingCallsAndTimers(t *testing.T) {
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
@@ -189,6 +219,12 @@ func TestRuntimeInspectReportsActiveTask(t *testing.T) {
 	if task.TimedOut {
 		t.Fatal("active task is marked timed out")
 	}
+	inspection.Tasks[0].Owner = gsr.ServiceRef{Node: "changed", ID: 99}
+	inspection.Tasks = append(inspection.Tasks, gsr.RuntimeTaskInspection{})
+	second := runtime.Inspect()
+	if len(second.Tasks) != 1 || second.Tasks[0].Owner != task.Owner {
+		t.Fatalf("second task inspection was changed through first copy: %#v", second.Tasks)
+	}
 
 	close(service.release)
 	released = true
@@ -238,6 +274,60 @@ func TestRuntimeInspectReportsTimedOutTask(t *testing.T) {
 		t.Fatalf("CreateService error = %v, want ErrRuntimeClosed", result.err)
 	}
 	eventually(t, func() bool { return len(runtime.Inspect().Tasks) == 0 })
+}
+
+func TestRuntimeInspectReportsStopAndCloseTasks(t *testing.T) {
+	t.Run("stop", func(t *testing.T) {
+		runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+		service := &inspectionBlockingStopService{started: make(chan struct{}), release: make(chan struct{})}
+		t.Cleanup(func() {
+			select {
+			case <-service.release:
+			default:
+				close(service.release)
+			}
+			_ = runtime.Close(context.Background())
+		})
+		ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stopResult := make(chan error, 1)
+		go func() { stopResult <- runtime.Stop(context.Background(), ref) }()
+		<-service.started
+
+		assertInspectionHasTaskKind(t, runtime.Inspect(), gsr.RuntimeTaskStop)
+		close(service.release)
+		if err := <-stopResult; err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("close", func(t *testing.T) {
+		runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+		service := &inspectionBlockingCloseService{started: make(chan struct{}), release: make(chan struct{})}
+		t.Cleanup(func() {
+			select {
+			case <-service.release:
+			default:
+				close(service.release)
+			}
+			_ = runtime.Close(context.Background())
+		})
+		ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stopResult := make(chan error, 1)
+		go func() { stopResult <- runtime.Stop(context.Background(), ref) }()
+		<-service.started
+
+		assertInspectionHasTaskKind(t, runtime.Inspect(), gsr.RuntimeTaskClose)
+		close(service.release)
+		if err := <-stopResult; err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestRuntimeInspectIsSafeDuringConcurrentLifecycleChanges(t *testing.T) {
@@ -333,6 +423,23 @@ func (s *inspectionBlockingReplyService) Handle(ctx gsr.CommandContext, _ gsr.Co
 func (*inspectionBlockingReplyService) Stop(context.Context) error { return nil }
 func (*inspectionBlockingReplyService) Close() error               { return nil }
 
+type inspectionBlockingHandleService struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*inspectionBlockingHandleService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
+func (*inspectionBlockingHandleService) Init(gsr.ServiceContext) error {
+	return nil
+}
+func (s *inspectionBlockingHandleService) Handle(gsr.CommandContext, gsr.Command) error {
+	close(s.started)
+	<-s.release
+	return nil
+}
+func (*inspectionBlockingHandleService) Stop(context.Context) error { return nil }
+func (*inspectionBlockingHandleService) Close() error               { return nil }
+
 type inspectionBlockingInitService struct {
 	started chan struct{}
 	release chan struct{}
@@ -351,4 +458,51 @@ func (*inspectionBlockingInitService) Close() error                             
 type inspectionCreateResult struct {
 	ref gsr.ServiceRef
 	err error
+}
+
+type inspectionBlockingStopService struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*inspectionBlockingStopService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
+func (*inspectionBlockingStopService) Init(gsr.ServiceContext) error { return nil }
+func (*inspectionBlockingStopService) Handle(gsr.CommandContext, gsr.Command) error {
+	return nil
+}
+func (s *inspectionBlockingStopService) Stop(context.Context) error {
+	close(s.started)
+	<-s.release
+	return nil
+}
+func (*inspectionBlockingStopService) Close() error { return nil }
+
+type inspectionBlockingCloseService struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*inspectionBlockingCloseService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
+func (*inspectionBlockingCloseService) Init(gsr.ServiceContext) error { return nil }
+func (*inspectionBlockingCloseService) Handle(gsr.CommandContext, gsr.Command) error {
+	return nil
+}
+func (*inspectionBlockingCloseService) Stop(context.Context) error { return nil }
+func (s *inspectionBlockingCloseService) Close() error {
+	close(s.started)
+	<-s.release
+	return nil
+}
+
+func assertInspectionHasTaskKind(t *testing.T, inspection gsr.RuntimeInspection, kind gsr.RuntimeTaskKind) {
+	t.Helper()
+	for index, task := range inspection.Tasks {
+		if index > 0 && inspection.Tasks[index-1].ID >= task.ID {
+			t.Fatalf("Tasks are not sorted by ID: %#v", inspection.Tasks)
+		}
+		if task.Kind == kind {
+			return
+		}
+	}
+	t.Fatalf("Tasks = %#v, want kind %q", inspection.Tasks, kind)
 }
