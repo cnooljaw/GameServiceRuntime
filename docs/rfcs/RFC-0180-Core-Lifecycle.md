@@ -93,6 +93,10 @@ Close():  资源释放阶段
 
 Runtime 关闭会先阻止新的 Service 创建，再等待已经进入 `Init` 的创建流程完成。`Init` 失败或在 Runtime 进入 Closing 后才完成时，Runtime 仍调用该 Service 的 `Close()`，释放初始化过程中已取得的部分资源。
 
+`Init(ServiceContext)` 是同步、短时的构造钩子，只用于建立内存状态和获取可立即返回的本地资源。它没有取消 context，Service 不得在其中创建后台 goroutine、执行无界 IO 或等待长期业务条件。需要取消、重试或长时间等待的启动过程，应在 Service 进入 Running 后通过 Command 和显式状态推进。
+
+调用 `CreateService` 的 goroutine 会等待 Init 返回；Runtime 同时把 Init 登记为内部任务。`Runtime.Close` 等待 Init 的时间受 `ShutdownTimeout` 和调用方 context 限制。期限到达后 Runtime 释放自己拥有的结构并报告残留 Init，但保留任务记录直到 Init 真实返回；Init 后续返回时仍执行一次 `Service.Close()`，随后回收任务记录。
+
 如果 Service 内部有多个清理函数，应由 Service 自己在 `Stop(ctx)` 中编排。Core Runtime 不提供全局 `atexit` 注册表，也不替业务决定清理顺序。
 
 ## 超时策略
@@ -224,3 +228,5 @@ panic -> protect state -> fail fast -> manual or policy recovery
 15. 生命周期整体期限必须由 `LifecycleTimeout` 或调用方 context 明确给出，不能使用隐藏宽限值。
 16. Runtime.Close 只能执行一次；并发和重复调用必须复用并返回已保存的关闭结果。
 17. Runtime.Stop 遇到仍在清理的同一实例时必须等待现有结果，不能并发执行第二次 Stop 或 Close。
+18. Init 只能做同步短初始化；可取消或长期启动流程必须建模为 Command，不得隐藏在 Init 中。
+19. Runtime.Close 超时不能遗失仍在执行的 Init 任务；任务记录必须保留到 Init 真实返回。
