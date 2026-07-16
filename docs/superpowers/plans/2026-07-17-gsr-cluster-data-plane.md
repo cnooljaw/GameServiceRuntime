@@ -1,6 +1,6 @@
 # GSR Cluster Data Plane 实施计划
 
-> 状态：执行中
+> 状态：已完成（2026-07-17）
 
 **目标：** 完成 `RFC-0190`、`RFC-0191` 定义的 Phase 5，使 `Runtime.Send`、`Runtime.Call` 和 `ServiceContext.Call` 可以通过同一套 API 访问远程 `ServiceRef`，并由 TCP Transport 提供节点握手、WireEnvelope 传输和断线通知。
 
@@ -71,5 +71,9 @@
    git diff --check
    ```
 
-4. 将 Roadmap 的下一阶段更新为 Phase 6 Core Runtime 验证，将本计划标记为完成。
+4. 核对 Phase 6 已有错误模型、性能基线、生命周期可观测和示例，完成 Cluster 合入后的全量复验；将 Roadmap 的下一阶段更新为 Phase 7 Runtime Tooling 基础。
 5. 提交：`docs(cluster): 完成数据面阶段`。
+
+## 最终结果
+
+Phase 5 已完成：Runtime 通过同一个 Send/Call API 路由本地和远程 ServiceRef；远程路径保留 CallPath、PendingCall 身份校验、稳定错误和断线失败语义；`transport/tcp` 提供版本握手、受限长度帧、连接复用及断线通知。真实双节点示例输出 `hello cluster`。Phase 6 的既有错误模型、性能基线、生命周期可观测和示例已完成 Cluster 合入后的全量复验，下一阶段进入 Phase 7 Runtime Tooling 基础。

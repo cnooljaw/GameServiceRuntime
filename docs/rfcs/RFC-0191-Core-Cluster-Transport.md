@@ -69,6 +69,8 @@ type ClusterCodec interface {
 
 `response=false` 表示 Command payload，`response=true` 表示 Reply payload。Codec 可以按 `CommandID` 选择 protobuf、FlatBuffers 或其它稳定编码。内部 Service handler 不强制使用 protobuf，也不接触 WireEnvelope。
 
+Runtime 可以从多个调用方和 Transport 读循环并发调用同一个 Codec，`ClusterCodec` 实现必须支持并发调用。Codec panic 视为实现错误；生产实现应返回 error，不能依赖 panic 表达普通解码失败。
+
 ## Transport 与 Protocol 的边界
 
 GSR 不引入 Skynet 风格的 `PTYPE_LUA`、`PTYPE_SOCKET`、`PTYPE_HARBOR`。

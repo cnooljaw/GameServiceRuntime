@@ -32,3 +32,6 @@ jobs:
 
       - name: Run local example
         run: test "$(go run ./examples/local-runtime)" = "hello"
+
+      - name: Run cluster example
+        run: test "$(go run ./examples/cluster-runtime)" = "hello cluster"

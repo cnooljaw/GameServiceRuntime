@@ -33,13 +33,13 @@ Layer 3: Business Layer
 
 ## 当前执行状态
 
-截至 2026-07-17，独立实施计划中的首个 **Core Foundation** 里程碑及 Core API 收口已经完成。它覆盖 `RFC-0100` 至 `RFC-0180` 的实现、本路线图的 Phase 1 至 Phase 4，以及 Phase 6 的错误模型、性能基线、生命周期可观测和最小端到端示例。
+截至 2026-07-17，**Core Runtime** 里程碑及 Cluster 前工程收口已经完成。它覆盖 `RFC-0100` 至 `RFC-0191`、本路线图的 Phase 1 至 Phase 6，包括错误模型、性能基线、生命周期可观测、本地和双节点端到端示例。
 
-历史讨论中的“第一阶段”默认指上述 Core Foundation 里程碑，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 尚未开始，不属于第一阶段欠账。
+历史讨论中的“第一阶段”默认指 Cluster 之前的 Core Foundation，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 后续独立实施，并已完成。
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。TODO 的 P2 工程门禁已于 2026-07-17 完成，下一实施阶段是 Phase 5 Cluster Data Plane。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成，下一实施阶段是 Phase 7 Runtime Tooling 基础。
 
 ## Phase 0：文档和术语冻结
 
