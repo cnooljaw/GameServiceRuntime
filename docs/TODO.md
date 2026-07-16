@@ -17,7 +17,9 @@
 
 当前状态定义为：**功能闭环，工程验收尚未封板**。Cluster、Runtime Tooling 和业务模板属于后续里程碑，不计入本阶段未完成项。
 
-Core API 冻结前的 P1 收口已于 2026-07-17 完成。进入 Cluster 前仍须完成 P2 工程门禁。
+Core API 冻结前的 P1 收口已于 2026-07-17 完成。
+
+Cluster 前的 P2 工程门禁已于 2026-07-17 完成，可以开始 `RFC-0190`、`RFC-0191` 的 Cluster Data Plane 实施。
 
 ## P1：Core API 冻结前完成
 
@@ -30,12 +32,12 @@ Core API 冻结前的 P1 收口已于 2026-07-17 完成。进入 Cluster 前仍�
 
 ## P2：进入 Cluster 前完成
 
-| 编号 | 事项 | 完成标准 |
-|---|---|---|
-| CF-005 | 保护 SessionID 回绕和冲突 | `PendingCall` 分配 Session 时跳过 `0`，不得覆盖仍在等待的 Session；在远程 Reply 接入前补充回绕测试。 |
-| CF-006 | 建立持续集成质量门禁 | CI 固定执行 `go test ./...`、`go vet ./...` 和 `go test -race ./...`；示例程序至少执行一次。 |
-| CF-007 | 拆分超大一致性测试文件 | 按 Scheduler、Lifecycle、Call、Observability、Command Registry 拆分 `runtime/conformance_test.go`，只移动测试和共享 fixture，不改变行为。 |
-| CF-008 | 固化“Service 不创建裸 goroutine”规则 | 在工程检查中检测项目自有 Service 实现中的直接 `go` 语句，或提供等价静态分析；Runtime 内部 goroutine 必须继续经过任务追踪或具有明确 Runtime 所有权。 |
+| 编号 | 状态 | 事项 | 完成标准 |
+|---|---|---|---|
+| CF-005 | 已完成 | 保护 SessionID 回绕和冲突 | `PendingCall` 分配 Session 时跳过 `0`，不得覆盖仍在等待的 Session；在远程 Reply 接入前补充回绕测试。 |
+| CF-006 | 已完成 | 建立持续集成质量门禁 | CI 固定执行 `go test ./...`、`go vet ./...` 和 `go test -race ./...`；示例程序至少执行一次。 |
+| CF-007 | 已完成 | 拆分超大一致性测试文件 | 按 Scheduler、Lifecycle、Call、Observability、Command Registry 拆分 `runtime/conformance_test.go`，只移动测试和共享 fixture，不改变行为。 |
+| CF-008 | 已完成 | 固化“Service 不创建裸 goroutine”规则 | 在工程检查中检测项目自有 Service 实现中的直接 `go` 语句，或提供等价静态分析；Runtime 内部 goroutine 必须继续经过任务追踪或具有明确 Runtime 所有权。 |
 
 ## P3：Tooling 阶段承接
 

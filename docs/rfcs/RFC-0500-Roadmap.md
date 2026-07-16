@@ -39,7 +39,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 5 Cluster Data Plane 必须在 TODO 的 P2 工程门禁完成后开始。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。TODO 的 P2 工程门禁已于 2026-07-17 完成，下一实施阶段是 Phase 5 Cluster Data Plane。
 
 ## Phase 0：文档和术语冻结
 
