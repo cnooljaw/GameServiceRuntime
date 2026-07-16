@@ -63,6 +63,7 @@ PendingCall 保存原请求的 caller 和 target。Reply 必须同时满足：
 ```text
 reply.Target == pending.Source
 reply.Source == pending.Target
+reply.Command == pending.Command
 reply.Session == pending.Session
 ```
 
@@ -125,4 +126,4 @@ Handler continues
 8. 一次 Command 处理完成后必须清空调用链，不能让旧 `CallPath` 影响后续 Command 或 Stop。
 9. `ServiceContext.Call` 不在 Runtime 管理的 `Handle` 或 `Stop` 串行路径中调用时返回 `ErrCallNotAllowed`。
 10. Session 分配必须跳过 `0`；计数器回绕后必须跳过仍活动的 Session，不能覆盖 PendingCall。
-11. Reply 必须同时校验原 caller 和原 target；只校验 Session 或 caller 不足以确认响应来源。
+11. Reply 必须同时校验原 caller、原 target 和 Command；只校验 Session 或 caller 不足以确认响应来源。

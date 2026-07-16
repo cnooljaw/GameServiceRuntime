@@ -7,9 +7,10 @@ import (
 )
 
 type pendingCall struct {
-	source ServiceRef
-	target ServiceRef
-	result chan callResult
+	source  ServiceRef
+	target  ServiceRef
+	command CommandID
+	result  chan callResult
 }
 
 type callResult struct {
@@ -24,8 +25,8 @@ type pendingCalls struct {
 }
 
 func newPendingCalls() *pendingCalls { return &pendingCalls{calls: make(map[SessionID]*pendingCall)} }
-func (p *pendingCalls) create(source, target ServiceRef) (SessionID, *pendingCall) {
-	call := &pendingCall{source: source, target: target, result: make(chan callResult, 1)}
+func (p *pendingCalls) create(source, target ServiceRef, command CommandID) (SessionID, *pendingCall) {
+	call := &pendingCall{source: source, target: target, command: command, result: make(chan callResult, 1)}
 	for {
 		session := SessionID(p.next.Add(1))
 		if session == 0 {
@@ -45,20 +46,38 @@ func (p *pendingCalls) remove(session SessionID) {
 	delete(p.calls, session)
 	p.mu.Unlock()
 }
-func (p *pendingCalls) complete(source ServiceRef, session SessionID, result callResult) bool {
+func (p *pendingCalls) take(source, target ServiceRef, command CommandID, session SessionID) *pendingCall {
 	p.mu.Lock()
 	call := p.calls[session]
-	if call != nil && call.source == source {
+	if call != nil && call.source == source && call.target == target && call.command == command {
 		delete(p.calls, session)
 	} else {
 		call = nil
 	}
 	p.mu.Unlock()
+	return call
+}
+func (p *pendingCalls) complete(source, target ServiceRef, command CommandID, session SessionID, result callResult) bool {
+	call := p.take(source, target, command, session)
 	if call == nil {
 		return false
 	}
 	call.result <- result
 	return true
+}
+func (p *pendingCalls) failNode(node NodeID, err error) {
+	p.mu.Lock()
+	failed := make([]*pendingCall, 0)
+	for session, call := range p.calls {
+		if call.source.Node == node || call.target.Node == node {
+			delete(p.calls, session)
+			failed = append(failed, call)
+		}
+	}
+	p.mu.Unlock()
+	for _, call := range failed {
+		call.result <- callResult{err: err}
+	}
 }
 func (p *pendingCalls) failService(ref ServiceRef, err error) {
 	p.mu.Lock()
@@ -135,7 +154,10 @@ func (r *Runtime) call(ctx context.Context, source, target ServiceRef, id Comman
 	if r.state.Load() != runtimeRunning {
 		return nil, ErrRuntimeClosed
 	}
-	session, pending := r.pending.create(source, target)
+	if source == (ServiceRef{}) {
+		source = ServiceRef{Node: r.node}
+	}
+	session, pending := r.pending.create(source, target, id)
 	envelope := Envelope{Source: source, Target: target, Session: session, Command: id, Payload: payload, CallPath: path}
 	if err := r.sendEnvelope(envelope); err != nil {
 		r.pending.remove(session)
@@ -148,11 +170,14 @@ func (r *Runtime) call(ctx context.Context, source, target ServiceRef, id Comman
 	return result, err
 }
 
-func (r *Runtime) reply(source ServiceRef, session SessionID, value any, err error) error {
-	if source.Node != "" && source.Node != r.node {
-		return ErrServiceNotFound
+func (r *Runtime) reply(responder, caller ServiceRef, command CommandID, session SessionID, value any, err error) error {
+	if caller.Node != r.node {
+		if caller.Node == "" || r.cluster == nil {
+			return ErrRemoteUnavailable
+		}
+		return r.cluster.reply(responder, caller, command, session, value, err)
 	}
-	if !r.pending.complete(source, session, callResult{value: value, err: err}) {
+	if !r.pending.complete(caller, responder, command, session, callResult{value: value, err: err}) {
 		r.metrics.Inc("late_reply_total")
 		return ErrReplyExpired
 	}

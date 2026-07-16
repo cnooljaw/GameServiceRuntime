@@ -139,6 +139,8 @@ Remote Mailbox
 Service.Handle
 ```
 
+远程 Send 沿用 Skynet `cluster.send` 的异步 push 语义，不增加投递 ACK。调用方只能同步得到编码、建连和本地写入错误；目标 Service 不存在、Command 未注册或 Mailbox 满由远端 Runtime 记录 `cluster_delivery_errors_total`。需要业务结果时必须使用 Call。
+
 ## Call 流程
 
 ```text
@@ -168,7 +170,7 @@ Request: Source=caller, Target=responder
 Reply:   Source=responder, Target=caller
 ```
 
-源 Runtime 只有在 responder、caller 和 Session 都与 PendingCall 一致时才接受 Reply。
+源 Runtime 只有在 responder、caller、Command 和 Session 都与 PendingCall 一致时才接受 Reply。
 
 ## 入站边界
 

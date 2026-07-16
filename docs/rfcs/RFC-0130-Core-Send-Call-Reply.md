@@ -38,7 +38,8 @@ err := runtime.Send(ref, CmdShrewSpawn, event)
 - 异步投递。
 - 不等待业务结果。
 - `Session = 0`。
-- 可能因为 Service 不存在、Mailbox 满、远端不可用而返回错误。
+- 本地 Send 可能因为 Service 不存在或 Mailbox 满返回错误。
+- 远程 Send 成功只表示本地 Transport 接受了 WireEnvelope；建连或写入失败返回 `ErrRemoteUnavailable`，远端 Service 不存在、Command 未注册或 Mailbox 满由接收节点记录，不能通过异步 Send 同步返回。
 
 ## Call
 
@@ -74,9 +75,9 @@ type CommandContext interface {
 
 1. `Session = 0` 时 Reply 返回错误。
 2. 同一个 Session 最多 Reply 一次。
-3. 超时后的 Reply 丢弃并记录指标。
-4. Reply 按 `caller + responder + Session` 路由；caller 必须等于原请求的 Source，responder 必须等于原请求的 Target，任一地址不匹配都不得完成 PendingCall。
-5. Send 场景 Reply 返回 `ErrReplyUnavailable`，重复 Reply 返回 `ErrReplyTwice`，超时后的 Reply 返回 `ErrReplyExpired`。
+3. 超时后的 Reply 由 caller 丢弃并记录指标；本地 responder 可收到 `ErrReplyExpired`，远程 responder 只能得到 Transport 发送结果，不增加 Reply ACK 协议。
+4. Reply 按 `caller + responder + Command + Session` 路由；caller 必须等于原请求的 Source，responder 必须等于原请求的 Target，Command 必须等于原请求的 Command，任一字段不匹配都不得完成 PendingCall。
+5. Send 场景 Reply 返回 `ErrReplyUnavailable`，重复 Reply 返回 `ErrReplyTwice`；本地超时后的 Reply 返回 `ErrReplyExpired`。
 6. Handler 返回 error 且尚未 Reply 时，Runtime 用同一个 Session 结束 PendingCall。
 
 ## 与 Skynet PTYPE_RESPONSE 的关系

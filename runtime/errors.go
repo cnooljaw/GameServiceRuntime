@@ -37,4 +37,16 @@ var (
 	ErrStopTimeout = errors.New("gsr: service stop timed out")
 	// ErrCloseTimeout indicates that Service.Close or Runtime.Close exceeded its deadline.
 	ErrCloseTimeout = errors.New("gsr: close timed out")
+	// ErrInvalidClusterConfig indicates that a Cluster Runtime is missing a node, transport, or codec.
+	ErrInvalidClusterConfig = errors.New("gsr: invalid cluster config")
+	// ErrClusterStart indicates that the ClusterTransport could not start.
+	ErrClusterStart = errors.New("gsr: cluster transport start failed")
+	// ErrRemoteUnavailable indicates that a remote Runtime node cannot accept a message.
+	ErrRemoteUnavailable = errors.New("gsr: remote node unavailable")
+	// ErrInvalidClusterEnvelope indicates that an inbound WireEnvelope failed identity or shape validation.
+	ErrInvalidClusterEnvelope = errors.New("gsr: invalid cluster envelope")
+	// ErrPayloadEncode indicates that ClusterCodec could not encode a payload.
+	ErrPayloadEncode = errors.New("gsr: cluster payload encode failed")
+	// ErrPayloadDecode indicates that ClusterCodec could not decode a payload.
+	ErrPayloadDecode = errors.New("gsr: cluster payload decode failed")
 )

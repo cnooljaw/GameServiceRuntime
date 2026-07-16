@@ -98,6 +98,7 @@ type commandContext struct {
 	source  ServiceRef
 	runtime *Runtime
 	session SessionID
+	command CommandID
 	replied atomic.Bool
 }
 
@@ -109,7 +110,7 @@ func (c *commandContext) Reply(value any) error {
 	if !c.replied.CompareAndSwap(false, true) {
 		return ErrReplyTwice
 	}
-	return c.runtime.reply(c.source, c.session, value, nil)
+	return c.runtime.reply(c.self, c.source, c.command, c.session, value, nil)
 }
 
 type serviceInstance struct {

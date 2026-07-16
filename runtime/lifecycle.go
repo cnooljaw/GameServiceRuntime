@@ -191,9 +191,14 @@ func (r *Runtime) closeRuntime(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeoutCause(ctx, r.shutdownTimeout, ErrCloseTimeout)
 	defer cancel()
 	r.pending.failAll(ErrRuntimeClosed)
+	var result error
+	if r.cluster != nil {
+		if err := r.cluster.transport.Close(closeCtx); err != nil {
+			result = errors.Join(result, err)
+		}
+	}
 	created := make(chan struct{})
 	go func() { r.creating.Wait(); close(created) }()
-	var result error
 	select {
 	case <-created:
 	case <-closeCtx.Done():

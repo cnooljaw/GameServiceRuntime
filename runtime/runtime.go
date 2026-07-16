@@ -40,6 +40,7 @@ type Runtime struct {
 	pending              *pendingCalls
 	timers               *timerManager
 	tasks                *taskTracker
+	cluster              *clusterRuntime
 	metrics              *metricCollector
 	logger               *slog.Logger
 	now                  func() time.Time
@@ -157,7 +158,7 @@ func (r *Runtime) Resolve(name ServiceName) (ServiceRef, error) { return r.regis
 // MetricsSnapshot returns an immutable metrics snapshot.
 func (r *Runtime) MetricsSnapshot() MetricsSnapshot { return r.metrics.snapshot() }
 
-// Send asynchronously delivers a Command to a local Service.
+// Send asynchronously delivers a Command to a Service.
 func (r *Runtime) Send(target ServiceRef, id CommandID, payload any) error {
 	return r.sendFrom(ServiceRef{}, target, id, payload)
 }
@@ -179,7 +180,17 @@ func (r *Runtime) sendEnvelope(envelope Envelope) error {
 		return ErrRuntimeClosed
 	}
 	if envelope.Target.Node != r.node {
-		return ErrServiceNotFound
+		if envelope.Target.Node == "" || r.cluster == nil {
+			return ErrRemoteUnavailable
+		}
+		return r.cluster.send(envelope)
+	}
+	return r.sendLocalEnvelope(envelope)
+}
+
+func (r *Runtime) sendLocalEnvelope(envelope Envelope) error {
+	if r.state.Load() != runtimeRunning {
+		return ErrRuntimeClosed
 	}
 	instance, err := r.registry.get(envelope.Target)
 	if err != nil {
@@ -251,7 +262,7 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 	started := r.now()
 	instance.setPath(envelope.CallPath)
 	defer instance.setPath(nil)
-	ctx := &commandContext{self: instance.ref, source: envelope.Source, runtime: r, session: envelope.Session}
+	ctx := &commandContext{self: instance.ref, source: envelope.Source, runtime: r, session: envelope.Session, command: envelope.Command}
 	defer func() {
 		elapsed := r.now().Sub(started)
 		r.metrics.Inc("commands_handled_total")
@@ -264,7 +275,7 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 			r.metrics.Inc("service_panics_total")
 			r.logger.Error("service handler panic", "service", instance.ref, "command", envelope.Command, "panic", recovered)
 			if envelope.Session != 0 && !ctx.replied.Load() {
-				_ = r.reply(envelope.Source, envelope.Session, nil, ErrServiceFailed)
+				_ = r.reply(instance.ref, envelope.Source, envelope.Command, envelope.Session, nil, ErrServiceFailed)
 			}
 			r.closeAfterFailure(instance)
 		}
@@ -273,7 +284,7 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 		r.metrics.Inc("handler_errors_total")
 		r.logger.Error("service handler error", "service", instance.ref, "command", envelope.Command, "error", err)
 		if envelope.Session != 0 && !ctx.replied.Load() {
-			_ = r.reply(envelope.Source, envelope.Session, nil, err)
+			_ = r.reply(instance.ref, envelope.Source, envelope.Command, envelope.Session, nil, err)
 		}
 	}
 }
