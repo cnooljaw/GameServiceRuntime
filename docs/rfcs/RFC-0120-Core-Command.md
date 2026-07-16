@@ -37,13 +37,17 @@ type Command struct {
 
 每个 Service 声明自己支持的 Command。
 
-```go
-type CommandHandler func(ctx CommandContext, payload any) error
+第一版保留 `Service.Handle` 作为统一处理入口，`CommandRegistry` 负责校验 Service 声明的稳定 CommandID：
 
-type CommandRegistry interface {
-    Register(id CommandID, handler CommandHandler) error
+```go
+type CommandDeclarer interface {
+    Commands() []CommandID
 }
+
+type CommandRegistry struct { /* Runtime private state */ }
 ```
+
+创建 Service 时，Runtime 根据 `Commands()` 构建只读注册表。重复 CommandID 返回 `ErrCommandAlreadyRegistered`，投递未声明 Command 返回 `ErrCommandNotRegistered`，不会进入 Mailbox。
 
 泛型包装：
 
@@ -53,6 +57,8 @@ type Handler[Req any, Resp any] func(
     req Req,
 ) (Resp, error)
 ```
+
+泛型 handler 注册属于后续类型安全增强，不阻塞第一版统一 `Service.Handle`。
 
 ## CommandID 管理
 
@@ -142,3 +148,4 @@ Service
 4. Command 名称要表达业务能力，不表达投递方式。
 5. protobuf 只用于跨节点 payload 编码，不强制内部 handler 使用 protobuf。
 6. 不设计业务可见的 `PTYPE_*` 或 `ProtocolID` 分发层。
+7. 每个 Service 必须声明至少一个 CommandID，注册后不可在运行期修改。

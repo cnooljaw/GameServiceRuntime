@@ -16,11 +16,7 @@ Mailbox 是每个 Service 的消息队列。
 
 ## 第一版实现
 
-```go
-type Mailbox struct {
-    queue chan Envelope
-}
-```
+第一版使用包内有界队列和互斥保护。普通 Envelope 受容量限制；Runtime 内部 Stop 控制消息可以越过普通容量限制，保证满 Mailbox 仍可退出。
 
 第一版优先正确性。
 
@@ -62,6 +58,8 @@ Mailbox full -> ErrMailboxFull
 
 Mailbox 入队后，如果 Service 当前不在 ready 状态，则推入 ReadyQueue。
 
+普通消息入队与 `Running -> Stopping` 状态切换必须共享同一个接受边界。消息要么先于 Stop 控制消息成功入队并按策略处理，要么在状态切换后返回 `ErrServiceClosed`；不允许 Send 返回成功但消息落在 Stop 控制消息之后。
+
 必须避免同一个 Service 重复入 ReadyQueue。
 
 ## 规则
@@ -71,6 +69,8 @@ Mailbox 入队后，如果 Service 当前不在 ready 状态，则推入 ReadyQu
 3. Mailbox 不负责业务重试。
 4. Mailbox 长度必须进入指标。
 5. Mailbox 等待时间必须可观测。
+6. 每个 Service 的 Mailbox 深度指标在 Service 退出时必须删除，不能为临时 Service 永久保留标签。
+7. Mailbox 关闭后必须拒绝入队，避免强制关闭与并发 Send 造成消息泄漏。
 
 ## 反模式
 
@@ -87,4 +87,3 @@ go func() {
 ```go
 runtime.Send(serviceRef, CmdUpdateState, payload)
 ```
-

@@ -36,6 +36,10 @@ type Service interface {
     Stop(ctx context.Context) error
     Close() error
 }
+
+type CommandDeclarer interface {
+    Commands() []CommandID
+}
 ```
 
 后续可选能力：
@@ -58,10 +62,12 @@ type ServiceContext interface {
     Call(ctx context.Context, target ServiceRef, cmd CommandID, payload any) (any, error)
     After(d time.Duration, cmd CommandID, payload any) (TimerID, error)
     Now() time.Time
-    Logger() Logger
+    Logger() *slog.Logger
     Metrics() Metrics
 }
 ```
+
+`ServiceContext.Call` 只能在 `Handle` 或 `Stop` 的串行执行路径中调用。Service 不得从自建 goroutine 使用保存下来的 Context；Runtime 依靠当前 Service 的执行许可实现 Call 等待时的让出与恢复。
 
 禁止在 `ServiceContext` 暴露：
 
@@ -94,7 +100,9 @@ type ServiceInstance struct {
 2. Service 之间只能通过 `ServiceRef` 通信。
 3. Service 不能启动常驻 goroutine 修改自身状态。
 4. 外部系统要影响 Service，只能投递 Command。
-5. Service panic 必须由 Runtime 捕获并交给 Supervisor。
+5. `Init`、`Handle`、`Stop`、`Close` 中的 panic 都必须由 Runtime 捕获；第一版标记 `Failed` 并隔离实例，后续交给 Supervisor 决定恢复策略。
+6. Service 必须通过 `CommandDeclarer` 声明可接收的 CommandID。
+7. Service 不得同步 Call 自己，Runtime 返回 `ErrCallCycle`。
 
 ## 反模式
 
@@ -136,4 +144,3 @@ type BattleService struct {
 Skynet 中的 `skynet_context` 给了我们关键启发：Service 是 Runtime 管理的上下文，而不是普通对象。
 
 Go 版保留这个思想，但用明确接口和类型系统约束边界。
-

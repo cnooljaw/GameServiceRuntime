@@ -93,6 +93,10 @@ NameRegistry
 
 `NameRegistry` 解决长期服务解析。
 
+第一版由 `ServiceSpec.Name` 完成注册，通过 `Runtime.Resolve(name)` 解析。重复名称返回 `ErrServiceNameConflict`；Service 退出时名称必须同步注销。
+
+关闭后的 `ServiceRef` 可以在短期 tombstone 窗口内返回 `ErrServiceClosed`。tombstone 必须同时受 TTL 和数量上限约束，不能随短生命周期 Service 数量永久增长；窗口过期后返回 `ErrServiceNotFound`。
+
 ## Cluster 下的地址
 
 `ServiceID` 只在节点内唯一。
@@ -112,6 +116,8 @@ Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 3. 临时服务不得注册全局名字。
 4. 长期服务注册名字后，调用方仍然通过 `ServiceRef` 通信。
 5. `ServiceRef` 失效时，Call 返回 `ErrServiceNotFound` 或 `ErrServiceClosed`。
+6. ServiceName 在单个 Registry 中唯一，实例退出时自动注销。
+7. 关闭地址记录必须有 TTL 和容量上限。
 
 ## 为什么不用对象指针
 
@@ -120,4 +126,3 @@ Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 对象指针会绕过 Mailbox、Scheduler、Trace、Timeout 和 Cluster。
 
 使用 `ServiceRef` 才能保持本地和远程调用一致。
-

@@ -23,6 +23,7 @@ type Envelope struct {
     Session SessionID
     Command CommandID
     Payload any
+    CallPath []ServiceRef
 }
 ```
 
@@ -74,7 +75,9 @@ type CommandContext interface {
 1. `Session = 0` 时 Reply 返回错误。
 2. 同一个 Session 最多 Reply 一次。
 3. 超时后的 Reply 丢弃并记录指标。
-4. Reply 路由回 Source。
+4. Reply 按 `Source + Session` 路由，Source 不匹配时不得完成 PendingCall。
+5. Send 场景 Reply 返回 `ErrReplyUnavailable`，重复 Reply 返回 `ErrReplyTwice`，超时后的 Reply 返回 `ErrReplyExpired`。
+6. Handler 返回 error 且尚未 Reply 时，Runtime 用同一个 Session 结束 PendingCall。
 
 ## 与 Skynet PTYPE_RESPONSE 的关系
 
@@ -105,6 +108,10 @@ var (
     ErrServiceNotFound error
     ErrServiceClosed   error
     ErrMailboxFull     error
+    ErrReplyUnavailable error
+    ErrReplyExpired     error
+    ErrCallCycle        error
+    ErrCallNotAllowed   error
 )
 ```
 
@@ -122,3 +129,6 @@ var (
 - Reply 两次失败。
 - Send 场景 Reply 失败。
 - Target 不存在。
+- Handler error 返回给 Call 方。
+- Call 链出现同步环时立即失败。
+- 错误 Source 不能完成 PendingCall。

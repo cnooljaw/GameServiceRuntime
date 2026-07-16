@@ -232,6 +232,12 @@ Service = State + Mailbox + Handler
 Scheduler + WorkerPool 负责执行
 ```
 
+### Service handler 内是否允许同步 Call
+
+裁决：允许，但等待 Reply 时必须让出 Scheduler 执行许可；返回前重新获取许可。
+
+Service 在挂起期间仍保持 busy，不消费自己的后续 Command。Runtime 使用 `Envelope.CallPath` 拒绝同步 self-call 和已检测到的调用环。普通阻塞 IO 不享受该机制，仍应拆到专用 Service 或异步边界。
+
 ## 仍需后续细化的问题
 
 1. Command 泛型 API 的最终形态。
