@@ -97,6 +97,24 @@ func TestWireEnvelopeRejectsOversizedFields(t *testing.T) {
 	}
 }
 
+func TestWireEnvelopeRejectsOversizedPayloadBeforeAllocation(t *testing.T) {
+	envelope := gsr.WireEnvelope{
+		Source:  gsr.ServiceRef{Node: "node-a"},
+		Target:  gsr.ServiceRef{Node: "node-b"},
+		Payload: bytes.Repeat([]byte{'x'}, 1<<20),
+	}
+	var encodeErr error
+	allocations := testing.AllocsPerRun(100, func() {
+		_, encodeErr = encodeWireEnvelope(envelope, 32)
+	})
+	if !errors.Is(encodeErr, ErrFrameTooLarge) {
+		t.Fatalf("encode error = %v", encodeErr)
+	}
+	if allocations != 0 {
+		t.Fatalf("oversized frame allocations = %.2f, want 0", allocations)
+	}
+}
+
 func TestReadFrameRejectsLengthBeforeAllocation(t *testing.T) {
 	var input bytes.Buffer
 	if err := binary.Write(&input, binary.BigEndian, uint32(1024)); err != nil {

@@ -37,9 +37,9 @@ type Transport struct {
 	events    gsr.ClusterEvents
 	listener  net.Listener
 	conns     map[gsr.NodeID]*connection
+	dialing   map[gsr.NodeID]*dialAttempt
 	started   bool
 	closed    bool
-	dialMu    sync.Mutex
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 	closeDone chan struct{}
@@ -50,6 +50,12 @@ type connection struct {
 	conn     net.Conn
 	outbound bool
 	writeMu  sync.Mutex
+}
+
+type dialAttempt struct {
+	done chan struct{}
+	conn *connection
+	err  error
 }
 
 // New creates a TCP Transport. Start opens its listener.
@@ -71,7 +77,12 @@ func New(config Config) *Transport {
 		peers[node] = address
 	}
 	config.Peers = peers
-	return &Transport{config: config, conns: make(map[gsr.NodeID]*connection), closeDone: make(chan struct{})}
+	return &Transport{
+		config:    config,
+		conns:     make(map[gsr.NodeID]*connection),
+		dialing:   make(map[gsr.NodeID]*dialAttempt),
+		closeDone: make(chan struct{}),
+	}
 }
 
 // Start opens the listener and begins accepting peer connections.
@@ -201,22 +212,42 @@ func (t *Transport) handleAccepted(netConn net.Conn) {
 }
 
 func (t *Transport) connect(target gsr.NodeID) (*connection, error) {
-	t.dialMu.Lock()
-	defer t.dialMu.Unlock()
-	if current := t.connection(target); current != nil {
+	t.mu.Lock()
+	if current := t.conns[target]; current != nil {
+		t.mu.Unlock()
 		return current, nil
 	}
-	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
 		return nil, ErrTransportClosed
 	}
+	if attempt := t.dialing[target]; attempt != nil {
+		done := attempt.done
+		t.mu.Unlock()
+		<-done
+		return attempt.conn, attempt.err
+	}
 	address := t.config.Peers[target]
 	local := t.local
-	t.mu.Unlock()
 	if address == "" {
+		t.mu.Unlock()
 		return nil, ErrPeerUnknown
 	}
+	attempt := &dialAttempt{done: make(chan struct{})}
+	t.dialing[target] = attempt
+	t.mu.Unlock()
+
+	conn, err := t.dial(target, address, local)
+	t.mu.Lock()
+	attempt.conn = conn
+	attempt.err = err
+	delete(t.dialing, target)
+	close(attempt.done)
+	t.mu.Unlock()
+	return attempt.conn, attempt.err
+}
+
+func (t *Transport) dial(target gsr.NodeID, address string, local gsr.NodeID) (*connection, error) {
 	netConn, err := net.DialTimeout("tcp", address, t.config.DialTimeout)
 	if err != nil {
 		return nil, err

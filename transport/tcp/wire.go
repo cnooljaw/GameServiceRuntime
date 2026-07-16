@@ -38,10 +38,16 @@ func encodeWireEnvelope(envelope gsr.WireEnvelope, maxFrameSize uint32) ([]byte,
 	if maxFrameSize == 0 {
 		return nil, ErrFrameTooLarge
 	}
-	if len(envelope.CallPath) > maxCallPathLength || len(envelope.ErrorCode) > maxErrorCodeLength || len(envelope.ErrorMessage) > maxErrorMessageLength {
+	size, err := wireEnvelopeSize(envelope)
+	if err != nil {
+		return nil, err
+	}
+	maxInt := uint64(^uint(0) >> 1)
+	if size > uint64(maxFrameSize) || size > maxInt {
 		return nil, ErrFrameTooLarge
 	}
 	var output bytes.Buffer
+	output.Grow(int(size))
 	output.WriteByte(wireVersion)
 	var flags byte
 	if envelope.Response {
@@ -68,15 +74,45 @@ func encodeWireEnvelope(envelope gsr.WireEnvelope, maxFrameSize uint32) ([]byte,
 	if err := writeString16(&output, envelope.ErrorMessage, maxErrorMessageLength); err != nil {
 		return nil, err
 	}
-	if uint64(len(envelope.Payload)) > uint64(^uint32(0)) {
-		return nil, ErrFrameTooLarge
-	}
 	writeUint32(&output, uint32(len(envelope.Payload)))
 	output.Write(envelope.Payload)
-	if uint64(output.Len()) > uint64(maxFrameSize) {
-		return nil, ErrFrameTooLarge
-	}
 	return output.Bytes(), nil
+}
+
+func wireEnvelopeSize(envelope gsr.WireEnvelope) (uint64, error) {
+	if len(envelope.CallPath) > maxCallPathLength || len(envelope.ErrorCode) > maxErrorCodeLength || len(envelope.ErrorMessage) > maxErrorMessageLength {
+		return 0, ErrFrameTooLarge
+	}
+	if uint64(len(envelope.Payload)) > uint64(^uint32(0)) {
+		return 0, ErrFrameTooLarge
+	}
+	sourceSize, err := serviceRefWireSize(envelope.Source)
+	if err != nil {
+		return 0, err
+	}
+	targetSize, err := serviceRefWireSize(envelope.Target)
+	if err != nil {
+		return 0, err
+	}
+	size := uint64(2) + sourceSize + targetSize + 8 + 4 + 2
+	for _, ref := range envelope.CallPath {
+		refSize, err := serviceRefWireSize(ref)
+		if err != nil {
+			return 0, err
+		}
+		size += refSize
+	}
+	size += 2 + uint64(len(envelope.ErrorCode))
+	size += 2 + uint64(len(envelope.ErrorMessage))
+	size += 4 + uint64(len(envelope.Payload))
+	return size, nil
+}
+
+func serviceRefWireSize(ref gsr.ServiceRef) (uint64, error) {
+	if len(ref.Node) > maxNodeIDLength || len(ref.Node) > int(^uint16(0)) {
+		return 0, ErrFrameTooLarge
+	}
+	return 2 + uint64(len(ref.Node)) + 8, nil
 }
 
 func decodeWireEnvelope(data []byte) (gsr.WireEnvelope, error) {

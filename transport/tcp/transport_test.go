@@ -145,6 +145,83 @@ func TestTransportKeepsDeterministicConnectionWhenBothNodesDial(t *testing.T) {
 	})
 }
 
+func TestTransportDialToOneNodeDoesNotBlockAnotherNode(t *testing.T) {
+	slowListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = slowListener.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, acceptErr := slowListener.Accept()
+		if acceptErr == nil {
+			accepted <- conn
+		}
+	}()
+
+	received := make(chan receivedEnvelope, 1)
+	healthy := New(Config{ListenAddress: "127.0.0.1:0"})
+	startTransport(t, healthy, "node-b", gsr.ClusterEvents{
+		Receive: func(peer gsr.NodeID, envelope gsr.WireEnvelope) {
+			received <- receivedEnvelope{peer: peer, envelope: envelope}
+		},
+		Unavailable: func(gsr.NodeID) {},
+	})
+
+	transport := New(Config{
+		ListenAddress:    "127.0.0.1:0",
+		HandshakeTimeout: 2 * time.Second,
+		Peers: map[gsr.NodeID]string{
+			"node-slow": slowListener.Addr().String(),
+			"node-b":    healthy.Address(),
+		},
+	})
+	startTransport(t, transport, "node-a", discardClusterEvents())
+
+	slowResult := make(chan error, 1)
+	go func() {
+		slowResult <- transport.Send("node-slow", gsr.WireEnvelope{
+			Source:  gsr.ServiceRef{Node: "node-a"},
+			Target:  gsr.ServiceRef{Node: "node-slow", ID: 1},
+			Command: 1,
+		})
+	}()
+
+	var slowConn net.Conn
+	select {
+	case slowConn = <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("slow peer was not dialed")
+	}
+	defer slowConn.Close()
+
+	healthyEnvelope := gsr.WireEnvelope{
+		Source:  gsr.ServiceRef{Node: "node-a"},
+		Target:  gsr.ServiceRef{Node: "node-b", ID: 1},
+		Command: 1,
+	}
+	healthyResult := make(chan error, 1)
+	go func() { healthyResult <- transport.Send("node-b", healthyEnvelope) }()
+
+	select {
+	case err := <-healthyResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertReceived(t, received, "node-a", healthyEnvelope)
+	case <-time.After(300 * time.Millisecond):
+		_ = slowConn.Close()
+		<-slowResult
+		<-healthyResult
+		t.Fatal("dial to healthy node was blocked by another node's handshake")
+	}
+
+	_ = slowConn.Close()
+	if err := <-slowResult; err == nil {
+		t.Fatal("slow handshake unexpectedly succeeded")
+	}
+}
+
 func TestTransportRejectsEnvelopeIdentityMismatch(t *testing.T) {
 	transport := New(Config{ListenAddress: "127.0.0.1:0"})
 	startTransport(t, transport, "node-a", discardClusterEvents())
