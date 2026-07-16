@@ -20,3 +20,12 @@ It is a game-oriented Service Runtime built around:
 - Game Layer
 
 The `docs/rfcs` directory is the source of truth. Code should be implemented from RFCs, not from ad-hoc prompts.
+
+## 本地 Runtime 示例
+
+```bash
+go test ./...
+go run ./examples/local-runtime
+```
+
+预期输出：`hello`。
