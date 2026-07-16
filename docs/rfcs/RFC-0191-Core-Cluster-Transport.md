@@ -1,6 +1,6 @@
 # RFC-0191：Cluster Transport
 
-> 状态：草案  
+> 状态：已接受
 > 范围：Cluster  
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`、Skynet `cluster.lua`、`clustersender.lua`、`clusteragent.lua`
 

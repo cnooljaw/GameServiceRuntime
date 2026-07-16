@@ -1,6 +1,6 @@
 # RFC-0130：Send、Call 与 Reply
 
-> 状态：草案  
+> 状态：已接受
 > 范围：Core Runtime  
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 

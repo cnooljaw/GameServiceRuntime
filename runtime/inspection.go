@@ -23,7 +23,7 @@ type RuntimeTaskKind string
 const (
 	// RuntimeTaskInit runs Service.Init.
 	RuntimeTaskInit RuntimeTaskKind = "init"
-	// RuntimeTaskDispatch runs Service.Handle.
+	// RuntimeTaskDispatch runs one scheduled Service mailbox batch.
 	RuntimeTaskDispatch RuntimeTaskKind = "dispatch"
 	// RuntimeTaskStop runs Service.Stop.
 	RuntimeTaskStop RuntimeTaskKind = "stop"

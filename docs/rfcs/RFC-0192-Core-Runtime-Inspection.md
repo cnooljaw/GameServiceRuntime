@@ -1,6 +1,6 @@
 # RFC-0192：Runtime Inspection
 
-> 状态：草案
+> 状态：已接受
 > 范围：Core Runtime
 > 依据：`RFC-0180` 的任务追踪与 `RFC-0230` 的只读观测需求
 
@@ -86,6 +86,8 @@ Registry、Mailbox、PendingCall、Timer、Task 和 Metrics 分别在自己的�
 
 `CapturedAt` 表示本次采集生成结果时使用的 Runtime 时间源，不代表所有字段在该时刻原子成立。
 
+Task ID 只在当前 Runtime 内用于诊断，是不透明标识，不是取消、等待或远程控制句柄。
+
 ## 边界
 
 Core Inspection 不提供：
@@ -119,4 +121,3 @@ Core Inspection 不提供：
 - 关闭超时任务的 TimedOut 标记和真实返回后的回收。
 - 返回切片与 Metrics 的副本语义。
 - 并发创建、投递、计时、停止、关闭和 Inspection 的 Race 检查。
-

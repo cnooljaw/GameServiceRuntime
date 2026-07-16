@@ -1,6 +1,6 @@
 # RFC-0170：Timer 设计
 
-> 状态：草案  
+> 状态：已接受
 > 范围：Core Runtime  
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`
 

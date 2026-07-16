@@ -1,6 +1,6 @@
 # RFC-0180：Service 生命周期
 
-> 状态：草案  
+> 状态：已接受
 > 范围：Core Runtime  
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`、`hanxi/skynet-demo` 的服务退出管理
 
