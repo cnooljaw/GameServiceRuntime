@@ -72,6 +72,8 @@ Status = Closed or Failed
 
 Stop 是 Mailbox 中的 Runtime 控制消息。Runtime 在同一个消息接受临界区内把状态改为 `Stopping`，并把 Stop 控制消息排在此前已接受的 Command 之后。这样既不会出现“Send 返回成功但消息排在 Stop 后面”，也保证 `Service.Stop`、`Service.Close` 不与 `Handle` 并发。
 
+同一实例只执行一次 Stop 流程。实例仍处于 `Stopping` 或失败清理中时，后续 `Runtime.Stop` 使用调用方 context 等待已有结果，不创建第二个 Stop 控制消息。实例已经移出 Registry 后，后续调用稳定返回 `ErrServiceClosed`。
+
 ## 退出阶段
 
 退出分两阶段：
@@ -84,6 +86,8 @@ Close():  资源释放阶段
 `Stop(ctx)` 用于保存状态、取消订阅和停止接收外部流量等可失败操作。单独调用 `Runtime.Stop` 且 Runtime 仍为 Running 时，`Stop(ctx)` 可以通过 Send 或 Call 通知仍在运行的依赖方。
 
 `Runtime.Close` 是终止阶段：Runtime 先进入 Closing，再调用各 Service 的 Stop，因此新的 CreateService、Send、Call 和 After 都被拒绝。需要跨 Service 协作的平滑下线必须先由 Runtime Tooling 的 Drain 完成，再进入 `Runtime.Close`。
+
+同一个 Runtime 只执行一次关闭流程。首个 `Runtime.Close` 调用者触发 `Running -> Closing` 并决定最终关闭结果；并发调用者等待该结果，不启动第二次清理。等待者自己的 context 可以提前结束等待并返回其 cause，但不会取消已经开始的关闭流程。Runtime 到达 `Closed` 后，后续调用直接返回已保存的关闭结果，包括首次关闭产生的超时或 Service 清理错误。
 
 `Close()` 用于释放本地资源。`Close()` 不应再发起新的业务 `Call`。
 
@@ -218,3 +222,5 @@ panic -> protect state -> fail fast -> manual or policy recovery
 13. Service 不得直接创建 goroutine；Runtime 创建的 Service 执行任务必须追踪到真正返回。
 14. Runtime.Close 期间的 Stop 不得发起新的 Send、Call 或 After；跨 Service 善后由进入 Closing 前的 Drain 完成。
 15. 生命周期整体期限必须由 `LifecycleTimeout` 或调用方 context 明确给出，不能使用隐藏宽限值。
+16. Runtime.Close 只能执行一次；并发和重复调用必须复用并返回已保存的关闭结果。
+17. Runtime.Stop 遇到仍在清理的同一实例时必须等待现有结果，不能并发执行第二次 Stop 或 Close。

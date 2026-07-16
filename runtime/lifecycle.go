@@ -20,7 +20,12 @@ func (r *Runtime) Stop(ctx context.Context, ref ServiceRef) error {
 	}
 	instance.acceptMu.Lock()
 	if !instance.status.CompareAndSwap(int32(ServiceRunning), int32(ServiceStopping)) {
+		status := ServiceStatus(instance.status.Load())
+		finalized := instance.finalized.Load()
 		instance.acceptMu.Unlock()
+		if status == ServiceStopping || status == ServiceFailed || finalized {
+			return instance.wait(ctx)
+		}
 		return ErrServiceClosed
 	}
 	if instance.policy.Mailbox == DiscardMailbox {
@@ -150,12 +155,39 @@ func (r *Runtime) Close(ctx context.Context) error {
 	r.createMu.Lock()
 	if !r.state.CompareAndSwap(runtimeRunning, runtimeClosing) {
 		r.createMu.Unlock()
-		if r.state.Load() == runtimeClosed {
-			return nil
-		}
-		return ErrRuntimeClosed
+		return r.waitClose(ctx)
 	}
 	r.createMu.Unlock()
+	result := r.closeRuntime(ctx)
+	r.closeMu.Lock()
+	r.closeResult = result
+	r.state.Store(runtimeClosed)
+	close(r.closeDone)
+	r.closeMu.Unlock()
+	return result
+}
+
+func (r *Runtime) waitClose(ctx context.Context) error {
+	select {
+	case <-r.closeDone:
+		return r.savedCloseResult()
+	default:
+	}
+	select {
+	case <-r.closeDone:
+		return r.savedCloseResult()
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
+func (r *Runtime) savedCloseResult() error {
+	r.closeMu.RLock()
+	defer r.closeMu.RUnlock()
+	return r.closeResult
+}
+
+func (r *Runtime) closeRuntime(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeoutCause(ctx, r.shutdownTimeout, ErrCloseTimeout)
 	defer cancel()
 	r.pending.failAll(ErrRuntimeClosed)
@@ -218,7 +250,6 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 	r.reportActiveTasks()
 	r.registry.clear()
-	r.state.Store(runtimeClosed)
 	return result
 }
 

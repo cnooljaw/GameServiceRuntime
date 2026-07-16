@@ -47,6 +47,9 @@ type Runtime struct {
 	state                atomic.Int32
 	createMu             sync.Mutex
 	creating             sync.WaitGroup
+	closeMu              sync.RWMutex
+	closeDone            chan struct{}
+	closeResult          error
 }
 
 // NewRuntime creates and starts a local Runtime.
@@ -82,7 +85,7 @@ func NewRuntime(config Config) *Runtime {
 		config.Now = time.Now
 	}
 	metrics := newMetricCollector()
-	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, slowCommandThreshold: config.SlowCommandThreshold, shutdownTimeout: config.ShutdownTimeout, pending: newPendingCalls(), timers: newTimerManager(), metrics: metrics, logger: config.Logger, now: config.Now}
+	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, slowCommandThreshold: config.SlowCommandThreshold, shutdownTimeout: config.ShutdownTimeout, pending: newPendingCalls(), timers: newTimerManager(), metrics: metrics, logger: config.Logger, now: config.Now, closeDone: make(chan struct{})}
 	runtime.registry = newLocalRegistry(config.TombstoneTTL, config.TombstoneLimit, config.Now)
 	runtime.tasks = newTaskTracker(metrics, config.Now)
 	runtime.state.Store(runtimeRunning)
