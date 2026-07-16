@@ -9,6 +9,10 @@
 3. 如果实现和 RFC 冲突，要么修改实现，要么先更新 RFC。
 4. 所有正式文档使用中文正文，API、类型名、文件名保留英文。
 
+## 项目状态
+
+- [Core Foundation 待办列表](TODO.md)
+
 ## 基础约定
 
 - [RFC-0000：术语表](rfcs/RFC-0000-Foundation-Glossary.md)

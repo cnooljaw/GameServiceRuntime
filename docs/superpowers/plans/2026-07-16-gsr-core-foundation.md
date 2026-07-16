@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 状态：已完成（2026-07-16）
+>
+> 结果：`RFC-0100` 至 `RFC-0180` 已实现并通过本地测试、vet 和 race 检查。工程收口项见 [`docs/TODO.md`](../../TODO.md)。
+
 **Goal:** 实现可测试、可执行的单节点 Go Service Runtime，并建立 GSR 的工程约束和项目 Skill。
 
 **Architecture:** 先冻结工程规则，再实现一条完整本地消息链路：`CreateService -> Send -> Mailbox -> Scheduler -> Handle`。`Call/Reply`、Timer 和生命周期只在这条链路稳定后接入。公开 API 位于 `runtime` 目录、Go package 名为 `gsr`；Registry、Mailbox、ReadyQueue、Pending Call 必须保持私有。
@@ -31,7 +35,7 @@ examples/local-runtime/main.go
 
 **Files:** Create `AGENTS.md`; create `skills/gsr-runtime/SKILL.md`; delete `skills/gsr-runtime-skill.md`.
 
-- [ ] **Step 1: 写 `AGENTS.md`**
+- [x] **Step 1: 写 `AGENTS.md`**
 
 它必须包含下列可执行规则：
 
@@ -48,7 +52,7 @@ RFC/README 使用 technical-writing；模块边界使用 deep-module-design；�
 每个通过测试的垂直切片单独中文提交；不提交 .DS_Store、构建产物和密钥。
 ```
 
-- [ ] **Step 2: 写 `skills/gsr-runtime/SKILL.md`**
+- [x] **Step 2: 写 `skills/gsr-runtime/SKILL.md`**
 
 ```md
 ---
@@ -66,7 +70,7 @@ description: 当实现、评审或修改 GSR Go Service Runtime、Service、Comm
 6. 新增导出 API 时，同时更新对应 RFC 或说明 RFC 无需变化的原因。
 ```
 
-- [ ] **Step 3: 验证并提交**
+- [x] **Step 3: 验证并提交**
 
 Run: `test -f AGENTS.md && test -f skills/gsr-runtime/SKILL.md && test ! -f skills/gsr-runtime-skill.md && rg -n "ServiceRef|Mailbox|Timer|technical-writing" AGENTS.md skills/gsr-runtime/SKILL.md`
 
@@ -76,7 +80,7 @@ Expected: 退出码 `0`。随后执行 `git add AGENTS.md skills && git commit -
 
 **Files:** Create `go.mod`, `runtime/types.go`, `runtime/errors.go`, `runtime/types_test.go`.
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```go
 func TestServiceRefIsComparable(t *testing.T) {
@@ -94,13 +98,13 @@ func TestCommandPreservesPayload(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `go test ./runtime -run 'TestServiceRef|TestCommand' -count=1`
 
 Expected: FAIL，原因是模块或类型尚不存在。
 
-- [ ] **Step 3: 实现最小公共类型**
+- [x] **Step 3: 实现最小公共类型**
 
 ```go
 package gsr
@@ -119,7 +123,7 @@ type Envelope struct { Source, Target ServiceRef; Session SessionID; Command Com
 
 `errors.go` 只定义 `ErrTimeout`、`ErrReplyTwice`、`ErrServiceNotFound`、`ErrServiceClosed`、`ErrMailboxFull`、`ErrInvalidServiceSpec`。`go.mod` 为 `module github.com/lijiawang/GameServiceRuntime` 和 `go 1.23.3`。
 
-- [ ] **Step 4: 验证并提交**
+- [x] **Step 4: 验证并提交**
 
 Run: `gofmt -w runtime && go test ./runtime -run 'TestServiceRef|TestCommand' -count=1 && go vet ./runtime`
 
@@ -129,7 +133,7 @@ Expected: PASS 且没有 vet 输出。提交：`git add go.mod runtime && git co
 
 **Files:** Create `runtime/service.go`, `runtime/registry.go`, `runtime/mailbox.go`, `runtime/scheduler.go`, `runtime/runtime.go`, `runtime/runtime_test.go`.
 
-- [ ] **Step 1: 写 Send 行为测试**
+- [x] **Step 1: 写 Send 行为测试**
 
 ```go
 func TestSendDeliversCommandThroughRuntime(t *testing.T) {
@@ -151,13 +155,13 @@ func TestSendToUnknownServiceFails(t *testing.T) {
 
 `recordingService` 的 mutex 只能用于测试读取，不能成为生产状态模型。
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 Run: `go test ./runtime -run 'TestCreateService|TestSend' -count=1`
 
 Expected: FAIL，`Runtime`、`ServiceSpec` 或 `CreateService` 未定义。
 
-- [ ] **Step 3: 实现 Runtime 管道**
+- [x] **Step 3: 实现 Runtime 管道**
 
 ```go
 type Service interface {
@@ -176,7 +180,7 @@ func (r *Runtime) Send(target ServiceRef, id CommandID, payload any) error {
 
 `CreateService` 创建 Mailbox 和上下文、注册实例、调用 `Init`、最后设置 `ServiceRunning`。`route` 只能查 Registry、写 Mailbox、通知 Scheduler，不能直接调用 `Handle`。Scheduler 使用固定 worker 和每实例原子 ready 标记；每批最多 `Config.MaxBatch` 条，保证同一个 Service handler 最大并发为 `1`。
 
-- [ ] **Step 4: 验证与提交**
+- [x] **Step 4: 验证与提交**
 
 Run: `gofmt -w runtime && go test ./runtime -run 'TestCreateService|TestSend|TestServiceHandlerIsSerial' -count=20 && go test -race ./runtime -run 'TestCreateService|TestSend|TestServiceHandlerIsSerial' -count=1`
 
@@ -186,7 +190,7 @@ Expected: PASS；未知 Ref 返回 `ErrServiceNotFound`；同一 Service 最大�
 
 **Files:** Create `runtime/call.go`, `runtime/call_test.go`; modify `runtime/service.go`, `runtime/runtime.go`.
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```go
 func TestCallReturnsReply(t *testing.T) {
@@ -208,7 +212,7 @@ func TestCallTimesOut(t *testing.T) {
 
 另写重复 `ctx.Reply` 和 Send 场景 Reply 测试，分别断言 `ErrReplyTwice`。
 
-- [ ] **Step 2: 实现 Pending Call**
+- [x] **Step 2: 实现 Pending Call**
 
 ```go
 func (r *Runtime) Call(ctx context.Context, target ServiceRef, id CommandID, payload any) (any, error) {
@@ -223,7 +227,7 @@ func (r *Runtime) Call(ctx context.Context, target ServiceRef, id CommandID, pay
 
 `Reply` 仅在 `Session != 0` 时有效且只能完成一次；调用 context 截止时返回 `ErrTimeout` 并删除 session；迟到 Reply 丢弃且不阻塞 worker。
 
-- [ ] **Step 3: 验证与提交**
+- [x] **Step 3: 验证与提交**
 
 Run: `go test ./runtime -run 'TestCall|TestReply' -count=20 && go test -race ./runtime -run 'TestCall|TestReply' -count=1`
 
@@ -233,7 +237,7 @@ Expected: 成功 Call 得到结果，超时为 `ErrTimeout`，重复 Reply 和 S
 
 **Files:** Create `runtime/timer.go`, `runtime/timer_test.go`; modify `runtime/runtime.go`, `runtime/service.go`.
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```go
 func TestAfterDeliversCommand(t *testing.T) {
@@ -255,11 +259,11 @@ func TestCancelTimerPreventsDelivery(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 实现首版 TimerManager**
+- [x] **Step 2: 实现首版 TimerManager**
 
 `After` 分配 `TimerID` 并用标准库 timer 到期调用 `Send(target, id, payload)`；timer 回调绝不访问业务 Service。`Cancel` 对已触发或已取消 timer 幂等返回 `nil`；目标关闭时取消其未触发 timer。
 
-- [ ] **Step 3: 验证与提交**
+- [x] **Step 3: 验证与提交**
 
 Run: `go test ./runtime -run 'TestAfter|TestCancelTimer' -count=20 && go test -race ./runtime -run 'TestAfter|TestCancelTimer' -count=1`
 
@@ -269,7 +273,7 @@ Expected: Timer 只投递一个 Command，取消后零投递，无 race。提交
 
 **Files:** Create `runtime/lifecycle.go`, `runtime/lifecycle_test.go`, `examples/local-runtime/main.go`; modify `runtime/runtime.go`, `runtime/registry.go`, `README.md`.
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```go
 func TestStopRemovesServiceAndRejectsNewSend(t *testing.T) {
@@ -282,15 +286,15 @@ func TestStopRemovesServiceAndRejectsNewSend(t *testing.T) {
 
 另写未回复 Call 在 `Stop` 后返回 `ErrServiceClosed` 的测试。
 
-- [ ] **Step 2: 实现退出流程**
+- [x] **Step 2: 实现退出流程**
 
 `Stop` 依次标记 `ServiceStopping`、拒绝新消息、用 `ServicePolicy.StopTimeout` 调用 `Service.Stop`、调用 `Close`、取消目标 Timer、以 `ErrServiceClosed` 唤醒目标 PendingCall、删除 Registry、标记 `ServiceClosed`。实现 RFC-0180 的完整 `ServiceStatus` 常量，不允许服务永远停在 `ServiceStopping`。
 
-- [ ] **Step 3: 写示例和 README**
+- [x] **Step 3: 写示例和 README**
 
 `examples/local-runtime/main.go` 创建一个 `echoService`，对 `cmdEcho` 调用 `ctx.Reply("hello")`，随后 `rt.Call` 并打印 `hello`。README 添加命令：`go test ./...`、`go run ./examples/local-runtime`，预期输出 `hello`。
 
-- [ ] **Step 4: 最终验收和提交**
+- [x] **Step 4: 最终验收和提交**
 
 Run: `gofmt -w runtime examples && go test ./... && go vet ./... && go test -race ./... && go run ./examples/local-runtime && git status --short`
 

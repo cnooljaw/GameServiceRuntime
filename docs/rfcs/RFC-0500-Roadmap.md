@@ -31,6 +31,14 @@ Layer 3: Business Layer
 - Runtime Tooling 全量能力。
 - 业务层完整框架。
 
+## 当前执行状态
+
+截至 2026-07-16，独立实施计划中的首个 **Core Foundation** 里程碑已经完成 `RFC-0100` 至 `RFC-0180` 的功能实现。它覆盖本路线图的 Phase 1 至 Phase 4，以及 Phase 6 中的错误模型、生命周期可观测和最小端到端示例；核心性能基准仍待补齐。
+
+历史讨论中的“第一阶段”默认指上述 Core Foundation 里程碑，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 尚未开始，不属于第一阶段欠账。
+
+已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
+
 ## Phase 0：文档和术语冻结
 
 输出：
