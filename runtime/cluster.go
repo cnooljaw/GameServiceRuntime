@@ -51,6 +51,47 @@ func (e *RemoteError) Error() string {
 	return "gsr: remote error: " + e.Message
 }
 
+const maxRemoteErrorMessageLength = 4096
+
+type remoteErrorDefinition struct {
+	code string
+	err  error
+}
+
+var stableRemoteErrors = []remoteErrorDefinition{
+	{"timeout", ErrTimeout},
+	{"reply_twice", ErrReplyTwice},
+	{"service_not_found", ErrServiceNotFound},
+	{"service_closed", ErrServiceClosed},
+	{"mailbox_full", ErrMailboxFull},
+	{"invalid_service_spec", ErrInvalidServiceSpec},
+	{"runtime_closed", ErrRuntimeClosed},
+	{"reply_unavailable", ErrReplyUnavailable},
+	{"reply_expired", ErrReplyExpired},
+	{"command_not_registered", ErrCommandNotRegistered},
+	{"command_already_registered", ErrCommandAlreadyRegistered},
+	{"service_name_conflict", ErrServiceNameConflict},
+	{"call_cycle", ErrCallCycle},
+	{"call_not_allowed", ErrCallNotAllowed},
+	{"service_failed", ErrServiceFailed},
+	{"stop_timeout", ErrStopTimeout},
+	{"close_timeout", ErrCloseTimeout},
+	{"invalid_cluster_config", ErrInvalidClusterConfig},
+	{"cluster_start", ErrClusterStart},
+	{"remote_unavailable", ErrRemoteUnavailable},
+	{"invalid_envelope", ErrInvalidClusterEnvelope},
+	{"payload_encode", ErrPayloadEncode},
+	{"payload_decode", ErrPayloadDecode},
+}
+
+var stableRemoteErrorsByCode = func() map[string]error {
+	result := make(map[string]error, len(stableRemoteErrors))
+	for _, definition := range stableRemoteErrors {
+		result[definition.code] = definition.err
+	}
+	return result
+}()
+
 type clusterRuntime struct {
 	runtime   *Runtime
 	transport ClusterTransport
@@ -72,10 +113,11 @@ func NewClusterRuntime(config Config, transport ClusterTransport, codec ClusterC
 	if err := transport.Start(runtime.node, events); err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), runtime.shutdownTimeout)
 		defer cancel()
-		_ = transport.Close(ctx)
+		transportCloseErr := transport.Close(ctx)
 		runtime.cluster = nil
-		_ = runtime.Close(ctx)
-		return nil, fmt.Errorf("%w: %v", ErrClusterStart, err)
+		runtimeCloseErr := runtime.Close(ctx)
+		startErr := fmt.Errorf("%w: %v", ErrClusterStart, err)
+		return nil, errors.Join(startErr, transportCloseErr, runtimeCloseErr)
 	}
 	return runtime, nil
 }
@@ -114,14 +156,18 @@ func (c *clusterRuntime) reply(responder, caller ServiceRef, command CommandID, 
 		Command:  command,
 		Response: true,
 	}
-	if replyErr != nil {
-		wire.ErrorCode, wire.ErrorMessage = encodeRemoteError(replyErr)
+	resultErr := replyErr
+	if resultErr != nil {
+		wire.ErrorCode, wire.ErrorMessage = encodeRemoteError(resultErr)
 	} else {
 		payload, err := c.codec.Encode(command, true, value)
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+			resultErr = fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+			wire.ErrorCode, wire.ErrorMessage = encodeRemoteError(resultErr)
+			c.runtime.metrics.Inc("cluster_encode_errors_total")
+		} else {
+			wire.Payload = payload
 		}
-		wire.Payload = payload
 	}
 	if err := c.transport.Send(caller.Node, wire); err != nil {
 		c.runtime.metrics.Inc("cluster_reply_errors_total")
@@ -129,7 +175,7 @@ func (c *clusterRuntime) reply(responder, caller ServiceRef, command CommandID, 
 		return ErrRemoteUnavailable
 	}
 	c.runtime.metrics.Inc("cluster_messages_sent_total")
-	return nil
+	return resultErr
 }
 
 func (c *clusterRuntime) receive(peer NodeID, wire WireEnvelope) {
@@ -236,44 +282,20 @@ func (c *clusterRuntime) unavailable(peer NodeID) {
 }
 
 func encodeRemoteError(err error) (string, string) {
-	for _, candidate := range []struct {
-		code string
-		err  error
-	}{
-		{"timeout", ErrTimeout},
-		{"service_not_found", ErrServiceNotFound},
-		{"service_closed", ErrServiceClosed},
-		{"mailbox_full", ErrMailboxFull},
-		{"runtime_closed", ErrRuntimeClosed},
-		{"command_not_registered", ErrCommandNotRegistered},
-		{"call_cycle", ErrCallCycle},
-		{"service_failed", ErrServiceFailed},
-		{"payload_encode", ErrPayloadEncode},
-		{"payload_decode", ErrPayloadDecode},
-		{"invalid_envelope", ErrInvalidClusterEnvelope},
-	} {
+	for _, candidate := range stableRemoteErrors {
 		if errors.Is(err, candidate.err) {
-			return candidate.code, err.Error()
+			return candidate.code, ""
 		}
 	}
-	return "remote", err.Error()
+	message := err.Error()
+	if len(message) > maxRemoteErrorMessageLength {
+		message = message[:maxRemoteErrorMessageLength]
+	}
+	return "remote", message
 }
 
 func decodeRemoteError(code, message string) error {
-	known := map[string]error{
-		"timeout":                ErrTimeout,
-		"service_not_found":      ErrServiceNotFound,
-		"service_closed":         ErrServiceClosed,
-		"mailbox_full":           ErrMailboxFull,
-		"runtime_closed":         ErrRuntimeClosed,
-		"command_not_registered": ErrCommandNotRegistered,
-		"call_cycle":             ErrCallCycle,
-		"service_failed":         ErrServiceFailed,
-		"payload_encode":         ErrPayloadEncode,
-		"payload_decode":         ErrPayloadDecode,
-		"invalid_envelope":       ErrInvalidClusterEnvelope,
-	}
-	if err := known[code]; err != nil {
+	if err := stableRemoteErrorsByCode[code]; err != nil {
 		return err
 	}
 	return &RemoteError{Code: code, Message: message}

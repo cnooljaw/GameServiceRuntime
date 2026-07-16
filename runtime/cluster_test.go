@@ -50,7 +50,8 @@ func TestLocalRuntimeRejectsRemoteTarget(t *testing.T) {
 }
 
 func TestClusterRuntimeStartFailureClosesTransport(t *testing.T) {
-	transport := &failingStartTransport{}
+	cleanupErr := errors.New("transport cleanup failed")
+	transport := &failingStartTransport{closeErr: cleanupErr}
 	runtime, err := gsr.NewClusterRuntime(gsr.Config{NodeID: "node-a"}, transport, testClusterCodec{})
 	if runtime != nil {
 		t.Fatal("NewClusterRuntime returned a partial Runtime")
@@ -60,6 +61,9 @@ func TestClusterRuntimeStartFailureClosesTransport(t *testing.T) {
 	}
 	if !transport.closed {
 		t.Fatal("failed ClusterTransport was not closed")
+	}
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("NewClusterRuntime error = %v, want cleanup error", err)
 	}
 }
 
@@ -123,6 +127,37 @@ func TestRemoteHandlerErrorReturnsRemoteError(t *testing.T) {
 	}
 	if remoteErr.Message != "cluster handler failed" {
 		t.Fatalf("RemoteError message = %q", remoteErr.Message)
+	}
+}
+
+func TestRemoteReplyEncodeFailureReturnsPayloadErrorToBothNodes(t *testing.T) {
+	network := newMemoryCluster()
+	nodeA := newTestClusterRuntime(t, "node-a", network)
+	nodeB := newTestClusterRuntimeWithCodec(t, "node-b", network, replyEncodeFailCodec{testClusterCodec{}})
+	service := &clusterReplyErrorService{replyErr: make(chan error, 1)}
+	target := createClusterService(t, nodeB, service)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := nodeA.Call(ctx, target, 1, nil)
+	if !errors.Is(err, gsr.ErrPayloadEncode) {
+		t.Fatalf("caller error = %v, want ErrPayloadEncode", err)
+	}
+	if err := <-service.replyErr; !errors.Is(err, gsr.ErrPayloadEncode) {
+		t.Fatalf("responder Reply error = %v, want ErrPayloadEncode", err)
+	}
+}
+
+func TestRemoteRuntimeErrorSurvivesIntermediateNode(t *testing.T) {
+	network := newMemoryCluster()
+	nodeA := newTestClusterRuntime(t, "node-a", network)
+	nodeB := newTestClusterRuntime(t, "node-b", network)
+	service := &clusterCallingService{target: gsr.ServiceRef{Node: "node-c", ID: 1}}
+	target := createClusterService(t, nodeB, service)
+
+	_, err := nodeA.Call(context.Background(), target, 1, nil)
+	if !errors.Is(err, gsr.ErrRemoteUnavailable) {
+		t.Fatalf("caller error = %T %v, want ErrRemoteUnavailable", err, err)
 	}
 }
 
@@ -221,8 +256,12 @@ func TestRemoteCallPathRejectsCrossNodeCycle(t *testing.T) {
 }
 
 func newTestClusterRuntime(t *testing.T, node gsr.NodeID, network *memoryCluster) *gsr.Runtime {
+	return newTestClusterRuntimeWithCodec(t, node, network, testClusterCodec{})
+}
+
+func newTestClusterRuntimeWithCodec(t *testing.T, node gsr.NodeID, network *memoryCluster, codec gsr.ClusterCodec) *gsr.Runtime {
 	t.Helper()
-	runtime, err := gsr.NewClusterRuntime(gsr.Config{NodeID: node, Workers: 2}, network.transport(), testClusterCodec{})
+	runtime, err := gsr.NewClusterRuntime(gsr.Config{NodeID: node, Workers: 2}, network.transport(), codec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,6 +302,15 @@ func (testClusterCodec) Decode(_ gsr.CommandID, _ bool, payload []byte) (any, er
 }
 
 func encodeTestPayload(value string) []byte { return append([]byte{1}, value...) }
+
+type replyEncodeFailCodec struct{ testClusterCodec }
+
+func (replyEncodeFailCodec) Encode(_ gsr.CommandID, response bool, value any) ([]byte, error) {
+	if response {
+		return nil, errors.New("reply encode failed")
+	}
+	return testClusterCodec{}.Encode(0, false, value)
+}
 
 type memoryCluster struct {
 	mu         sync.Mutex
@@ -315,7 +363,10 @@ type memoryTransport struct {
 	events  gsr.ClusterEvents
 }
 
-type failingStartTransport struct{ closed bool }
+type failingStartTransport struct {
+	closed   bool
+	closeErr error
+}
 
 func (*failingStartTransport) Start(gsr.NodeID, gsr.ClusterEvents) error {
 	return errors.New("start failed")
@@ -323,7 +374,7 @@ func (*failingStartTransport) Start(gsr.NodeID, gsr.ClusterEvents) error {
 func (*failingStartTransport) Send(gsr.NodeID, gsr.WireEnvelope) error { return nil }
 func (t *failingStartTransport) Close(context.Context) error {
 	t.closed = true
-	return nil
+	return t.closeErr
 }
 
 func (t *memoryTransport) Start(local gsr.NodeID, events gsr.ClusterEvents) error {
@@ -381,6 +432,18 @@ func (clusterErrorService) Handle(gsr.CommandContext, gsr.Command) error {
 }
 func (clusterErrorService) Stop(context.Context) error { return nil }
 func (clusterErrorService) Close() error               { return nil }
+
+type clusterReplyErrorService struct{ replyErr chan error }
+
+func (*clusterReplyErrorService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
+func (*clusterReplyErrorService) Init(gsr.ServiceContext) error { return nil }
+func (s *clusterReplyErrorService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
+	err := ctx.Reply("reply")
+	s.replyErr <- err
+	return err
+}
+func (*clusterReplyErrorService) Stop(context.Context) error { return nil }
+func (*clusterReplyErrorService) Close() error               { return nil }
 
 type clusterBlockingReplyService struct {
 	started chan struct{}
