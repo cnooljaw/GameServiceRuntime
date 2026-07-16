@@ -1,0 +1,58 @@
+package gsr
+
+import "context"
+
+// Service handles Commands addressed to one Runtime ServiceRef.
+type Service interface {
+	Init(ServiceContext) error
+	Handle(CommandContext, Command) error
+	Stop(context.Context) error
+	Close() error
+}
+
+// ServiceContext exposes Runtime capabilities to a Service.
+type ServiceContext interface {
+	Self() ServiceRef
+	Send(ServiceRef, CommandID, any) error
+}
+
+// CommandContext describes the Service currently handling a Command.
+type CommandContext interface {
+	Self() ServiceRef
+}
+
+// ServiceStatus describes a Service lifecycle state.
+type ServiceStatus int
+
+const (
+	ServiceCreated ServiceStatus = iota
+	ServiceStarting
+	ServiceRunning
+	ServiceStopping
+	ServiceClosed
+	ServiceFailed
+	ServiceRestarting
+)
+
+// ServicePolicy configures Service lifecycle behavior.
+type ServicePolicy struct{}
+
+// ServiceSpec describes a Service created by Runtime.
+type ServiceSpec struct {
+	Service Service
+	Policy  ServicePolicy
+}
+
+type serviceContext struct {
+	runtime *Runtime
+	self    ServiceRef
+}
+
+func (c serviceContext) Self() ServiceRef { return c.self }
+func (c serviceContext) Send(target ServiceRef, id CommandID, payload any) error {
+	return c.runtime.sendFrom(c.self, target, id, payload)
+}
+
+type commandContext struct{ self ServiceRef }
+
+func (c commandContext) Self() ServiceRef { return c.self }
