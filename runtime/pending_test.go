@@ -2,8 +2,30 @@ package gsr
 
 import (
 	"errors"
+	"math"
 	"testing"
 )
+
+func TestPendingCallAllocationSkipsZeroAndActiveCollision(t *testing.T) {
+	pending := newPendingCalls()
+	existing := &pendingCall{result: make(chan callResult, 1)}
+	pending.calls[1] = existing
+	pending.next.Store(math.MaxUint64)
+
+	session, created := pending.create(ServiceRef{}, ServiceRef{Node: "local", ID: 2})
+	if session == 0 {
+		t.Fatal("allocated reserved SessionID 0")
+	}
+	if session != 2 {
+		t.Fatalf("session = %d, want 2 after skipping 0 and active 1", session)
+	}
+	if pending.calls[1] != existing {
+		t.Fatal("active PendingCall was overwritten after SessionID wrap")
+	}
+	if pending.calls[session] != created {
+		t.Fatal("new PendingCall was not registered under its SessionID")
+	}
+}
 
 func TestPendingCallRequiresMatchingReplySource(t *testing.T) {
 	pending := newPendingCalls()

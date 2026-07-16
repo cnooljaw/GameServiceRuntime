@@ -43,6 +43,8 @@ Send Envelope(SessionID)
 Wait Done or ctx.Done
 ```
 
+`SessionID(0)` 保留给不需要 Reply 的 Send，不能分配给 Call。计数器回绕时，分配器必须跳过 `0`，并在 PendingCall 表锁内确认候选 Session 当前未被占用；仍在等待的调用不能被新调用覆盖。
+
 ## Reply 使用 Session
 
 ```text
@@ -112,3 +114,4 @@ Handler continues
 7. 同步 self-call 和已检测到的调用环必须立即失败。
 8. 一次 Command 处理完成后必须清空调用链，不能让旧 `CallPath` 影响后续 Command 或 Stop。
 9. `ServiceContext.Call` 不在 Runtime 管理的 `Handle` 或 `Stop` 串行路径中调用时返回 `ErrCallNotAllowed`。
+10. Session 分配必须跳过 `0`；计数器回绕后必须跳过仍活动的 Session，不能覆盖 PendingCall。

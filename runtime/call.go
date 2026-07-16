@@ -25,12 +25,20 @@ type pendingCalls struct {
 
 func newPendingCalls() *pendingCalls { return &pendingCalls{calls: make(map[SessionID]*pendingCall)} }
 func (p *pendingCalls) create(source, target ServiceRef) (SessionID, *pendingCall) {
-	session := SessionID(p.next.Add(1))
 	call := &pendingCall{source: source, target: target, result: make(chan callResult, 1)}
-	p.mu.Lock()
-	p.calls[session] = call
-	p.mu.Unlock()
-	return session, call
+	for {
+		session := SessionID(p.next.Add(1))
+		if session == 0 {
+			continue
+		}
+		p.mu.Lock()
+		if _, exists := p.calls[session]; !exists {
+			p.calls[session] = call
+			p.mu.Unlock()
+			return session, call
+		}
+		p.mu.Unlock()
+	}
 }
 func (p *pendingCalls) remove(session SessionID) {
 	p.mu.Lock()
