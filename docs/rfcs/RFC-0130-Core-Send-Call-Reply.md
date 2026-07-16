@@ -75,7 +75,7 @@ type CommandContext interface {
 1. `Session = 0` 时 Reply 返回错误。
 2. 同一个 Session 最多 Reply 一次。
 3. 超时后的 Reply 丢弃并记录指标。
-4. Reply 按 `Source + Session` 路由，Source 不匹配时不得完成 PendingCall。
+4. Reply 按 `caller + responder + Session` 路由；caller 必须等于原请求的 Source，responder 必须等于原请求的 Target，任一地址不匹配都不得完成 PendingCall。
 5. Send 场景 Reply 返回 `ErrReplyUnavailable`，重复 Reply 返回 `ErrReplyTwice`，超时后的 Reply 返回 `ErrReplyExpired`。
 6. Handler 返回 error 且尚未 Reply 时，Runtime 用同一个 Session 结束 PendingCall。
 
@@ -97,7 +97,7 @@ Reply
 PendingCall
 ```
 
-业务 handler 只通过 `CommandContext.Reply` 或返回值表达响应。Runtime 负责逻辑响应路由：本地 Reply 可以直接完成 PendingCall；跨节点 Reply 由 Transport 的内部响应帧按 `Source + Session` 返回。响应机制不暴露给业务，也不是第二种 Command 或业务协议类型。
+业务 handler 只通过 `CommandContext.Reply` 或返回值表达响应。Runtime 负责逻辑响应路由：本地 Reply 可以直接完成 PendingCall；跨节点 Reply 由 Transport 的内部响应帧携带 responder、caller 和 Session 返回。响应机制不暴露给业务，也不是第二种 Command 或业务协议类型。
 
 ## 错误
 
@@ -131,4 +131,4 @@ var (
 - Target 不存在。
 - Handler error 返回给 Call 方。
 - Call 链出现同步环时立即失败。
-- 错误 Source 不能完成 PendingCall。
+- 错误 caller 或 responder 不能完成 PendingCall。

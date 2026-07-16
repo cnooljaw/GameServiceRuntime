@@ -53,10 +53,20 @@ Reply
 Validate Session
   ↓
 Local: complete PendingCall directly
-Remote: route internal response frame to Source
+Remote: route internal response frame to caller
   ↓
 Wake PendingCall
 ```
+
+PendingCall 保存原请求的 caller 和 target。Reply 必须同时满足：
+
+```text
+reply.Target == pending.Source
+reply.Source == pending.Target
+reply.Session == pending.Session
+```
+
+这样即使其它节点或 Service 猜到一个活动 Session，也不能伪造 Reply 完成调用。
 
 ## 超时
 
@@ -79,7 +89,7 @@ metrics late_reply_total++
 
 ## Cluster 场景
 
-跨节点时，Session 必须带回源节点。
+跨节点时，Session、caller 和 responder 必须一起带回源节点。
 
 远端不需要知道调用方 goroutine，只需要通过 Transport 内部响应帧把 Reply 按 Source + Session 发回去。内部响应帧不是业务 Command，也不进入 Command Dispatcher。
 
@@ -115,3 +125,4 @@ Handler continues
 8. 一次 Command 处理完成后必须清空调用链，不能让旧 `CallPath` 影响后续 Command 或 Stop。
 9. `ServiceContext.Call` 不在 Runtime 管理的 `Handle` 或 `Stop` 串行路径中调用时返回 `ErrCallNotAllowed`。
 10. Session 分配必须跳过 `0`；计数器回绕后必须跳过仍活动的 Session，不能覆盖 PendingCall。
+11. Reply 必须同时校验原 caller 和原 target；只校验 Session 或 caller 不足以确认响应来源。
