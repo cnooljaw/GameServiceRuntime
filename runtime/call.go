@@ -105,6 +105,11 @@ func (p *pendingCalls) failAll(err error) {
 		call.result <- callResult{err: err}
 	}
 }
+func (p *pendingCalls) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.calls)
+}
 func (p *pendingCall) wait(ctx context.Context) (any, error) {
 	select {
 	case result := <-p.result:

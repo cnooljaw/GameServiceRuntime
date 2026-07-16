@@ -71,3 +71,9 @@ func (m *timerManager) cancelAll() {
 		entry.timer.Stop()
 	}
 }
+
+func (m *timerManager) count() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.timers)
+}

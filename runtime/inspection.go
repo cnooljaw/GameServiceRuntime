@@ -79,12 +79,27 @@ func (r *Runtime) Inspect() RuntimeInspection {
 		}
 		return services[left].Ref.ID < services[right].Ref.ID
 	})
+	taskSnapshots := r.tasks.active()
+	tasks := make([]RuntimeTaskInspection, 0, len(taskSnapshots))
+	for _, task := range taskSnapshots {
+		tasks = append(tasks, RuntimeTaskInspection{
+			ID:        uint64(task.id),
+			Owner:     task.owner,
+			Kind:      publicRuntimeTaskKind(task.kind),
+			StartedAt: task.started,
+			TimedOut:  task.timedOut,
+		})
+	}
+	sort.Slice(tasks, func(left, right int) bool { return tasks[left].ID < tasks[right].ID })
 	return RuntimeInspection{
-		CapturedAt: r.now(),
-		Node:       r.node,
-		Status:     publicRuntimeStatus(r.state.Load()),
-		Services:   services,
-		Metrics:    r.metrics.snapshot(),
+		CapturedAt:   r.now(),
+		Node:         r.node,
+		Status:       publicRuntimeStatus(r.state.Load()),
+		Services:     services,
+		Tasks:        tasks,
+		PendingCalls: r.pending.count(),
+		Timers:       r.timers.count(),
+		Metrics:      r.metrics.snapshot(),
 	}
 }
 
@@ -96,5 +111,20 @@ func publicRuntimeStatus(state int32) RuntimeStatus {
 		return RuntimeClosing
 	default:
 		return RuntimeClosed
+	}
+}
+
+func publicRuntimeTaskKind(kind runtimeTaskKind) RuntimeTaskKind {
+	switch kind {
+	case runtimeTaskInit:
+		return RuntimeTaskInit
+	case runtimeTaskDispatch:
+		return RuntimeTaskDispatch
+	case runtimeTaskStop:
+		return RuntimeTaskStop
+	case runtimeTaskClose:
+		return RuntimeTaskClose
+	default:
+		return ""
 	}
 }

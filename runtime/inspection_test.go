@@ -2,6 +2,8 @@ package gsr_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,6 +97,215 @@ func TestRuntimeInspectWorksAfterClose(t *testing.T) {
 	}
 }
 
+func TestRuntimeInspectReportsPendingCallsAndTimers(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	service := &inspectionBlockingReplyService{started: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(service.release)
+		}
+	}()
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callResult := make(chan error, 1)
+	go func() {
+		_, callErr := runtime.Call(context.Background(), ref, 1, nil)
+		callResult <- callErr
+	}()
+	<-service.started
+	timer, err := runtime.After(ref, time.Hour, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inspection := runtime.Inspect()
+	if inspection.PendingCalls != 1 {
+		t.Fatalf("PendingCalls = %d, want 1", inspection.PendingCalls)
+	}
+	if inspection.Timers != 1 {
+		t.Fatalf("Timers = %d, want 1", inspection.Timers)
+	}
+	if len(inspection.Tasks) != 1 || inspection.Tasks[0].Kind != gsr.RuntimeTaskDispatch {
+		t.Fatalf("Tasks = %#v, want one dispatch task", inspection.Tasks)
+	}
+
+	if err := runtime.Cancel(timer); err != nil {
+		t.Fatal(err)
+	}
+	close(service.release)
+	released = true
+	if err := <-callResult; err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool {
+		inspection := runtime.Inspect()
+		return inspection.PendingCalls == 0 && inspection.Timers == 0
+	})
+}
+
+func TestRuntimeInspectReportsActiveTask(t *testing.T) {
+	now := time.Date(2026, 7, 17, 18, 30, 0, 0, time.UTC)
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Now: func() time.Time { return now }})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	service := &inspectionBlockingInitService{started: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(service.release)
+		}
+	}()
+	created := make(chan inspectionCreateResult, 1)
+	go func() {
+		ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+		created <- inspectionCreateResult{ref: ref, err: err}
+	}()
+	<-service.started
+
+	inspection := runtime.Inspect()
+	if len(inspection.Services) != 1 {
+		t.Fatalf("Services length = %d, want 1", len(inspection.Services))
+	}
+	if len(inspection.Tasks) != 1 {
+		t.Fatalf("Tasks length = %d, want 1", len(inspection.Tasks))
+	}
+	task := inspection.Tasks[0]
+	if task.ID == 0 {
+		t.Fatal("task ID is zero")
+	}
+	if task.Owner != inspection.Services[0].Ref {
+		t.Fatalf("task Owner = %v, want %v", task.Owner, inspection.Services[0].Ref)
+	}
+	if task.Kind != gsr.RuntimeTaskInit {
+		t.Fatalf("task Kind = %q, want %q", task.Kind, gsr.RuntimeTaskInit)
+	}
+	if !task.StartedAt.Equal(now) {
+		t.Fatalf("task StartedAt = %v, want %v", task.StartedAt, now)
+	}
+	if task.TimedOut {
+		t.Fatal("active task is marked timed out")
+	}
+
+	close(service.release)
+	released = true
+	result := <-created
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result.ref != task.Owner {
+		t.Fatalf("created ref = %v, want task owner %v", result.ref, task.Owner)
+	}
+	eventually(t, func() bool { return len(runtime.Inspect().Tasks) == 0 })
+}
+
+func TestRuntimeInspectReportsTimedOutTask(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", ShutdownTimeout: 20 * time.Millisecond})
+	service := &inspectionBlockingInitService{started: make(chan struct{}), release: make(chan struct{})}
+	created := make(chan inspectionCreateResult, 1)
+	go func() {
+		ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+		created <- inspectionCreateResult{ref: ref, err: err}
+	}()
+	<-service.started
+	released := false
+	defer func() {
+		if !released {
+			close(service.release)
+		}
+	}()
+
+	if err := runtime.Close(context.Background()); !errors.Is(err, gsr.ErrCloseTimeout) {
+		t.Fatalf("Close error = %v, want ErrCloseTimeout", err)
+	}
+	inspection := runtime.Inspect()
+	if inspection.Status != gsr.RuntimeClosed {
+		t.Fatalf("Status = %v, want RuntimeClosed", inspection.Status)
+	}
+	if len(inspection.Tasks) != 1 {
+		t.Fatalf("Tasks length = %d, want 1", len(inspection.Tasks))
+	}
+	if !inspection.Tasks[0].TimedOut {
+		t.Fatal("unfinished Init task is not marked timed out")
+	}
+
+	close(service.release)
+	released = true
+	if result := <-created; !errors.Is(result.err, gsr.ErrRuntimeClosed) {
+		t.Fatalf("CreateService error = %v, want ErrRuntimeClosed", result.err)
+	}
+	eventually(t, func() bool { return len(runtime.Inspect().Tasks) == 0 })
+}
+
+func TestRuntimeInspectIsSafeDuringConcurrentLifecycleChanges(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Workers: 4})
+	refs := make([]gsr.ServiceRef, 0, 4)
+	for range 4 {
+		ref, err := runtime.CreateService(gsr.ServiceSpec{Service: inspectionService{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for _, ref := range refs {
+		ref := ref
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			for range 100 {
+				_ = runtime.Send(ref, 1, nil)
+			}
+		}()
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			for range 50 {
+				timer, err := runtime.After(ref, time.Hour, 1, nil)
+				if err == nil {
+					_ = runtime.Cancel(timer)
+				}
+			}
+		}()
+	}
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		<-start
+		for range 200 {
+			_ = runtime.Inspect()
+		}
+	}()
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		<-start
+		for _, ref := range refs {
+			_ = runtime.Stop(context.Background(), ref)
+		}
+	}()
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		<-start
+		_ = runtime.Close(context.Background())
+	}()
+	close(start)
+	wait.Wait()
+
+	inspection := runtime.Inspect()
+	if inspection.Status != gsr.RuntimeClosed {
+		t.Fatalf("Status = %v, want RuntimeClosed", inspection.Status)
+	}
+}
+
 type inspectionService struct{}
 
 func (inspectionService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
@@ -104,3 +315,40 @@ func (inspectionService) Handle(gsr.CommandContext, gsr.Command) error {
 }
 func (inspectionService) Stop(context.Context) error { return nil }
 func (inspectionService) Close() error               { return nil }
+
+type inspectionBlockingReplyService struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*inspectionBlockingReplyService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
+func (*inspectionBlockingReplyService) Init(gsr.ServiceContext) error {
+	return nil
+}
+func (s *inspectionBlockingReplyService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
+	close(s.started)
+	<-s.release
+	return ctx.Reply("ok")
+}
+func (*inspectionBlockingReplyService) Stop(context.Context) error { return nil }
+func (*inspectionBlockingReplyService) Close() error               { return nil }
+
+type inspectionBlockingInitService struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*inspectionBlockingInitService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
+func (s *inspectionBlockingInitService) Init(gsr.ServiceContext) error {
+	close(s.started)
+	<-s.release
+	return nil
+}
+func (*inspectionBlockingInitService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
+func (*inspectionBlockingInitService) Stop(context.Context) error                   { return nil }
+func (*inspectionBlockingInitService) Close() error                                 { return nil }
+
+type inspectionCreateResult struct {
+	ref gsr.ServiceRef
+	err error
+}
