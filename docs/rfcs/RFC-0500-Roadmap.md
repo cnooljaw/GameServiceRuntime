@@ -33,13 +33,13 @@ Layer 3: Business Layer
 
 ## 当前执行状态
 
-截至 2026-07-17，**Core Runtime** 里程碑及 Cluster 前工程收口已经完成。它覆盖 `RFC-0100` 至 `RFC-0191`、本路线图的 Phase 1 至 Phase 6，包括错误模型、性能基线、生命周期可观测、本地和双节点端到端示例。
+截至 2026-07-17，**Core Runtime** 首版已经完成。它覆盖 `RFC-0100` 至 `RFC-0192`、本路线图的 Phase 1 至 Phase 7A，包括错误模型、性能基线、生命周期与任务观测、本地和双节点端到端示例。
 
 历史讨论中的“第一阶段”默认指 Cluster 之前的 Core Foundation，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 后续独立实施，并已完成。
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成，当前实施 Phase 7A Runtime Inspection 与 Core `v0.1.0` 发布门禁。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A 和 Core `v0.1.0` 发布门禁已完成，下一实施阶段是 Phase 7B 最小 Discovery。
 
 ## Phase 0：文档和术语冻结
 
@@ -137,6 +137,8 @@ Local Send/Call 与 Remote Send/Call 行为一致
 Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能力压入 Core。
 
 ### Phase 7A：Runtime Inspection 与 Core 首版
+
+状态：已完成（2026-07-17）。
 
 实现：
 

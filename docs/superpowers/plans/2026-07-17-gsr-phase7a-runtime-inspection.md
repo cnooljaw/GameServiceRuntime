@@ -1,6 +1,6 @@
 # GSR Phase 7A Runtime Inspection 实施计划
 
-> 状态：执行中
+> 状态：已完成（2026-07-17）
 
 **目标：** 在不引入管理面、网络入口或业务概念的前提下，为 Runtime Tooling 提供一个只读、独立副本、并发安全的观测边界；完成 Core 文档同步、API 专项 Review 和首个 `v0.1.0` 标签。
 
@@ -298,3 +298,13 @@ Review 清零后，把 `RFC-0100` 至 `RFC-0192` 的状态改为“已接受”�
 - API 专项 Review 无未处理 P1/P2。
 - 全量测试、vet、race、示例和基准完成。
 - `v0.1.0` 指向干净、可复验的提交。
+
+## 验收结果
+
+- `go test ./... -count=1`：通过。
+- `go vet ./...`：通过。
+- `go test -race ./... -count=1`：通过。
+- `go test ./runtime -run '^TestRuntimeInspect' -count=100`：通过。
+- 本地示例输出 `hello`，双节点示例输出 `hello cluster`。
+- Benchmark 分配保持基线：Send 448 B/op、5 allocs/op；Call/Reply 680 B/op、9 allocs/op；Timer 656 B/op、8 allocs/op。
+- API Review：0 个 P1；2 个 P2 已修复，无未处理 P1/P2。

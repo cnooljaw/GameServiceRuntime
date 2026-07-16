@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-已经实现 Core Runtime 和 Cluster Data Plane：
+当前发布版本为 `v0.1.0`，变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime 和 Cluster Data Plane：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
