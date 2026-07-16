@@ -1,6 +1,6 @@
 # GSR 待办列表
 
-> 更新时间：2026-07-16
+> 更新时间：2026-07-17
 >
 > 作用：记录已实现里程碑的工程欠账和收口项；尚未开始的新能力仍以 `RFC-0500` 为准。
 
@@ -17,14 +17,16 @@
 
 当前状态定义为：**功能闭环，工程验收尚未封板**。Cluster、Runtime Tooling 和业务模板属于后续里程碑，不计入本阶段未完成项。
 
+Core API 冻结前的 P1 收口已于 2026-07-17 完成。进入 Cluster 前仍须完成 P2 工程门禁。
+
 ## P1：Core API 冻结前完成
 
-| 编号 | 事项 | 完成标准 |
-|---|---|---|
-| CF-001 | 收敛 Runtime 重复关闭语义 | 并发或重复调用 `Runtime.Close` 时复用同一次关闭流程，并返回一致结果；补充成功、超时和调用方取消测试。同步裁决重复 `Runtime.Stop` 是等待已有结果还是稳定返回已关闭错误。 |
-| CF-002 | 明确 Init 的取消和超时边界 | 先更新 `RFC-0180`，明确保留无 context 的短初始化约束，或在 API 冻结前引入可取消 Init；覆盖 Init 永久阻塞时 Runtime 按期返回、任务保持可观测，以及 Init 后续退出时任务记录被回收。 |
-| CF-003 | 补齐 Timer 投递失败可观测性 | Timer 到期后因目标关闭、Mailbox 满或 Runtime 关闭而投递失败时，按原因记录指标；预期关闭不得产生无意义错误日志。 |
-| CF-004 | 建立 Core 性能与泄漏基线 | 增加完整 Send、Call/Reply、批量 Service、批量 Timer benchmark，记录 `allocs/op` 和吞吐；增加 Runtime 反复创建关闭后的 goroutine、任务、Timer、PendingCall 泄漏测试。优化只依据基准结果，不预先引入 Ring Buffer、对象池或 Timer Wheel。 |
+| 编号 | 状态 | 事项 | 完成标准 |
+|---|---|---|---|
+| CF-001 | 已完成 | 收敛 Runtime 重复关闭语义 | 并发或重复调用 `Runtime.Close` 时复用同一次关闭流程，并返回一致结果；补充成功、超时和调用方取消测试。同步裁决重复 `Runtime.Stop` 是等待已有结果还是稳定返回已关闭错误。 |
+| CF-002 | 已完成 | 明确 Init 的取消和超时边界 | 先更新 `RFC-0180`，明确保留无 context 的短初始化约束，或在 API 冻结前引入可取消 Init；覆盖 Init 永久阻塞时 Runtime 按期返回、任务保持可观测，以及 Init 后续退出时任务记录被回收。 |
+| CF-003 | 已完成 | 补齐 Timer 投递失败可观测性 | Timer 到期后因目标关闭、Mailbox 满或 Runtime 关闭而投递失败时，按原因记录指标；预期关闭不得产生无意义错误日志。 |
+| CF-004 | 已完成 | 建立 Core 性能与泄漏基线 | 增加完整 Send、Call/Reply、批量 Service、批量 Timer benchmark，记录 `allocs/op` 和吞吐；增加 Runtime 反复创建关闭后的 goroutine、任务、Timer、PendingCall 泄漏测试。优化只依据基准结果，不预先引入 Ring Buffer、对象池或 Timer Wheel。 |
 
 ## P2：进入 Cluster 前完成
 
