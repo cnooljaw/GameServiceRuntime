@@ -217,11 +217,35 @@ func (r *Runtime) After(target ServiceRef, delay time.Duration, id CommandID, pa
 	if !instance.commands.supports(id) {
 		return 0, ErrCommandNotRegistered
 	}
-	return r.timers.add(target, delay, func() { _ = r.Send(target, id, payload) }), nil
+	return r.timers.add(target, delay, func() { r.deliverTimer(target, id, payload) }), nil
 }
 
 // Cancel prevents a timer from delivering its Command. It is idempotent.
 func (r *Runtime) Cancel(id TimerID) error { r.timers.cancel(id); return nil }
+
+func (r *Runtime) deliverTimer(target ServiceRef, id CommandID, payload any) {
+	r.metrics.Inc("timers_fired_total")
+	r.observeTimerDelivery(target, id, r.Send(target, id, payload))
+}
+
+func (r *Runtime) observeTimerDelivery(target ServiceRef, id CommandID, err error) {
+	if err == nil {
+		r.metrics.Inc("timer_deliveries_total")
+		return
+	}
+	r.metrics.Inc("timer_delivery_errors_total")
+	switch {
+	case errors.Is(err, ErrMailboxFull):
+		r.metrics.Inc("timer_delivery_mailbox_full_total")
+	case errors.Is(err, ErrServiceClosed), errors.Is(err, ErrServiceNotFound):
+		r.metrics.Inc("timer_delivery_target_closed_total")
+	case errors.Is(err, ErrRuntimeClosed):
+		r.metrics.Inc("timer_delivery_runtime_closed_total")
+	default:
+		r.metrics.Inc("timer_delivery_other_errors_total")
+		r.logger.Error("timer delivery failed", "service", target, "command", id, "error", err)
+	}
+}
 
 func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) {
 	started := r.now()
