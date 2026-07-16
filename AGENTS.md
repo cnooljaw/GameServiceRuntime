@@ -3,6 +3,7 @@
 ## Source Of Truth
 
 - 设计和公开 API 以 `docs/rfcs/` 为准，阅读顺序见 `docs/SUMMARY.md`。
+- RFC 未说明时，先按 Skynet 的设计规则裁决；仍不明确再检查 Skynet 源码实现，并把结论写回 RFC。
 - 代码与 RFC 冲突时，先修改 RFC 并说明裁决，再修改代码。
 - Core Runtime 不得引用 `game/`、`examples/` 或业务领域类型。
 
@@ -16,9 +17,9 @@
 ## Runtime Rules
 
 - 只使用 `Service`、`ServiceRef`、`Command`、`Send`、`Call` 命名；禁止 `Actor`、`Spawn`、`Ask`、`Tell`、`PTYPE`。
-- Service 状态只能在 Mailbox 消费的 handler 内修改。
+- 业务状态变化只能通过 Command 进入 Mailbox handler；`Stop`、`Close` 只做 Runtime 串行调度的清理。
 - Service 之间只能通过 `ServiceRef` 和 Command 通信，不持有另一个 Service 指针。
-- Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service，由 Runtime 创建并追踪执行任务。
+- Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service。Runtime 创建的执行任务必须追踪到真实返回。
 - Timer 只能投递 Command，不能执行业务回调。
 - `Session` 只关联 Call/Reply；业务幂等使用 `RequestID`。
 
