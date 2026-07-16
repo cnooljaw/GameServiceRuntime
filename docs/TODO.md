@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成。下一阶段是 Phase 7 Runtime Tooling 基础；P3 Tooling 项仍按下表保留。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成。当前执行 Phase 7A Runtime Inspection 与 Core 首版发布；P3 Tooling 项按下表跟踪。
 
 ## P1：Core API 冻结前完成
 
@@ -43,11 +43,11 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane 和 Phase 6 Core Run
 
 ## P3：Tooling 阶段承接
 
-| 编号 | 事项 | 完成标准 |
-|---|---|---|
-| CF-009 | 向 Monitor 提供只读运行任务快照 | 通过 Runtime Tooling 适配器暴露任务类型、owner、开始时间和超时标记；不公开可变 task registry，不把 Monitor API 放入 Core Service 接口。 |
-| CF-010 | 同步教程和 RFC 状态 | 以实现为准回填 `docs/GSR-Book` 的 Core Runtime 章节；完成 API 冻结评审后，把 `RFC-0100` 至 `RFC-0191` 从“草案”更新为明确的已接受状态。 |
-| CF-011 | 发布首个 Core 版本 | P1、P2 清零后整理变更说明，执行全量质量命令并建立首个版本标签；标签前不承诺公开 API 稳定性。 |
+| 编号 | 状态 | 事项 | 完成标准 |
+|---|---|---|---|
+| CF-009 | 执行中 | 向 Monitor 提供只读运行任务快照 | 通过 `Runtime.Inspect` 暴露任务类型、owner、开始时间和超时标记；不公开可变 task registry，不把 Monitor API 放入 Core Service 接口。 |
+| CF-010 | 待处理 | 同步教程和 RFC 状态 | 以实现为准回填 `docs/GSR-Book` 的 Core Runtime 章节；完成 API 冻结评审后，把 `RFC-0100` 至 `RFC-0191` 从“草案”更新为明确的已接受状态。 |
+| CF-011 | 待处理 | 发布首个 Core 版本 | P1、P2 清零后整理变更说明，执行全量质量命令并建立首个版本标签；标签前不承诺公开 API 稳定性。 |
 
 ## 验收命令
 

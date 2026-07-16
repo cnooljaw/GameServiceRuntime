@@ -1,6 +1,6 @@
 # GSR Phase 7A Runtime Inspection 实施计划
 
-> 状态：待执行
+> 状态：执行中
 
 **目标：** 在不引入管理面、网络入口或业务概念的前提下，为 Runtime Tooling 提供一个只读、独立副本、并发安全的观测边界；完成 Core 文档同步、API 专项 Review 和首个 `v0.1.0` 标签。
 

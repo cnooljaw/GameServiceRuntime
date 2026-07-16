@@ -39,7 +39,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成，下一实施阶段是 Phase 7 Runtime Tooling 基础。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 5 Cluster Data Plane 和 Phase 6 Core Runtime 验证已于 2026-07-17 完成，当前实施 Phase 7A Runtime Inspection 与 Core `v0.1.0` 发布门禁。
 
 ## Phase 0：文档和术语冻结
 
@@ -134,17 +134,33 @@ Local Send/Call 与 Remote Send/Call 行为一致
 
 ## Phase 7：Runtime Tooling 基础
 
+Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能力压入 Core。
+
+### Phase 7A：Runtime Inspection 与 Core 首版
+
 实现：
 
-- `DiscoveryService`
-- `LoginService`
-- `SessionRegistry`
-- 最小 `Gateway Adapter`
-- Snapshot。
-- Supervisor。
-- Monitor。
-- Metrics。
-- Benchmark。
+- `Runtime.Inspect` 只读观测边界。
+- Service、Mailbox、PendingCall、Timer 和 Runtime Task 视图。
+- Core 与 Cluster 文档同步。
+- API 冻结 Review。
+- `v0.1.0` 标签。
+
+### Phase 7B：最小 Discovery
+
+实现 Node Discovery 和长期 ServiceName Discovery。ServiceGroup、Gossip、负载均衡和管理命令不进入本阶段。
+
+### Phase 7C：本地 Monitor
+
+实现本地 Monitor 适配器和 Metrics 输出。远程 NodeAgent 与管理面查询留到 Phase 8。
+
+### Phase 7D：Snapshot 与 Supervisor
+
+实现版本化状态接口、存储适配器和受限恢复策略。业务持久化不下沉到 Core。
+
+### Phase 7E：客户端入口
+
+实现 `SessionRegistry`、`LoginService`、最小 `Gateway Adapter` 和 `ProtocolMapper`，保持认证、连接和业务 Command 分层。
 
 ## Phase 8：Cluster Control Plane
 
