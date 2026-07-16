@@ -1,6 +1,7 @@
 package gsr
 
 import "context"
+import "time"
 
 // Service handles Commands addressed to one Runtime ServiceRef.
 type Service interface {
@@ -14,6 +15,7 @@ type Service interface {
 type ServiceContext interface {
 	Self() ServiceRef
 	Send(ServiceRef, CommandID, any) error
+	After(time.Duration, CommandID, any) (TimerID, error)
 }
 
 // CommandContext describes the Service currently handling a Command.
@@ -52,6 +54,9 @@ type serviceContext struct {
 func (c serviceContext) Self() ServiceRef { return c.self }
 func (c serviceContext) Send(target ServiceRef, id CommandID, payload any) error {
 	return c.runtime.sendFrom(c.self, target, id, payload)
+}
+func (c serviceContext) After(delay time.Duration, id CommandID, payload any) (TimerID, error) {
+	return c.runtime.After(c.self, delay, id, payload)
 }
 
 type commandContext struct {

@@ -3,6 +3,7 @@ package gsr
 import (
 	"context"
 	"sync/atomic"
+	"time"
 )
 
 // Config configures a Runtime instance.
@@ -20,6 +21,7 @@ type Runtime struct {
 	registry    *localRegistry
 	scheduler   *scheduler
 	pending     *pendingCalls
+	timers      *timerManager
 	nextID      atomic.Uint64
 }
 
@@ -37,7 +39,7 @@ func NewRuntime(config Config) *Runtime {
 	if config.MaxBatch < 1 {
 		config.MaxBatch = 32
 	}
-	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, registry: newLocalRegistry(), pending: newPendingCalls()}
+	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, registry: newLocalRegistry(), pending: newPendingCalls(), timers: newTimerManager()}
 	runtime.scheduler = newScheduler(runtime, config.Workers, config.MaxBatch)
 	return runtime
 }
@@ -90,6 +92,17 @@ func (r *Runtime) sendEnvelope(envelope Envelope) error {
 	r.scheduler.schedule(instance)
 	return nil
 }
+
+// After schedules a future Command delivery to target.
+func (r *Runtime) After(target ServiceRef, delay time.Duration, id CommandID, payload any) (TimerID, error) {
+	if _, err := r.registry.get(target); err != nil {
+		return 0, err
+	}
+	return r.timers.add(target, delay, func() { _ = r.Send(target, id, payload) }), nil
+}
+
+// Cancel prevents a timer from delivering its Command. It is idempotent.
+func (r *Runtime) Cancel(id TimerID) error { r.timers.cancel(id); return nil }
 
 // Close stops Runtime workers. Service lifecycle shutdown is added separately.
 func (r *Runtime) Close(context.Context) error { r.scheduler.close(); return nil }
