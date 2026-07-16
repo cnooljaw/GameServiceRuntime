@@ -19,6 +19,7 @@ type ServiceContext interface {
 // CommandContext describes the Service currently handling a Command.
 type CommandContext interface {
 	Self() ServiceRef
+	Reply(any) error
 }
 
 // ServiceStatus describes a Service lifecycle state.
@@ -53,6 +54,16 @@ func (c serviceContext) Send(target ServiceRef, id CommandID, payload any) error
 	return c.runtime.sendFrom(c.self, target, id, payload)
 }
 
-type commandContext struct{ self ServiceRef }
+type commandContext struct {
+	self    ServiceRef
+	runtime *Runtime
+	session SessionID
+}
 
 func (c commandContext) Self() ServiceRef { return c.self }
+func (c commandContext) Reply(value any) error {
+	if c.session == 0 || !c.runtime.pending.complete(c.session, value) {
+		return ErrReplyTwice
+	}
+	return nil
+}

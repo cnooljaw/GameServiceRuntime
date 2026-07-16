@@ -48,7 +48,7 @@ func (s *scheduler) process(instance *serviceInstance) {
 		if !ok {
 			break
 		}
-		instance.service.Handle(commandContext{self: instance.ref}, Command{ID: envelope.Command, Payload: envelope.Payload})
+		instance.service.Handle(commandContext{self: instance.ref, runtime: s.runtime, session: envelope.Session}, Command{ID: envelope.Command, Payload: envelope.Payload})
 	}
 	instance.ready.Store(false)
 	if instance.mailbox.notEmpty() {

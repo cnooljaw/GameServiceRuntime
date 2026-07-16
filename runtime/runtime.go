@@ -19,6 +19,7 @@ type Runtime struct {
 	mailboxSize int
 	registry    *localRegistry
 	scheduler   *scheduler
+	pending     *pendingCalls
 	nextID      atomic.Uint64
 }
 
@@ -36,7 +37,7 @@ func NewRuntime(config Config) *Runtime {
 	if config.MaxBatch < 1 {
 		config.MaxBatch = 32
 	}
-	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, registry: newLocalRegistry()}
+	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, registry: newLocalRegistry(), pending: newPendingCalls()}
 	runtime.scheduler = newScheduler(runtime, config.Workers, config.MaxBatch)
 	return runtime
 }
@@ -62,7 +63,17 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 func (r *Runtime) Send(target ServiceRef, id CommandID, payload any) error {
 	return r.sendFrom(ServiceRef{}, target, id, payload)
 }
+
+func (r *Runtime) route(envelope Envelope) error {
+	return r.sendEnvelope(envelope)
+}
+
 func (r *Runtime) sendFrom(source, target ServiceRef, id CommandID, payload any) error {
+	return r.sendEnvelope(Envelope{Source: source, Target: target, Command: id, Payload: payload})
+}
+
+func (r *Runtime) sendEnvelope(envelope Envelope) error {
+	target := envelope.Target
 	if target.Node != r.node {
 		return ErrServiceNotFound
 	}
@@ -73,7 +84,7 @@ func (r *Runtime) sendFrom(source, target ServiceRef, id CommandID, payload any)
 	if ServiceStatus(instance.status.Load()) != ServiceRunning {
 		return ErrServiceClosed
 	}
-	if err := instance.mailbox.push(Envelope{Source: source, Target: target, Command: id, Payload: payload}); err != nil {
+	if err := instance.mailbox.push(envelope); err != nil {
 		return err
 	}
 	r.scheduler.schedule(instance)
