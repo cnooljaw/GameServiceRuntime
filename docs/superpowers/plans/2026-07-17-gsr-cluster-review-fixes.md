@@ -1,6 +1,6 @@
 # GSR Cluster Review 修复计划
 
-> 状态：执行中
+> 状态：已完成
 
 **目标：** 按 2026-07-17 Cluster 提交 review 裁决修复其余 P1/P2，同时保持 Core Runtime 简洁。当前 TCP Transport 明确限定为可信内网，不在本轮加入认证协议。
 
@@ -53,3 +53,13 @@
    ```
 
 2. 将本计划状态改为完成，提交收口文档。
+
+## 验收结果
+
+- `go test ./... -count=1`：通过。
+- `go vet ./...`：通过。
+- `go test -race ./... -count=1`：通过。
+- `go test ./runtime ./transport/tcp -count=30`：通过。
+- `go run ./examples/local-runtime`：输出 `hello`。
+- `go run ./examples/cluster-runtime`：输出 `hello cluster`。
+- 实现提交：`1dd58ac`、`294863f`。
