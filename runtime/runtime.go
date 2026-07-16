@@ -50,6 +50,9 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 		return ServiceRef{}, ErrInvalidServiceSpec
 	}
 	ref := ServiceRef{Node: r.node, ID: ServiceID(r.nextID.Add(1))}
+	if spec.Policy.StopTimeout <= 0 {
+		spec.Policy.StopTimeout = 5 * time.Second
+	}
 	instance := &serviceInstance{ref: ref, service: spec.Service, mailbox: newMailbox(r.mailboxSize), policy: spec.Policy}
 	instance.setStatus(ServiceStarting)
 	r.registry.add(instance)

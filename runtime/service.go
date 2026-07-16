@@ -38,7 +38,7 @@ const (
 )
 
 // ServicePolicy configures Service lifecycle behavior.
-type ServicePolicy struct{}
+type ServicePolicy struct{ StopTimeout time.Duration }
 
 // ServiceSpec describes a Service created by Runtime.
 type ServiceSpec struct {
