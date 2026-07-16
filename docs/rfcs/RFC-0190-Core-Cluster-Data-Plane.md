@@ -183,6 +183,10 @@ Transport 握手得到的 peer NodeID 是连接身份。Runtime 接收入站 Wir
 
 校验或 payload 解码失败时，Call 返回稳定的 Runtime 错误；Send 记录指标并丢弃。不能把未校验的入站数据直接放进 Mailbox。
 
+已知 Runtime 错误跨节点返回后必须保留 `errors.Is` 语义。特别是多跳 Call 中间节点返回 `ErrRemoteUnavailable`、`ErrCallCycle`、`ErrServiceClosed` 等稳定错误时，源节点不能把它们降级为普通 `RemoteError`。
+
+Reply payload 编码失败时，responder 必须发送一个不含业务 Payload 的 `ErrPayloadEncode` 错误响应，同时让本地 `CommandContext.Reply` 返回该错误。不能因为 Reply 已被标记为发送过，就让 caller 只能等待 context 超时。
+
 ## 断线与关闭
 
 Transport 只在当前有效连接断开时通知节点不可用。Runtime 收到通知后立即失败所有以该节点为远端的 PendingCall；后续 Send/Call 返回 `ErrRemoteUnavailable`，或由调用方 context 超时。
@@ -211,5 +215,6 @@ Node + Service Address + Command
 6. 管理面能力必须放在系统 Service 中，不能塞进 `ClusterTransport`。
 7. 运维命令必须走白名单 Command，并记录审计信息。
 8. 跨节点必须保留 `CallPath` 和本地相同的调用环检测语义。
-9. 入站 Source.Node 必须绑定握手身份，Reply 必须校验 caller、responder 和 Session。
+9. 入站 Source.Node 必须绑定握手声明的节点身份，Reply 必须校验 caller、responder、Command 和 Session。
 10. Cluster 启动失败必须通过可失败构造函数返回，不能让半启动 Runtime 对业务可见。
+11. Cluster 启动失败后的 Transport 和 Runtime 清理错误必须与启动错误一起返回，不能静默丢弃。

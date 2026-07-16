@@ -119,6 +119,8 @@ transport := tcp.New(config)
 
 `Peers` 只提供第一版同步建连所需的静态地址，不承担服务发现；动态地址更新接口由后续 Control Plane 设计，不进入当前 Core API。
 
+不同 NodeID 的首次建连必须可以并行；同一 NodeID 的并发建连请求应复用同一次拨号结果。一个失联节点的 `DialTimeout` 不能阻塞其它节点建连。
+
 状态：
 
 ```text
@@ -160,6 +162,16 @@ Connected
 TCP 帧使用 `uint32` 大端长度前缀。实现必须限制 NodeID 长度、CallPath 长度、payload 长度和总帧长度，不能按不可信长度无限分配内存。
 
 第一版握手协议版本固定为 `1`，WireEnvelope 二进制格式版本固定为 `1`。默认最大帧为 16 MiB，NodeID 最长 255 bytes，CallPath 最多 64 项；这些限制在读取 payload 前检查。
+
+出站编码也必须在复制 payload 前计算完整帧大小。超限消息直接返回 `ErrFrameTooLarge`，不能先复制超大 payload 再拒绝。
+
+## 信任边界
+
+第一版 TCP Transport 不提供节点认证和链路加密。握手中的 NodeID 只用于连接关联、反向发送和同时建连去重，不是安全身份凭据。
+
+因此当前实现只允许部署在可信内网，并由监听地址、防火墙或安全组阻止公网和非集群主机访问 Cluster 端口。业务不得把当前 TCP 端口直接暴露到不可信网络。
+
+未来需要跨不可信网络时，在 Transport 层增加 TLS/mTLS 或等价认证，不修改 Service、Envelope、Send/Call 和 Core Runtime 接口。
 
 ## 断线处理
 
