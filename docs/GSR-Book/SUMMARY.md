@@ -13,6 +13,7 @@
 - 02-第二篇-Runtime内核/05-Scheduler.md
 - 02-第二篇-Runtime内核/06-Timer.md
 - 02-第二篇-Runtime内核/07-Lifecycle.md
+- 02-第二篇-Runtime内核/08-Inspection.md
 - 03-第三篇-Cluster/01-Cluster.md
 - 03-第三篇-Cluster/02-Transport.md
 - 03-第三篇-Cluster/03-Discovery.md

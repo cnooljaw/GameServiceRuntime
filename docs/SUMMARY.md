@@ -32,6 +32,7 @@
 - [RFC-0180：Service 生命周期](rfcs/RFC-0180-Core-Lifecycle.md)
 - [RFC-0190：Cluster Data Plane](rfcs/RFC-0190-Core-Cluster-Data-Plane.md)
 - [RFC-0191：Cluster Transport](rfcs/RFC-0191-Core-Cluster-Transport.md)
+- [RFC-0192：Runtime Inspection](rfcs/RFC-0192-Core-Runtime-Inspection.md)
 
 ## Layer 2：Runtime Tooling（工具与工程化层）
 

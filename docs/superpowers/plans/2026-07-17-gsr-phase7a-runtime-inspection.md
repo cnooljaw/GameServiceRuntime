@@ -4,7 +4,7 @@
 
 **目标：** 在不引入管理面、网络入口或业务概念的前提下，为 Runtime Tooling 提供一个只读、独立副本、并发安全的观测边界；完成 Core 文档同步、API 专项 Review 和首个 `v0.1.0` 标签。
 
-**范围：** `RFC-0230`、`CF-009` 至 `CF-011`。本计划是 Phase 7 的第一个子阶段，不实现完整 Monitor、Discovery、Supervisor、Login 或 Gateway。
+**范围：** `RFC-0192`、`RFC-0230`、`CF-009` 至 `CF-011`。本计划是 Phase 7 的第一个子阶段，不实现完整 Monitor、Discovery、Supervisor、Login 或 Gateway。
 
 ## 设计裁决
 
@@ -86,6 +86,7 @@ type RuntimeTaskInspection struct {
 
 **文件：**
 
+- 新增 `docs/rfcs/RFC-0192-Core-Runtime-Inspection.md`
 - 修改 `docs/rfcs/RFC-0230-Tooling-Monitor.md`
 - 修改 `docs/TODO.md`
 - 修改 `docs/rfcs/RFC-0500-Roadmap.md`
@@ -93,7 +94,7 @@ type RuntimeTaskInspection struct {
 
 **步骤：**
 
-1. 在 `RFC-0230` 增加 `RuntimeInspection`、`ServiceInspection` 和 `RuntimeTaskInspection` 的正式定义。
+1. 在 `RFC-0192` 增加 `RuntimeInspection`、`ServiceInspection` 和 `RuntimeTaskInspection` 的正式定义；`RFC-0230` 只描述 Monitor 如何消费该接口。
 2. 明确 `Inspect` 可在 Running、Closing 和 Closed 状态调用，不返回 error，也不延长 Runtime 生命周期。
 3. 明确快照是最终一致视图、结果为副本、顺序稳定、禁止暴露可变对象。
 4. 把 Cluster 连接状态、NodeAgent 和远程查询移到 Phase 8，不作为 Phase 7A 验收条件。
@@ -194,6 +195,7 @@ go test ./runtime -run '^TestRuntimeInspect(ReportsPendingCallsAndTimers|Reports
 - 修改 `docs/rfcs/RFC-0180-Core-Lifecycle.md`
 - 修改 `docs/rfcs/RFC-0190-Core-Cluster-Data-Plane.md`
 - 修改 `docs/rfcs/RFC-0191-Core-Cluster-Transport.md`
+- 新增 `docs/rfcs/RFC-0192-Core-Runtime-Inspection.md`
 - 修改 `docs/GSR-Book/02-第二篇-Runtime内核/01-Service.md`
 - 修改 `docs/GSR-Book/02-第二篇-Runtime内核/02-ServiceRef.md`
 - 修改 `docs/GSR-Book/02-第二篇-Runtime内核/03-Command.md`
@@ -209,7 +211,7 @@ go test ./runtime -run '^TestRuntimeInspect(ReportsPendingCallsAndTimers|Reports
 **步骤：**
 
 1. 修正 README 中 Cluster Transport 仍在规划的过期说明，补充本地和双节点示例入口。
-2. 对照已实现代码逐份检查 `RFC-0100` 至 `RFC-0191`；本任务只修正文档内容，正式状态在 Task 5 Review 清零后改为“已接受”。
+2. 对照已实现代码逐份检查 `RFC-0100` 至 `RFC-0192`；本任务只修正文档内容，正式状态在 Task 5 Review 清零后改为“已接受”。
 3. 回填 GSR Book 已实现的 Core 与 Cluster 章节；Discovery 章节继续保持 Draft。
 4. 文档只描述已实现能力。Discovery、Supervisor、Snapshot、NodeAgent、Login 和业务模板继续链接对应草案 RFC。
 5. 把 `CF-009` 标记为已完成、`CF-010` 标记为执行中，`CF-011` 保持待发布。
@@ -227,7 +229,7 @@ go test ./runtime -run '^TestRuntimeInspect(ReportsPendingCallsAndTimers|Reports
 
 **Review 轴：**
 
-1. RFC 轴：检查 `Runtime.Inspect` 是否完全符合 `RFC-0230` 的只读、副本、最终一致和稳定排序规则。
+1. RFC 轴：检查 `Runtime.Inspect` 是否完全符合 `RFC-0192` 的只读、副本、最终一致和稳定排序规则。
 2. Core 轴：检查是否暴露可变 Registry、Service 指针、Mailbox、channel、取消句柄或 Transport 细节。
 3. 并发轴：检查锁顺序、关闭竞争、残留 Init 任务和 Timer 回调竞争。
 4. API 轴：检查导出命名、Go doc、零值含义和未来兼容性。
@@ -245,7 +247,7 @@ go test ./runtime -run '^$' -bench 'Benchmark(Send|CallReply|ManyServices|TimerD
 
 P1/P2 Review 结论必须清零后才能进入 Task 6。修复按垂直切片单独提交，提交信息使用中文。
 
-Review 清零后，把 `RFC-0100` 至 `RFC-0191` 的状态改为“已接受”，并把 `CF-010` 标记为已完成。
+Review 清零后，把 `RFC-0100` 至 `RFC-0192` 的状态改为“已接受”，并把 `CF-010` 标记为已完成。
 
 ## Task 6：发布 Core v0.1.0
 
@@ -289,7 +291,7 @@ Review 清零后，把 `RFC-0100` 至 `RFC-0191` 的状态改为“已接受”�
 - `Runtime.Inspect()` 是唯一新增 Core 观测入口。
 - 所有返回数据都是副本，不含可变内部对象。
 - Inspection 在创建、投递、计时、停止和关闭竞争中通过 Race Detector。
-- `RFC-0100` 至 `RFC-0191` 与代码一致并标记为已接受。
+- `RFC-0100` 至 `RFC-0192` 与代码一致并标记为已接受。
 - README 和 GSR Book 不再把已完成能力写成规划项。
 - API 专项 Review 无未处理 P1/P2。
 - 全量测试、vet、race、示例和基准完成。

@@ -10,75 +10,13 @@
 
 ## 第一版范围
 
-Phase 7A 先提供日志、内存指标和只读 `RuntimeInspection`。
+Phase 7A 先提供日志、内存指标和 [RFC-0192](RFC-0192-Core-Runtime-Inspection.md) 定义的只读 `RuntimeInspection`。
 
 后续再提供 HTTP/CLI 工具。HTTP/CLI 只是适配层，不能直接读取 Runtime 内部结构。
 
 ## Runtime Inspection
 
-Core 只提供一个观测入口：
-
-```go
-func (r *Runtime) Inspect() RuntimeInspection
-```
-
-数据模型：
-
-```go
-type RuntimeStatus int
-
-const (
-    RuntimeRunning RuntimeStatus = iota
-    RuntimeClosing
-    RuntimeClosed
-)
-
-type RuntimeTaskKind string
-
-const (
-    RuntimeTaskInit     RuntimeTaskKind = "init"
-    RuntimeTaskDispatch RuntimeTaskKind = "dispatch"
-    RuntimeTaskStop     RuntimeTaskKind = "stop"
-    RuntimeTaskClose    RuntimeTaskKind = "close"
-)
-
-type RuntimeInspection struct {
-    CapturedAt   time.Time
-    Node         NodeID
-    Status       RuntimeStatus
-    Services     []ServiceInspection
-    Tasks        []RuntimeTaskInspection
-    PendingCalls int
-    Timers       int
-    Metrics      MetricsSnapshot
-}
-
-type ServiceInspection struct {
-    Ref          ServiceRef
-    Name         ServiceName
-    Status       ServiceStatus
-    MailboxDepth int
-}
-
-type RuntimeTaskInspection struct {
-    ID        uint64
-    Owner     ServiceRef
-    Kind      RuntimeTaskKind
-    StartedAt time.Time
-    TimedOut  bool
-}
-```
-
-`Inspect` 可以在 Runtime 处于 Running、Closing 或 Closed 时调用。它不返回 error，不阻止关闭，也不延长 Runtime 生命周期。
-
-返回数据必须满足：
-
-- 不包含 Service、Mailbox、PendingCall、Timer、Task、Registry、channel、取消函数或 Transport 指针。
-- 所有切片和 Metrics 都是独立副本；调用方修改自己的结果不能影响 Runtime 或后续 Inspection。
-- `Services` 按 `ServiceRef` 排序，`Tasks` 按任务 ID 排序。
-- 各子系统只在自己的锁内复制数据，不能为了观测增加 Runtime 全局锁。
-
-Inspection 不是跨 Registry、PendingCall、Timer、Task 和 Metrics 的停机事务快照。调用方必须把它理解为同一采集过程中的最终一致视图。
+Monitor 只能消费 `Runtime.Inspect()` 返回的独立副本，不能直接访问 Runtime 私有 Registry。完整数据模型、一致性和生命周期语义以 [RFC-0192](RFC-0192-Core-Runtime-Inspection.md) 为准。
 
 `RuntimeInspection` 只用于诊断，不能用于 `RFC-0210` 定义的业务状态恢复。
 
