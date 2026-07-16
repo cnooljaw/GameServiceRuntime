@@ -19,7 +19,7 @@
 - 只使用 `Service`、`ServiceRef`、`Command`、`Send`、`Call` 命名；禁止 `Actor`、`Spawn`、`Ask`、`Tell`、`PTYPE`。
 - 业务状态变化只能通过 Command 进入 Mailbox handler；`Stop`、`Close` 只做 Runtime 串行调度的清理。
 - Service 之间只能通过 `ServiceRef` 和 Command 通信，不持有另一个 Service 指针。
-- Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service。Runtime 创建的执行任务必须追踪到真实返回。
+- Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service，直接 `go` 语句由 AST 测试检查。Runtime 创建的执行任务必须追踪到真实返回。
 - Timer 只能投递 Command，不能执行业务回调。
 - `Session` 只关联 Call/Reply；业务幂等使用 `RequestID`。
 

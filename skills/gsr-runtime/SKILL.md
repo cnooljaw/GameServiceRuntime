@@ -19,7 +19,7 @@ description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler�
 - 业务入口只有 Command。Service 可公开实现 `CommandDeclarer`，Runtime 在创建时复制并冻结私有命令集；不公开可变 Registry。
 - Command 必须经过 Mailbox；同一 Service 的 `Handle`、`Stop`、`Close` 不并发。Send/After 与 Stop 共享明确的消息接受边界。
 - 业务状态变化只在 Mailbox handler 中发生；跨 Service 只用 ServiceRef + Send/Call，不持有对象指针或用多把锁协调状态。
-- Service 不创建 goroutine。Runtime 创建的 Init、dispatch、Stop、Close 等任务必须有 owner、类型、完成句柄，并追踪到函数真实返回。
+- Service 不创建 goroutine。AST 门禁检查显式 Service 类型所有方法中的直接 `go` 语句；自由函数间接启动仍需评审。Runtime 创建的 Init、dispatch、Stop、Close 等任务必须有 owner、类型、完成句柄，并追踪到函数真实返回。
 - 超时只能标记任务、尝试取消并释放 Runtime 自有结构；Go 不能强杀仍在运行的业务函数，也不能因此丢失任务句柄。
 - Call 必须校验 Reply 来源、处理超时和迟到 Reply、拒绝同步调用环；Service 等待 Call 时要归还并恢复 Scheduler 执行许可。
 - Timer 只生成 Command；取消和目标关闭必须清理绑定，投递失败需要可观测。
