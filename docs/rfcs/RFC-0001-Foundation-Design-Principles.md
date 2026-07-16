@@ -176,9 +176,9 @@ Send: session = 0
 Call: session > 0
 ```
 
-### Cluster 是 Transport
+### Cluster Data Plane 是 Transport 的远程延伸
 
-Cluster 只是把同一条消息管道延伸到远程节点。
+Cluster Data Plane 通过 `ClusterTransport` 把同一条消息管道延伸到远程节点。Cluster 整体还包含位于 Runtime Tooling 的 Control Plane，因此 Cluster 整体不等于 Transport。
 
 业务代码不应该区分本地和远程。
 
@@ -253,7 +253,7 @@ Send / Call
 
 | 问题 | 结论 |
 |-|-|
-| 一个 Service 一个 goroutine？ | 否。默认使用 Mailbox + Scheduler + Worker Pool。 |
+| 一个 Service 一个 goroutine？ | 否。默认使用 Mailbox + Scheduler + 固定执行许可池。 |
 | 内部消息是否都用 protobuf？ | 否。protobuf 只作为跨节点边界协议。 |
 | 是否保留 Skynet PTYPE？ | 否。GSR 内部统一为 Envelope + Command。 |
 | Battle 是否内建进 Runtime？ | 否。Battle 是 Business Layer 封装。 |

@@ -39,6 +39,7 @@ type Runtime struct {
 	scheduler            *scheduler
 	pending              *pendingCalls
 	timers               *timerManager
+	tasks                *taskTracker
 	metrics              *metricCollector
 	logger               *slog.Logger
 	now                  func() time.Time
@@ -83,6 +84,7 @@ func NewRuntime(config Config) *Runtime {
 	metrics := newMetricCollector()
 	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, slowCommandThreshold: config.SlowCommandThreshold, shutdownTimeout: config.ShutdownTimeout, pending: newPendingCalls(), timers: newTimerManager(), metrics: metrics, logger: config.Logger, now: config.Now}
 	runtime.registry = newLocalRegistry(config.TombstoneTTL, config.TombstoneLimit, config.Now)
+	runtime.tasks = newTaskTracker(metrics, config.Now)
 	runtime.state.Store(runtimeRunning)
 	runtime.scheduler = newScheduler(runtime, config.Workers, config.MaxBatch)
 	return runtime
@@ -101,7 +103,7 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 	if spec.Service == nil {
 		return ServiceRef{}, ErrInvalidServiceSpec
 	}
-	commands, err := commandRegistryFor(spec.Service)
+	commands, err := commandSetFor(spec.Service)
 	if err != nil {
 		return ServiceRef{}, err
 	}
@@ -110,6 +112,9 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 	}
 	if spec.Policy.CloseTimeout <= 0 {
 		spec.Policy.CloseTimeout = 5 * time.Second
+	}
+	if spec.Policy.LifecycleTimeout <= 0 {
+		spec.Policy.LifecycleTimeout = spec.Policy.StopTimeout + spec.Policy.CloseTimeout
 	}
 	ref := ServiceRef{Node: r.node, ID: ServiceID(r.nextID.Add(1))}
 	instance := &serviceInstance{ref: ref, name: spec.Name, service: spec.Service, commands: commands, policy: spec.Policy, done: make(chan struct{})}
@@ -120,7 +125,7 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 		return ServiceRef{}, err
 	}
 	instance.setStatus(ServiceStarting)
-	if err := invokeService(func() error { return spec.Service.Init(instance.context) }); err != nil {
+	if err := r.invokeInlineTask(instance.ref, runtimeTaskInit, func() error { return spec.Service.Init(instance.context) }); err != nil {
 		if errors.Is(err, ErrServiceFailed) {
 			r.metrics.Inc("service_panics_total")
 			r.logger.Error("service init panic", "service", instance.ref, "error", err)
@@ -182,7 +187,7 @@ func (r *Runtime) sendEnvelope(envelope Envelope) error {
 	if ServiceStatus(instance.status.Load()) != ServiceRunning || instance.finalized.Load() {
 		return ErrServiceClosed
 	}
-	if !instance.commands.Supports(envelope.Command) {
+	if !instance.commands.supports(envelope.Command) {
 		return ErrCommandNotRegistered
 	}
 	if err := instance.mailbox.pushEnvelope(envelope); err != nil {
@@ -206,7 +211,7 @@ func (r *Runtime) After(target ServiceRef, delay time.Duration, id CommandID, pa
 	if ServiceStatus(instance.status.Load()) != ServiceRunning || instance.finalized.Load() {
 		return 0, ErrServiceClosed
 	}
-	if !instance.commands.Supports(id) {
+	if !instance.commands.supports(id) {
 		return 0, ErrCommandNotRegistered
 	}
 	return r.timers.add(target, delay, func() { _ = r.Send(target, id, payload) }), nil
@@ -248,17 +253,6 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 
 func (r *Runtime) closeAfterFailure(instance *serviceInstance) {
 	instance.setStatus(ServiceFailed)
-	instance.closing.Store(true)
-	done := make(chan error, 1)
-	go func() { done <- invokeService(instance.service.Close) }()
-	select {
-	case err := <-done:
-		if errors.Is(err, ErrServiceFailed) {
-			r.metrics.Inc("service_panics_total")
-			r.logger.Error("service close panic", "service", instance.ref, "error", err)
-		}
-	case <-time.After(instance.policy.CloseTimeout):
-		r.metrics.Inc("close_timeouts_total")
-	}
-	r.finalize(instance, ServiceFailed, ErrServiceFailed)
+	closeErr := r.runClose(instance)
+	r.finalize(instance, ServiceFailed, errors.Join(ErrServiceFailed, closeErr))
 }

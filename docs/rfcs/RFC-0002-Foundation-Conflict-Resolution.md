@@ -10,10 +10,13 @@
 
 ## 裁决原则
 
-1. 越靠后的聊天内容优先级越高。
-2. 已写入 RFC 的术语优先于聊天原文。
-3. 早期术语只作为背景，不进入代码。
-4. 冲突无法裁决时，先标记为开放问题，不写进实现。
+1. 用户最新明确裁决优先；已经明确决定不照搬 Skynet 的部分，以该裁决为准。
+2. 对用户和 RFC 尚未说明、或 RFC 互相冲突的问题，先查 Skynet 官方设计文档和 Wiki。
+3. Skynet 设计文档没有说明清楚时，以 Skynet 官方源码实现判定其真实约束。
+4. 学习源码时提取设计约束，不机械复制 Lua、C 或 PTYPE 的具体机制；最终实现必须适配 Go 的 context、goroutine 和类型系统。
+5. Skynet 没有对应概念时，才采用 Go 惯例和一般工程规则。
+6. 已写入 RFC 的正式术语优先于未裁决的聊天原文；早期术语只作为背景，不进入代码。
+7. 仍无法裁决时标记为开放问题，不写进实现。
 
 ## 已裁决冲突
 
@@ -229,8 +232,16 @@ LoginService -> Gateway Adapter -> ProtocolMapper -> Command -> Service
 
 ```text
 Service = State + Mailbox + Handler
-Scheduler + WorkerPool 负责执行
+Scheduler + 固定执行许可池负责执行
 ```
+
+### Service 是否可以直接创建 goroutine
+
+裁决：不可以。
+
+Service 业务代码不得用 `go func` 创建脱离 Runtime 管理的异步任务。异步行为优先表达为 Command、Timer 或独立 Service。Runtime 发起的 Init、dispatch、Stop 和 Close 执行任务必须登记 owner、任务类型、取消函数和完成句柄；任务超时后即使无法强制终止，也不能从 Runtime 的追踪表中消失。
+
+第一版不提供公开 `Fork` 或 `Go` API。只有出现无法用 Command、Timer 或 Service 表达的明确需求时，才讨论受管 Task API。
 
 ### Service handler 内是否允许同步 Call
 

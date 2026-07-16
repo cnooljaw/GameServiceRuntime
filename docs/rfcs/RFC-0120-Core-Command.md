@@ -6,7 +6,7 @@
 
 ## 目的
 
-本文定义 Command、CommandID、CommandRegistry 和类型安全策略。
+本文定义 Command、CommandID、Command 声明和类型安全策略。
 
 ## 定义
 
@@ -33,21 +33,19 @@ type Command struct {
 
 第一版允许 `Payload any`，后续通过泛型和代码生成加强类型安全。
 
-## CommandRegistry
+## Command 声明与私有命令集
 
 每个 Service 声明自己支持的 Command。
 
-第一版保留 `Service.Handle` 作为统一处理入口，`CommandRegistry` 负责校验 Service 声明的稳定 CommandID：
+第一版保留 `Service.Handle` 作为唯一业务处理入口，Service 只通过 `CommandDeclarer` 声明稳定 CommandID：
 
 ```go
 type CommandDeclarer interface {
     Commands() []CommandID
 }
-
-type CommandRegistry struct { /* Runtime private state */ }
 ```
 
-创建 Service 时，Runtime 根据 `Commands()` 构建只读注册表。重复 CommandID 返回 `ErrCommandAlreadyRegistered`，投递未声明 Command 返回 `ErrCommandNotRegistered`，不会进入 Mailbox。
+创建 Service 时，Runtime 复制 `Commands()` 的结果并构建私有、只读的命令集。GSR 不导出 `CommandRegistry`、`Register` 或其它协议注册入口。重复 CommandID 返回 `ErrCommandAlreadyRegistered`，投递未声明 Command 返回 `ErrCommandNotRegistered`，不会进入 Mailbox。
 
 泛型包装：
 
@@ -138,7 +136,7 @@ Command Handler
 Service
 ```
 
-`CommandID` 是业务分发键。Transport 可以根据 `CommandID` 和注册表选择 payload 编码方式，但这个选择不暴露为业务可见的 `ProtocolID`。
+`CommandID` 是唯一的业务分发键。Transport 可以根据 `CommandID` 和编解码配置选择 payload 编码方式，但这个选择不暴露为业务可见的 `ProtocolID`，也不形成第二套业务分发机制。
 
 ## 规则
 
@@ -149,3 +147,4 @@ Service
 5. protobuf 只用于跨节点 payload 编码，不强制内部 handler 使用 protobuf。
 6. 不设计业务可见的 `PTYPE_*` 或 `ProtocolID` 分发层。
 7. 每个 Service 必须声明至少一个 CommandID，注册后不可在运行期修改。
+8. 业务消息只走 Command，不提供其它协议类型、动态注册表或旁路 handler。

@@ -97,7 +97,7 @@ Reply
 PendingCall
 ```
 
-业务 handler 只通过 `CommandContext.Reply` 或返回值表达响应。Runtime 负责创建响应 Envelope、路由回 Source、唤醒 PendingCall。
+业务 handler 只通过 `CommandContext.Reply` 或返回值表达响应。Runtime 负责逻辑响应路由：本地 Reply 可以直接完成 PendingCall；跨节点 Reply 由 Transport 的内部响应帧按 `Source + Session` 返回。响应机制不暴露给业务，也不是第二种 Command 或业务协议类型。
 
 ## 错误
 

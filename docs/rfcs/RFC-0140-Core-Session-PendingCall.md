@@ -50,9 +50,8 @@ Reply
   ↓
 Validate Session
   ↓
-Create response Envelope
-  ↓
-Route to Source
+Local: complete PendingCall directly
+Remote: route internal response frame to Source
   ↓
 Wake PendingCall
 ```
@@ -80,7 +79,7 @@ metrics late_reply_total++
 
 跨节点时，Session 必须带回源节点。
 
-远端不需要知道调用方 goroutine，只需要把 Reply 按 Source + Session 发回去。
+远端不需要知道调用方 goroutine，只需要通过 Transport 内部响应帧把 Reply 按 Source + Session 发回去。内部响应帧不是业务 Command，也不进入 Command Dispatcher。
 
 ## Service 内 Call
 

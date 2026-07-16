@@ -26,6 +26,8 @@ Core Runtime 只需要支持已有生命周期状态和 `Stop`。
 
 Drain、访问者追踪、服务组切换属于扩展层。
 
+需要通知依赖方、切走流量或等待跨 Service 访问结束的动作必须在 Runtime 仍为 Running 时由 Drain 完成。`Runtime.Close` 进入 Closing 后不再允许新的 Send、Call 或 After。
+
 禁止为热更新污染 Core Runtime 的最小接口。
 
 ## 状态模型

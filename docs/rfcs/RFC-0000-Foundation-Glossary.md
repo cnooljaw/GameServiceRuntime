@@ -38,6 +38,8 @@
 | Session | Call 和 Reply 的关联编号。 |
 | Mailbox | 每个 Service 的消息队列。 |
 | Scheduler | 调度 ready Service 的 Runtime 组件。 |
+| Execution Permit | Scheduler 的有限执行许可，用于约束同时运行的 Service handler 数量。它不等于固定 goroutine。 |
+| Runtime Task | Runtime 创建并追踪的 Service 执行任务，记录 owner、任务类型、开始时间、取消函数和完成句柄。 |
 | Timer | 生成未来 Command 的 Runtime 组件。 |
 | Cluster Transport | 远程 Service 消息投递通道，不是传统 RPC。 |
 | Cluster Data Plane | 集群数据面，负责业务 `Envelope` 的跨节点投递。 |
@@ -126,3 +128,4 @@ Battle 是游戏业务封装。Core Runtime 只知道 Service 和 Command。Game
 7. `ServiceGroup`、热更新、录制回放都属于扩展层，不进入 Core Runtime 最小接口。
 8. 登录握手和 `secret` 交换只能由 `LoginService` 负责，不能放进 Gateway、Agent、ProtocolMapper 或 Core Runtime。
 9. 一份可变的权威状态只能有一个状态 owner；不得以嵌套锁协调两个 Service 的状态。
+10. Service 实现不得直接创建 goroutine；异步业务必须通过 Command、Timer 或独立 Service 表达。

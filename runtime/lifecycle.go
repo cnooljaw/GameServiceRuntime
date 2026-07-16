@@ -33,17 +33,19 @@ func (r *Runtime) Stop(ctx context.Context, ref ServiceRef) error {
 	}
 	instance.acceptMu.Unlock()
 	r.scheduler.schedule(instance)
-	total := instance.policy.StopTimeout + instance.policy.CloseTimeout + 50*time.Millisecond
-	timer := time.NewTimer(total)
+	timer := time.NewTimer(instance.policy.LifecycleTimeout)
 	defer timer.Stop()
 	select {
 	case err := <-request.result:
 		return err
 	case <-ctx.Done():
-		r.finalize(instance, ServiceFailed, ctx.Err())
-		return ctx.Err()
+		cause := context.Cause(ctx)
+		r.tasks.timeoutOwner(instance.ref)
+		r.finalize(instance, ServiceFailed, cause)
+		return cause
 	case <-timer.C:
 		r.metrics.Inc("stop_timeouts_total")
+		r.tasks.timeoutOwner(instance.ref)
 		r.finalize(instance, ServiceFailed, ErrStopTimeout)
 		return ErrStopTimeout
 	}
@@ -77,18 +79,17 @@ func (r *Runtime) executeStop(instance *serviceInstance, request *stopRequest) {
 func (r *Runtime) runStop(instance *serviceInstance, parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, instance.policy.StopTimeout)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- invokeService(func() error { return instance.service.Stop(ctx) }) }()
+	task, done := r.invokeTask(instance.ref, runtimeTaskStop, cancel, func() error {
+		return instance.service.Stop(ctx)
+	})
 	select {
 	case err := <-done:
-		if errors.Is(err, ErrServiceFailed) {
-			r.metrics.Inc("service_panics_total")
-			r.logger.Error("service stop panic", "service", instance.ref, "error", err)
-		}
+		r.observeLifecycleError(instance, "stop", err)
 		return err
 	case <-ctx.Done():
+		r.tasks.timeout(task)
 		if err := parent.Err(); err != nil {
-			return err
+			return context.Cause(parent)
 		}
 		r.metrics.Inc("stop_timeouts_total")
 		return ErrStopTimeout
@@ -97,25 +98,36 @@ func (r *Runtime) runStop(instance *serviceInstance, parent context.Context) err
 
 func (r *Runtime) runClose(instance *serviceInstance) error {
 	instance.closing.Store(true)
-	done := make(chan error, 1)
-	go func() { done <- invokeService(instance.service.Close) }()
+	task, done := r.invokeTask(instance.ref, runtimeTaskClose, nil, instance.service.Close)
 	timer := time.NewTimer(instance.policy.CloseTimeout)
 	defer timer.Stop()
 	select {
 	case err := <-done:
-		if errors.Is(err, ErrServiceFailed) {
-			r.metrics.Inc("service_panics_total")
-			r.logger.Error("service close panic", "service", instance.ref, "error", err)
-		}
+		r.observeLifecycleError(instance, "close", err)
 		return err
 	case <-timer.C:
+		r.tasks.timeout(task)
 		r.metrics.Inc("close_timeouts_total")
 		return ErrCloseTimeout
 	}
 }
 
+func (r *Runtime) observeLifecycleError(instance *serviceInstance, phase string, err error) {
+	if err == nil {
+		return
+	}
+	r.metrics.Inc("service_" + phase + "_errors_total")
+	if errors.Is(err, ErrServiceFailed) {
+		r.metrics.Inc("service_panics_total")
+		r.logger.Error("service lifecycle panic", "service", instance.ref, "phase", phase, "error", err)
+		return
+	}
+	r.logger.Error("service lifecycle error", "service", instance.ref, "phase", phase, "error", err)
+}
+
 func (r *Runtime) finalize(instance *serviceInstance, status ServiceStatus, cause error) {
 	if !instance.finalized.CompareAndSwap(false, true) {
+		<-instance.done
 		return
 	}
 	instance.acceptMu.Lock()
@@ -144,7 +156,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return ErrRuntimeClosed
 	}
 	r.createMu.Unlock()
-	closeCtx, cancel := context.WithTimeout(ctx, r.shutdownTimeout)
+	closeCtx, cancel := context.WithTimeoutCause(ctx, r.shutdownTimeout, ErrCloseTimeout)
 	defer cancel()
 	r.pending.failAll(ErrRuntimeClosed)
 	created := make(chan struct{})
@@ -153,7 +165,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	select {
 	case <-created:
 	case <-closeCtx.Done():
-		result = ErrCloseTimeout
+		result = runtimeCloseCause(ctx)
 	}
 	instances := r.registry.snapshot()
 	stopResults := make(chan error, len(instances))
@@ -175,21 +187,44 @@ func (r *Runtime) Close(ctx context.Context) error {
 	case <-stopped:
 		for range instances {
 			if err := <-stopResults; err != nil && !errors.Is(err, ErrServiceClosed) {
+				if closeCtx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+					err = runtimeCloseCause(ctx)
+				}
 				result = errors.Join(result, err)
 			}
 		}
 	case <-closeCtx.Done():
-		result = errors.Join(result, ErrCloseTimeout)
+		result = errors.Join(result, runtimeCloseCause(ctx))
+	}
+	forcedCause := error(ErrRuntimeClosed)
+	forcedStatus := ServiceClosed
+	if closeCtx.Err() != nil {
+		forcedCause = runtimeCloseCause(ctx)
+		forcedStatus = ServiceFailed
 	}
 	for _, instance := range instances {
-		r.finalize(instance, ServiceClosed, ErrRuntimeClosed)
+		if forcedStatus == ServiceFailed {
+			r.tasks.timeoutOwner(instance.ref)
+		}
+		r.finalize(instance, forcedStatus, forcedCause)
 	}
 	r.timers.cancelAll()
 	r.pending.failAll(ErrRuntimeClosed)
 	if err := r.scheduler.close(closeCtx); err != nil {
+		if closeCtx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			err = runtimeCloseCause(ctx)
+		}
 		result = errors.Join(result, err)
 	}
+	r.reportActiveTasks()
 	r.registry.clear()
 	r.state.Store(runtimeClosed)
 	return result
+}
+
+func runtimeCloseCause(parent context.Context) error {
+	if parent.Err() != nil {
+		return context.Cause(parent)
+	}
+	return ErrCloseTimeout
 }

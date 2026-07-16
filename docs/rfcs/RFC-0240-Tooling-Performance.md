@@ -16,7 +16,7 @@ Service 不等于 goroutine。
 Service = State + Mailbox + Handler
 ```
 
-执行由 Scheduler + Worker Pool 管理。
+执行由 Scheduler + 固定执行许可池管理。
 
 ## 主要压力
 
@@ -37,7 +37,7 @@ Service = State + Mailbox + Handler
 - `Payload any`。
 - channel Mailbox。
 - Go timer。
-- 固定 WorkerPool。
+- 固定执行许可池。
 
 ## 优化方向
 

@@ -59,9 +59,10 @@ const (
 
 // ServicePolicy configures Service lifecycle behavior.
 type ServicePolicy struct {
-	StopTimeout  time.Duration
-	CloseTimeout time.Duration
-	Mailbox      MailboxStopPolicy
+	StopTimeout      time.Duration
+	CloseTimeout     time.Duration
+	LifecycleTimeout time.Duration
+	Mailbox          MailboxStopPolicy
 }
 
 // ServiceSpec describes a Service created by Runtime.
@@ -115,7 +116,7 @@ type serviceInstance struct {
 	ref        ServiceRef
 	name       ServiceName
 	service    Service
-	commands   *CommandRegistry
+	commands   *commandSet
 	mailbox    *mailbox
 	policy     ServicePolicy
 	context    *serviceContext
@@ -158,7 +159,7 @@ func (i *serviceInstance) wait(ctx context.Context) error {
 		defer i.resultMu.RUnlock()
 		return i.result
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	}
 }
 

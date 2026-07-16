@@ -65,7 +65,7 @@ Service B Handle Command
 实现：
 
 - `CommandID`
-- `CommandRegistry`
+- `CommandDeclarer` 与 Runtime 私有只读命令集
 - `SessionID`
 - `PendingCall`
 - `Call`
@@ -82,7 +82,7 @@ Service B Handle Command
 实现：
 
 - ReadyQueue。
-- WorkerPool。
+- 固定执行许可池。
 - Batch。
 - 慢 Command 指标。
 

@@ -18,6 +18,7 @@
 - 只使用 `Service`、`ServiceRef`、`Command`、`Send`、`Call` 命名；禁止 `Actor`、`Spawn`、`Ask`、`Tell`、`PTYPE`。
 - Service 状态只能在 Mailbox 消费的 handler 内修改。
 - Service 之间只能通过 `ServiceRef` 和 Command 通信，不持有另一个 Service 指针。
+- Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service，由 Runtime 创建并追踪执行任务。
 - Timer 只能投递 Command，不能执行业务回调。
 - `Session` 只关联 Call/Reply；业务幂等使用 `RequestID`。
 

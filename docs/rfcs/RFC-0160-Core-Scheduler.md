@@ -31,25 +31,29 @@ Mailbox receives Envelope
   ↓
 ReadyQueue receives ServiceRef
   ↓
-WorkerPool takes ServiceRef
+Dispatcher acquires execution permit
   ↓
-Process mailbox batch
+Runtime-managed task processes mailbox batch
   ↓
 Requeue if mailbox not empty
 ```
 
-ReadyQueue 必须支持非阻塞 Push。Service handler 内的 Send 不能因为 ReadyQueue 满而占住所有执行 worker。第一版使用互斥保护的可增长队列，每个 Service 的原子 ready 标记保证最多存在一个队列项。
+ReadyQueue 必须支持非阻塞 Push。Service handler 内的 Send 不能因为 ReadyQueue 满而占住所有执行许可。第一版使用互斥保护的可增长队列，每个 Service 的原子 ready 标记保证最多存在一个队列项。
 
-## Worker 流程
+## 调度流程
 
 ```go
 for {
     ref := readyQueue.Pop()
+    permit := executionPermits.Acquire()
     instance := registry.Get(ref)
-    n := processBatch(instance, maxBatch)
-    if instance.Mailbox.NotEmpty() {
-        readyQueue.Push(ref)
-    }
+    startTrackedTask(instance, func() {
+        defer permit.Release()
+        processBatch(instance, maxBatch)
+        if instance.Mailbox.NotEmpty() {
+            readyQueue.Push(ref)
+        }
+    })
 }
 ```
 
@@ -60,7 +64,7 @@ for {
 目的：
 
 1. 提高吞吐。
-2. 防止单个 Service 长时间霸占 Worker。
+2. 防止单个 Service 长时间霸占执行许可。
 3. 给其它 ready Service 执行机会。
 
 ## 慢 Command
@@ -82,12 +86,24 @@ Service handler 不应直接执行长时间阻塞操作。
 
 `ServiceContext.Call` 是受 Runtime 管理的例外：handler 等待 Reply 时让出有限执行许可，但保持该 Service busy；Reply 返回后重新获取许可并继续。这样不会把同步等待计入可运行 handler 的并发上限。
 
+## Runtime Task 追踪
+
+固定的是同时执行 Service 代码的许可数量，不是 Go goroutine 的绝对数量。Runtime 可以为 ready Service 创建执行任务，但每个任务必须登记：
+
+- owner ServiceRef。
+- task kind，例如 init、dispatch、stop、close。
+- started time。
+- cancel function，如果该任务可取消。
+- done handle。
+
+任务超时后，Runtime 可以释放 Mailbox、Registry、PendingCall 等自有结构，但任务记录必须保留到实际函数返回。Runtime 关闭时仍未返回的任务必须记录日志和 `runtime_tasks_abandoned_total`。
+
 ## 第一版范围
 
 第一版实现：
 
 - ReadyQueue。
-- 固定 WorkerPool。
+- 固定执行许可池。
 - maxBatch。
 - 慢 Command 统计。
 - 非阻塞 ReadyQueue 入队。
@@ -97,7 +113,7 @@ Service handler 不应直接执行长时间阻塞操作。
 
 - 多级优先级队列。
 - Work stealing。
-- 动态 Worker 数量。
+- 动态执行许可数量。
 
 ## 故障边界
 

@@ -67,7 +67,9 @@ type ServiceContext interface {
 }
 ```
 
-`ServiceContext.Call` 只能在 `Handle` 或 `Stop` 的串行执行路径中调用。Service 不得从自建 goroutine 使用保存下来的 Context；Runtime 依靠当前 Service 的执行许可实现 Call 等待时的让出与恢复。
+`ServiceContext.Call` 只能在 `Handle` 或单独 `Runtime.Stop` 触发的串行执行路径中调用。Service 不得从自建 goroutine 使用保存下来的 Context；Runtime 依靠当前 Service 的执行许可实现 Call 等待时的让出与恢复。`Runtime.Close` 进入 Closing 后，所有新的 Send、Call 和 After 都被拒绝。
+
+Service 实现不得直接创建 goroutine。异步业务使用 Command、Timer 或独立 Service；Runtime 创建的 Service 执行任务由内部任务表追踪。第一版不公开 `Fork` 或 `Go` API。
 
 禁止在 `ServiceContext` 暴露：
 
@@ -88,7 +90,7 @@ type ServiceInstance struct {
     Mailbox  *Mailbox
     Status   ServiceStatus
     Policy   ServicePolicy
-    Commands *CommandRegistry
+    commands *commandSet
 }
 ```
 
@@ -98,7 +100,7 @@ type ServiceInstance struct {
 
 1. Service 状态只能在 `Handle` 中修改。
 2. Service 之间只能通过 `ServiceRef` 通信。
-3. Service 不能启动常驻 goroutine 修改自身状态。
+3. Service 不能直接创建 goroutine；无论是否修改自身状态，都不能产生脱离 Runtime 追踪的异步任务。
 4. 外部系统要影响 Service，只能投递 Command。
 5. `Init`、`Handle`、`Stop`、`Close` 中的 panic 都必须由 Runtime 捕获；第一版标记 `Failed` 并隔离实例，后续交给 Supervisor 决定恢复策略。
 6. Service 必须通过 `CommandDeclarer` 声明可接收的 CommandID。

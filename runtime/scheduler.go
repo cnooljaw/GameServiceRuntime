@@ -49,7 +49,12 @@ func (s *scheduler) dispatchLoop() {
 		}
 		instance.permitHeld.Store(true)
 		s.tasks.Add(1)
-		go func() { defer s.tasks.Done(); s.process(instance) }()
+		task := s.runtime.tasks.begin(instance.ref, runtimeTaskDispatch, nil)
+		go func() {
+			defer s.tasks.Done()
+			defer s.runtime.tasks.finish(task)
+			s.process(instance)
+		}()
 	}
 }
 
@@ -121,6 +126,6 @@ func (s *scheduler) close(ctx context.Context) error {
 	case <-finished:
 		return nil
 	case <-ctx.Done():
-		return ErrCloseTimeout
+		return context.Cause(ctx)
 	}
 }

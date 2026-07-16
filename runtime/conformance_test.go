@@ -109,8 +109,8 @@ func TestHandlerPanicIsIsolated(t *testing.T) {
 
 func TestStopTimeoutStillRemovesService(t *testing.T) {
 	rt := gsr.NewRuntime(gsr.Config{NodeID: "local", Workers: 1})
-	defer rt.Close(context.Background())
-	ref, err := rt.CreateService(gsr.ServiceSpec{Service: blockingStopService{}, Policy: gsr.ServicePolicy{StopTimeout: 20 * time.Millisecond, CloseTimeout: 20 * time.Millisecond}})
+	svc := &releasableStopService{started: make(chan struct{}), release: make(chan struct{})}
+	ref, err := rt.CreateService(gsr.ServiceSpec{Service: svc, Policy: gsr.ServicePolicy{StopTimeout: 20 * time.Millisecond, CloseTimeout: 20 * time.Millisecond}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,9 +125,83 @@ func TestStopTimeoutStillRemovesService(t *testing.T) {
 	if err := rt.Send(ref, 1, nil); !errors.Is(err, gsr.ErrServiceClosed) {
 		t.Fatalf("send err = %v", err)
 	}
+	close(svc.release)
+	eventually(t, func() bool {
+		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+	})
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestCommandRegistryRejectsUnknownCommand(t *testing.T) {
+func TestTimedOutStopTaskRemainsTrackedUntilItReturns(t *testing.T) {
+	rt := gsr.NewRuntime(gsr.Config{NodeID: "local", Workers: 1})
+	svc := &releasableStopService{started: make(chan struct{}), release: make(chan struct{})}
+	ref, err := rt.CreateService(gsr.ServiceSpec{
+		Service: svc,
+		Policy: gsr.ServicePolicy{
+			StopTimeout:      20 * time.Millisecond,
+			CloseTimeout:     20 * time.Millisecond,
+			LifecycleTimeout: time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Stop(context.Background(), ref); !errors.Is(err, gsr.ErrStopTimeout) {
+		t.Fatalf("Stop err = %v", err)
+	}
+	<-svc.started
+	eventually(t, func() bool {
+		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 1
+	})
+	if got := rt.MetricsSnapshot().Counter("runtime_task_timeouts_total"); got != 1 {
+		t.Fatalf("task timeouts = %d", got)
+	}
+	close(svc.release)
+	eventually(t, func() bool {
+		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+	})
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLifecycleTimeoutIncludesMailboxWait(t *testing.T) {
+	rt := gsr.NewRuntime(gsr.Config{NodeID: "local", Workers: 1})
+	svc := newSerialStopService()
+	ref, err := rt.CreateService(gsr.ServiceSpec{
+		Service: svc,
+		Policy: gsr.ServicePolicy{
+			StopTimeout:      time.Second,
+			CloseTimeout:     time.Second,
+			LifecycleTimeout: 20 * time.Millisecond,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Send(ref, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	<-svc.started
+	started := time.Now()
+	if err := rt.Stop(context.Background(), ref); !errors.Is(err, gsr.ErrStopTimeout) {
+		t.Fatalf("Stop err = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("Stop exceeded lifecycle timeout: %v", elapsed)
+	}
+	close(svc.release)
+	eventually(t, func() bool {
+		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+	})
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrivateCommandSetRejectsUnknownCommand(t *testing.T) {
 	rt := gsr.NewRuntime(gsr.Config{NodeID: "local"})
 	defer rt.Close(context.Background())
 	ref, err := rt.CreateService(gsr.ServiceSpec{Service: &recordingService{}})
@@ -189,6 +263,44 @@ func TestRuntimeCloseStopsServicesAndWakesPendingCall(t *testing.T) {
 	}
 	if err := rt.Send(ref, 1, nil); !errors.Is(err, gsr.ErrRuntimeClosed) {
 		t.Fatalf("send err = %v", err)
+	}
+}
+
+func TestRuntimeClosePreservesCallerCancellation(t *testing.T) {
+	rt := gsr.NewRuntime(gsr.Config{NodeID: "local", ShutdownTimeout: time.Second})
+	cause := errors.New("shutdown canceled")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(cause)
+	err := rt.Close(ctx)
+	if !errors.Is(err, cause) {
+		t.Fatalf("Close err = %v, want caller cause", err)
+	}
+	if errors.Is(err, gsr.ErrCloseTimeout) {
+		t.Fatalf("Close err = %v, must not report an internal timeout", err)
+	}
+}
+
+func TestLifecycleErrorsAreObserved(t *testing.T) {
+	stopErr := errors.New("stop failed")
+	closeErr := errors.New("close failed")
+	rt := gsr.NewRuntime(gsr.Config{NodeID: "local"})
+	ref, err := rt.CreateService(gsr.ServiceSpec{Service: lifecycleErrorService{stopErr: stopErr, closeErr: closeErr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = rt.Stop(context.Background(), ref)
+	if !errors.Is(err, stopErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("Stop err = %v", err)
+	}
+	metrics := rt.MetricsSnapshot()
+	if got := metrics.Counter("service_stop_errors_total"); got != 1 {
+		t.Fatalf("stop errors = %d", got)
+	}
+	if got := metrics.Counter("service_close_errors_total"); got != 1 {
+		t.Fatalf("close errors = %d", got)
+	}
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -486,6 +598,9 @@ func TestRuntimeCloseWaitsForServiceInitialization(t *testing.T) {
 		created <- err
 	}()
 	<-svc.started
+	eventually(t, func() bool {
+		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 1
+	})
 	closed := make(chan error, 1)
 	go func() { closed <- rt.Close(context.Background()) }()
 	select {
@@ -504,6 +619,9 @@ func TestRuntimeCloseWaitsForServiceInitialization(t *testing.T) {
 	case <-svc.closed:
 	default:
 		t.Fatal("partially initialized Service was not closed")
+	}
+	if got := rt.MetricsSnapshot().Gauge("runtime_tasks_active"); got != 0 {
+		t.Fatalf("active runtime tasks = %d", got)
 	}
 }
 
@@ -783,13 +901,25 @@ func (panicService) Handle(gsr.CommandContext, gsr.Command) error { panic("boom"
 func (panicService) Stop(context.Context) error                   { return nil }
 func (panicService) Close() error                                 { return nil }
 
-type blockingStopService struct{}
+type releasableStopService struct{ started, release chan struct{} }
 
-func (blockingStopService) Commands() []gsr.CommandID                    { return []gsr.CommandID{1} }
-func (blockingStopService) Init(gsr.ServiceContext) error                { return nil }
-func (blockingStopService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
-func (blockingStopService) Stop(context.Context) error                   { select {} }
-func (blockingStopService) Close() error                                 { return nil }
+func (*releasableStopService) Commands() []gsr.CommandID                    { return []gsr.CommandID{1} }
+func (*releasableStopService) Init(gsr.ServiceContext) error                { return nil }
+func (*releasableStopService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
+func (s *releasableStopService) Stop(context.Context) error {
+	close(s.started)
+	<-s.release
+	return nil
+}
+func (*releasableStopService) Close() error { return nil }
+
+type lifecycleErrorService struct{ stopErr, closeErr error }
+
+func (lifecycleErrorService) Commands() []gsr.CommandID                    { return []gsr.CommandID{1} }
+func (lifecycleErrorService) Init(gsr.ServiceContext) error                { return nil }
+func (lifecycleErrorService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
+func (s lifecycleErrorService) Stop(context.Context) error                 { return s.stopErr }
+func (s lifecycleErrorService) Close() error                               { return s.closeErr }
 
 type pendingService struct{ handled, stopped, closed chan struct{} }
 
