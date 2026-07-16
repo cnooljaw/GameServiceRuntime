@@ -100,19 +100,22 @@ Command Dispatcher
 
 ## TCP 连接模型
 
+TCP adapter 位于 `transport/tcp`，通过以下配置构造：
+
 ```go
-type ClusterManager struct {
-    connections map[NodeID]*Connection
+type Config struct {
+    ListenAddress    string
+    Peers            map[NodeID]string
+    DialTimeout      time.Duration
+    HandshakeTimeout time.Duration
+    WriteTimeout     time.Duration
+    MaxFrameSize     uint32
 }
 
-type Connection struct {
-    Node    NodeID
-    Conn    net.Conn
-    Encoder Encoder
-    Decoder Decoder
-    State   ConnectionState
-}
+transport := tcp.New(config)
 ```
+
+`Peers` 只提供第一版同步建连所需的静态地址，不承担服务发现；动态地址更新接口由后续 Control Plane 设计，不进入当前 Core API。
 
 状态：
 
@@ -120,7 +123,6 @@ type Connection struct {
 Connecting
 Connected
 Disconnected
-Reconnecting
 Closed
 ```
 
@@ -154,6 +156,8 @@ Connected
 握手必须在业务帧之前完成。对端 NodeID 不能为空、不能等于本地 NodeID，协议版本必须相同；主动连接时，对端声明的 NodeID 还必须等于目标 NodeID。失败连接不得进入连接表。
 
 TCP 帧使用 `uint32` 大端长度前缀。实现必须限制 NodeID 长度、CallPath 长度、payload 长度和总帧长度，不能按不可信长度无限分配内存。
+
+第一版握手协议版本固定为 `1`，WireEnvelope 二进制格式版本固定为 `1`。默认最大帧为 16 MiB，NodeID 最长 255 bytes，CallPath 最多 64 项；这些限制在读取 payload 前检查。
 
 ## 断线处理
 
