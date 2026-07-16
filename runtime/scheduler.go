@@ -1,58 +1,126 @@
 package gsr
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type scheduler struct {
-	runtime  *Runtime
-	ready    chan ServiceRef
-	maxBatch int
-	done     chan struct{}
-	once     sync.Once
-	workers  sync.WaitGroup
+	runtime   *Runtime
+	queue     *readyQueue
+	permits   chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+	dispatch  sync.WaitGroup
+	tasks     sync.WaitGroup
+	maxBatch  int
 }
 
 func newScheduler(runtime *Runtime, workers, maxBatch int) *scheduler {
-	s := &scheduler{runtime: runtime, ready: make(chan ServiceRef, workers*4), maxBatch: maxBatch, done: make(chan struct{})}
-	for i := 0; i < workers; i++ {
-		s.workers.Add(1)
-		go s.worker()
-	}
+	s := &scheduler{runtime: runtime, queue: newReadyQueue(), permits: make(chan struct{}, workers), done: make(chan struct{}), maxBatch: maxBatch}
+	s.dispatch.Add(1)
+	go s.dispatchLoop()
 	return s
 }
+
 func (s *scheduler) schedule(instance *serviceInstance) {
 	if !instance.ready.CompareAndSwap(false, true) {
 		return
 	}
-	select {
-	case s.ready <- instance.ref:
-	case <-s.done:
+	if !s.queue.push(instance.ref) {
 		instance.ready.Store(false)
 	}
 }
-func (s *scheduler) worker() {
-	defer s.workers.Done()
+
+func (s *scheduler) dispatchLoop() {
+	defer s.dispatch.Done()
 	for {
-		select {
-		case ref := <-s.ready:
-			if instance, err := s.runtime.registry.get(ref); err == nil {
-				s.process(instance)
-			}
-		case <-s.done:
+		ref, ok := s.queue.pop()
+		if !ok {
 			return
 		}
+		if !s.acquire() {
+			return
+		}
+		instance, err := s.runtime.registry.get(ref)
+		if err != nil {
+			s.release()
+			continue
+		}
+		instance.permitHeld.Store(true)
+		s.tasks.Add(1)
+		go func() { defer s.tasks.Done(); s.process(instance) }()
 	}
 }
+
 func (s *scheduler) process(instance *serviceInstance) {
+	defer func() {
+		if instance.permitHeld.CompareAndSwap(true, false) {
+			s.release()
+		}
+	}()
 	for n := 0; n < s.maxBatch; n++ {
-		envelope, ok := instance.mailbox.pop()
+		item, ok := instance.mailbox.pop()
 		if !ok {
 			break
 		}
-		instance.service.Handle(commandContext{self: instance.ref, runtime: s.runtime, session: envelope.Session}, Command{ID: envelope.Command, Payload: envelope.Payload})
+		if item.stop != nil {
+			s.runtime.executeStop(instance, item.stop)
+			instance.ready.Store(false)
+			return
+		}
+		s.runtime.executeEnvelope(instance, *item.envelope)
+		if instance.finalized.Load() {
+			instance.ready.Store(false)
+			return
+		}
 	}
 	instance.ready.Store(false)
-	if instance.mailbox.notEmpty() {
+	if instance.mailbox.notEmpty() && !instance.finalized.Load() {
 		s.schedule(instance)
 	}
 }
-func (s *scheduler) close() { s.once.Do(func() { close(s.done); s.workers.Wait() }) }
+
+func (s *scheduler) yield(instance *serviceInstance) bool {
+	if !instance.permitHeld.CompareAndSwap(true, false) {
+		return false
+	}
+	s.release()
+	return true
+}
+
+func (s *scheduler) resume(instance *serviceInstance) error {
+	if !s.acquire() {
+		return ErrRuntimeClosed
+	}
+	instance.permitHeld.Store(true)
+	return nil
+}
+
+func (s *scheduler) acquire() bool {
+	select {
+	case s.permits <- struct{}{}:
+		return true
+	case <-s.done:
+		return false
+	}
+}
+func (s *scheduler) release() {
+	select {
+	case <-s.permits:
+	default:
+	}
+}
+
+func (s *scheduler) close(ctx context.Context) error {
+	s.closeOnce.Do(func() { close(s.done); s.queue.close() })
+	s.dispatch.Wait()
+	finished := make(chan struct{})
+	go func() { s.tasks.Wait(); close(finished) }()
+	select {
+	case <-finished:
+		return nil
+	case <-ctx.Done():
+		return ErrCloseTimeout
+	}
+}

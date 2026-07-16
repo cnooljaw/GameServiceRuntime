@@ -33,9 +33,10 @@ type Command struct {
 
 // Envelope is the Runtime's internal message representation.
 type Envelope struct {
-	Source  ServiceRef
-	Target  ServiceRef
-	Session SessionID
-	Command CommandID
-	Payload any
+	Source   ServiceRef
+	Target   ServiceRef
+	Session  SessionID
+	Command  CommandID
+	Payload  any
+	CallPath []ServiceRef
 }

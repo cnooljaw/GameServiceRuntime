@@ -58,3 +58,16 @@ func (m *timerManager) cancelTarget(target ServiceRef) {
 		entry.timer.Stop()
 	}
 }
+
+func (m *timerManager) cancelAll() {
+	m.mu.Lock()
+	entries := make([]timerEntry, 0, len(m.timers))
+	for id, entry := range m.timers {
+		delete(m.timers, id)
+		entries = append(entries, entry)
+	}
+	m.mu.Unlock()
+	for _, entry := range entries {
+		entry.timer.Stop()
+	}
+}
