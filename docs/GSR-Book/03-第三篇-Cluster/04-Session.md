@@ -1,32 +1,33 @@
 # Session
 
-> 状态：Draft
+> 状态：已实现
+>
+> 规范：[RFC-0140](../../rfcs/RFC-0140-Core-Session-PendingCall.md)、[RFC-0190](../../rfcs/RFC-0190-Core-Cluster-Data-Plane.md)
 
-## 本章目标
+## 作用
 
-会话。
+Session 只关联一次 Call 和 Reply，不表示玩家登录会话，也不承担业务幂等。
 
-## 固定结构
+```text
+Caller 创建 PendingCall
+        ↓ SessionID
+Envelope -> Local 或 Remote Service
+        ↓ Reply
+校验 caller + responder + Command + Session
+        ↓
+完成 PendingCall
+```
 
-- 背景
-- 为什么需要
-- 设计目标
-- 最终方案
-- API 设计
-- 数据结构
-- 时序图
-- 与 Skynet 对比
-- Go 实现建议
-- Codex Prompt
-- 单元测试
-- Benchmark
-- 总结
+## 分配与校验
 
-## 全书统一术语
+- `SessionID=0` 表示 Send，不等待 Reply。
+- 分配回绕时跳过 0，并且不能覆盖仍在等待的 Session。
+- Reply 来源与原始调用不匹配时丢弃，不能完成 PendingCall。
+- Call context 超时后移除 PendingCall；迟到 Reply 只增加指标。
+- Service 关闭、Runtime 关闭或远端节点断开会用明确错误失败相关 PendingCall。
 
-- Service
-- ServiceRef
-- Command
-- CreateService
-- Call / Send
-- Battle
+## 与业务会话的区别
+
+登录连接使用 `SessionIdentity`、LoginTicket 或 RequestID，由 LoginService 和 SessionRegistry 管理。它们不能复用 Core `SessionID`。
+
+业务重试和幂等应使用稳定 `RequestID`；Call 超时不代表远端一定没有执行。

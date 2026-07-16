@@ -209,10 +209,10 @@ go test ./runtime -run '^TestRuntimeInspect(ReportsPendingCallsAndTimers|Reports
 **步骤：**
 
 1. 修正 README 中 Cluster Transport 仍在规划的过期说明，补充本地和双节点示例入口。
-2. 对照已实现代码逐份检查 `RFC-0100` 至 `RFC-0191`；只在内容与实现一致后将状态改为“已接受”。
+2. 对照已实现代码逐份检查 `RFC-0100` 至 `RFC-0191`；本任务只修正文档内容，正式状态在 Task 5 Review 清零后改为“已接受”。
 3. 回填 GSR Book 已实现的 Core 与 Cluster 章节；Discovery 章节继续保持 Draft。
 4. 文档只描述已实现能力。Discovery、Supervisor、Snapshot、NodeAgent、Login 和业务模板继续链接对应草案 RFC。
-5. 把 `CF-009`、`CF-010` 标记为已完成，`CF-011` 保持待发布。
+5. 把 `CF-009` 标记为已完成、`CF-010` 标记为执行中，`CF-011` 保持待发布。
 6. 检查 Markdown 链接和过期措辞：
 
    ```bash
@@ -244,6 +244,8 @@ go test ./runtime -run '^$' -bench 'Benchmark(Send|CallReply|ManyServices|TimerD
 ```
 
 P1/P2 Review 结论必须清零后才能进入 Task 6。修复按垂直切片单独提交，提交信息使用中文。
+
+Review 清零后，把 `RFC-0100` 至 `RFC-0191` 的状态改为“已接受”，并把 `CF-010` 标记为已完成。
 
 ## Task 6：发布 Core v0.1.0
 

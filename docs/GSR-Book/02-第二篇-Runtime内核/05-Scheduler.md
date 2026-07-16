@@ -1,32 +1,31 @@
 # Scheduler
 
-> 状态：Draft
+> 状态：已实现
+>
+> 规范：[RFC-0160](../../rfcs/RFC-0160-Core-Scheduler.md)
 
-## 本章目标
+## 调度模型
 
-调度器。
+Service 不绑定 goroutine。Scheduler 使用共享 ReadyQueue 和固定数量执行许可：
 
-## 固定结构
+```text
+Mailbox 非空
+    ↓
+ReadyQueue（ServiceRef）
+    ↓
+固定执行许可池
+    ↓
+批量串行处理 Command
+```
 
-- 背景
-- 为什么需要
-- 设计目标
-- 最终方案
-- API 设计
-- 数据结构
-- 时序图
-- 与 Skynet 对比
-- Go 实现建议
-- Codex Prompt
-- 单元测试
-- Benchmark
-- 总结
+每个 Service 使用 `ready` 标记避免重复入队，使用执行许可保证同一实例只有一个调度任务。单次最多处理 `MaxBatch` 个队列项，之后重新排队，让其他 Service 获得执行机会。
 
-## 全书统一术语
+## Call 期间的许可
 
-- Service
-- ServiceRef
-- Command
-- CreateService
-- Call / Send
-- Battle
+Service Handler 同步 `Call` 其他 Service 时，Scheduler 暂时归还当前执行许可；Call 完成后重新获取。Service 在等待期间仍保持 busy，不处理自己的下一条 Command。
+
+这种设计避免固定 Worker 数被同步 Call 全部占满，同时保留单 Service 串行语义。CallPath 会拒绝 self-call 和已检测到的跨 Service 调用环。
+
+## 关闭
+
+Scheduler 关闭 ReadyQueue，等待已启动的调度任务真实返回。期限耗尽时 Runtime 返回关闭错误，但任务仍保留在 `Runtime.Inspect` 中，不能假装 goroutine 已被强杀。

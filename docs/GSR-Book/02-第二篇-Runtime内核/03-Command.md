@@ -1,32 +1,35 @@
 # Command
 
-> 状态：Draft
+> 状态：已实现
+>
+> 规范：[RFC-0120](../../rfcs/RFC-0120-Core-Command.md)
 
-## 本章目标
+## 唯一业务入口
 
-Command 模型。
+```go
+type Command struct {
+    ID      CommandID
+    Payload any
+}
+```
 
-## 固定结构
+业务分发只看 `CommandID`。GSR 不引入 `PTYPE_LUA`、`PTYPE_SOCKET` 等第二套协议分发概念。
 
-- 背景
-- 为什么需要
-- 设计目标
-- 最终方案
-- API 设计
-- 数据结构
-- 时序图
-- 与 Skynet 对比
-- Go 实现建议
-- Codex Prompt
-- 单元测试
-- Benchmark
-- 总结
+Service 通过 `CommandDeclarer` 声明接受的 Command。Runtime 在创建时复制并冻结命令集，未声明 Command 在进入 Mailbox 前返回 `ErrCommandNotRegistered`。
 
-## 全书统一术语
+## Envelope
 
-- Service
-- ServiceRef
-- Command
-- CreateService
-- Call / Send
-- Battle
+`Envelope` 是 Runtime 内部投递结构，补充 Source、Target、Session 和 CallPath：
+
+```text
+Envelope -> Mailbox -> Scheduler -> Command -> Service.Handle
+```
+
+本地投递直接携带 `Payload any`。跨节点时 `ClusterCodec` 根据 `CommandID` 编解码 Payload；Transport 只处理 bytes，不理解业务含义。
+
+## 规则
+
+- Timer 到期也生成 Command。
+- Cluster 调用也进入同一 Command Dispatcher。
+- Command Handler 不直接解析 TCP、WebSocket 或 protobuf 帧。
+- 第一版保留 `Payload any`；类型安全包装和代码生成属于后续扩展。
