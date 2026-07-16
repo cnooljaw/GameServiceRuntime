@@ -94,7 +94,7 @@
 
 ## Task 4：建立性能与资源基线
 
-**文件：** 新增 `runtime/benchmark_test.go`、`runtime/resource_leak_internal_test.go`；修改 `docs/rfcs/RFC-0170-Core-Timer.md`、`docs/rfcs/RFC-0240-Tooling-Performance.md`。
+**文件：** 新增 `runtime/benchmark_test.go`、`runtime/resource_leak_internal_test.go`、`docs/benchmarks/2026-07-17-core-runtime.md`；修改 `docs/rfcs/RFC-0170-Core-Timer.md`、`docs/rfcs/RFC-0240-Tooling-Performance.md`。
 
 1. 增加完整链路 benchmark：
    - `BenchmarkSend`

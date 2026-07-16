@@ -60,21 +60,13 @@ ctx.After(d, CmdExpireShrew, payload)
 
 目标是保证语义正确。
 
-## 性能版实现
+## 性能演进
 
-生产版使用 Timer Wheel。
+第一版继续使用 Go timer。Go Runtime 集中管理未到期 Timer，`time.AfterFunc` 不等同于为每个 Timer 保留一个常驻 goroutine，不能以此作为直接改写 Timer 子系统的理由。
 
-原因：
+必须先用完整 `After -> Send -> Mailbox -> Scheduler -> Handle` 基准观察 Timer 数量增长、到期吞吐、延迟、分配和 GC 成本。只有数据证明标准库 Timer 已成为主要瓶颈时，才评估 Timer Wheel；替换实现不得改变 Cancel、目标关闭清理和 Command 投递语义。
 
-```text
-大量 Battle * 大量 timer -> 不能每个 timer 一个 goroutine
-```
-
-Timer Wheel 复杂度应接近：
-
-```text
-O(expired timers)
-```
+Timer Wheel 若被采用，到期扫描复杂度目标应接近 `O(expired timers)`，但这不是第一版的交付前提。
 
 ## 与 Timeline 的关系
 

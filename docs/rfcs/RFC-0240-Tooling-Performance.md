@@ -70,6 +70,23 @@ Call -> Router -> Mailbox -> Scheduler -> Handler -> Reply
 - Timer 数量增长曲线。
 - GC 暂停。
 
+首个 Core 基线使用下列完整路径 benchmark：
+
+- `BenchmarkSend`
+- `BenchmarkCallReply`
+- `BenchmarkManyServices`
+- `BenchmarkTimerDelivery`
+
+可重复执行：
+
+```bash
+go test ./runtime -run '^$' -bench 'Benchmark(Send|CallReply|ManyServices|TimerDelivery)$' -benchmem -benchtime=1000x -count=5
+```
+
+基线必须记录 Go 版本、CPU 架构、`ns/op`、`B/op` 和 `allocs/op`。不同机器的数据不能直接比较；同一环境出现稳定回退后，再用 profile 定位。没有基线数据时，不设置吞吐硬阈值，也不提前引入 Ring Buffer、对象池或 Timer Wheel。
+
+首份结果见 [`2026-07-17 Core Runtime 基线`](../benchmarks/2026-07-17-core-runtime.md)。
+
 ## 禁止
 
 第一版不要为了性能破坏模型：
