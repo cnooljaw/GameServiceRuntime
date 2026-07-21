@@ -1,6 +1,6 @@
 # GSR Phase 7B 最小 Discovery 实施计划
 
-> 状态：执行中（Task 5 已完成，等待发布；2026-07-21）
+> 状态：已完成（2026-07-21）
 
 **目标：** 在不修改 Core Runtime 和 `ClusterTransport` 的前提下，实现一个可本地或跨节点调用的 `DiscoveryService`，提供带租约的活动节点发现和长期 `ServiceName` 解析；完成 API Review，并发布 `v0.2.0`。
 
@@ -389,6 +389,13 @@ go test ./tooling/discovery -run '^Test(Codec|RemoteDiscovery)' -count=1
    ```
 
 5. 本计划不执行 `git push`。
+
+### Task 6 发布结果
+
+- Task 1 至 Task 5 均已按独立垂直切片提交。
+- 发布前工作区干净，Review 无未处理 P1/P2，完整门禁结果见 Task 5。
+- `v0.2.0` 创建为指向发布提交的本地附注标签。
+- 未执行 `git push`。
 
 ## 完成标准
 
