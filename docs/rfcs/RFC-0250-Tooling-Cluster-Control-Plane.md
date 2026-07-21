@@ -98,6 +98,8 @@ CmdGetPendingCalls
 
 控制面必须区分配置期望和运行观测。
 
+该模型属于 Phase 8 Cluster Control Plane。`RFC-0200` 的最小 Discovery 只保存当前有效的节点租约和地址事实，不表达“配置存在但未连接”、禁用、版本不匹配或其它管理状态。
+
 Desired State：
 
 ```go

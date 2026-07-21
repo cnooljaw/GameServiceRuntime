@@ -1,6 +1,6 @@
 # GSR Phase 7B 最小 Discovery 实施计划
 
-> 状态：待执行（2026-07-21）
+> 状态：执行中（2026-07-21）
 
 **目标：** 在不修改 Core Runtime 和 `ClusterTransport` 的前提下，实现一个可本地或跨节点调用的 `DiscoveryService`，提供带租约的活动节点发现和长期 `ServiceName` 解析；完成 API Review，并发布 `v0.2.0`。
 
