@@ -18,11 +18,11 @@ func TestSlowCommandAndMailboxMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-svc.done
-	eventually(t, func() bool { return rt.MetricsSnapshot().Counter("slow_commands_total") == 1 })
-	if got := rt.MetricsSnapshot().MailboxDepth(ref); got != 0 {
+	eventually(t, func() bool { return rt.Inspect().Metrics.Counter("slow_commands_total") == 1 })
+	if got := rt.Inspect().Metrics.MailboxDepth(ref); got != 0 {
 		t.Fatalf("mailbox depth = %d", got)
 	}
-	if got := rt.MetricsSnapshot().Duration("mailbox_wait_duration"); got <= 0 {
+	if got := rt.Inspect().Metrics.Duration("mailbox_wait_duration"); got <= 0 {
 		t.Fatalf("mailbox wait = %v", got)
 	}
 }
@@ -42,7 +42,7 @@ func TestMailboxFullIsReportedAndObserved(t *testing.T) {
 	if err := rt.Send(ref, 1, nil); !errors.Is(err, gsr.ErrMailboxFull) {
 		t.Fatalf("err = %v", err)
 	}
-	if got := rt.MetricsSnapshot().Counter("mailbox_rejected_total"); got != 1 {
+	if got := rt.Inspect().Metrics.Counter("mailbox_rejected_total"); got != 1 {
 		t.Fatalf("rejected = %d", got)
 	}
 	close(svc.release)

@@ -21,7 +21,7 @@ func TestHandlerErrorFailsCallAndRecordsMetric(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("call err = %v", err)
 	}
-	if got := rt.MetricsSnapshot().Counter("handler_errors_total"); got != 1 {
+	if got := rt.Inspect().Metrics.Counter("handler_errors_total"); got != 1 {
 		t.Fatalf("handler errors = %d", got)
 	}
 }
@@ -48,7 +48,7 @@ func TestSendReplyAndLateReplyHaveDistinctErrors(t *testing.T) {
 	if err := <-delayed.replyErr; !errors.Is(err, gsr.ErrReplyExpired) {
 		t.Fatalf("late reply err = %v", err)
 	}
-	if got := rt.MetricsSnapshot().Counter("late_reply_total"); got != 1 {
+	if got := rt.Inspect().Metrics.Counter("late_reply_total"); got != 1 {
 		t.Fatalf("late replies = %d", got)
 	}
 }

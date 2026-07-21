@@ -117,7 +117,7 @@ func assertRuntimeResourcesReleased(t *testing.T, iteration int, rt *Runtime) {
 	if got := taskCount(rt.tasks); got != 0 {
 		t.Fatalf("iteration %d: runtime tasks = %d", iteration, got)
 	}
-	if got := rt.MetricsSnapshot().Gauge("runtime_tasks_active"); got != 0 {
+	if got := rt.Inspect().Metrics.Gauge("runtime_tasks_active"); got != 0 {
 		t.Fatalf("iteration %d: active task gauge = %d", iteration, got)
 	}
 	select {

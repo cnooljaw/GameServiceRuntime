@@ -85,6 +85,27 @@ func TestRuntimeInspectReturnsIndependentCopies(t *testing.T) {
 	}
 }
 
+func TestRuntimeInspectReturnsIndependentMetricsSnapshot(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+
+	first := runtime.Inspect()
+	if got := first.Metrics.Counter("service_created_total"); got != 0 {
+		t.Fatalf("first service_created_total = %d, want 0", got)
+	}
+
+	if _, err := runtime.CreateService(gsr.ServiceSpec{Service: inspectionService{}}); err != nil {
+		t.Fatal(err)
+	}
+	second := runtime.Inspect()
+	if got := first.Metrics.Counter("service_created_total"); got != 0 {
+		t.Fatalf("first service_created_total changed to %d, want 0", got)
+	}
+	if got := second.Metrics.Counter("service_created_total"); got != 1 {
+		t.Fatalf("second service_created_total = %d, want 1", got)
+	}
+}
+
 func TestRuntimeInspectWorksAfterClose(t *testing.T) {
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
 	if err := runtime.Close(context.Background()); err != nil {

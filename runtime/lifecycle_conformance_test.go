@@ -44,7 +44,7 @@ func TestHandlerPanicIsIsolated(t *testing.T) {
 	if err := rt.Send(bad, 1, nil); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, func() bool { return rt.MetricsSnapshot().Counter("service_panics_total") == 1 })
+	eventually(t, func() bool { return rt.Inspect().Metrics.Counter("service_panics_total") == 1 })
 	good := &recordingService{}
 	goodRef, err := rt.CreateService(gsr.ServiceSpec{Service: good})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestStopTimeoutStillRemovesService(t *testing.T) {
 	}
 	close(svc.release)
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 0
 	})
 	if err := rt.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -102,14 +102,14 @@ func TestTimedOutStopTaskRemainsTrackedUntilItReturns(t *testing.T) {
 	}
 	<-svc.started
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 1
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 1
 	})
-	if got := rt.MetricsSnapshot().Counter("runtime_task_timeouts_total"); got != 1 {
+	if got := rt.Inspect().Metrics.Counter("runtime_task_timeouts_total"); got != 1 {
 		t.Fatalf("task timeouts = %d", got)
 	}
 	close(svc.release)
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 0
 	})
 	if err := rt.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestLifecycleTimeoutIncludesMailboxWait(t *testing.T) {
 	}
 	close(svc.release)
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 0
 	})
 	if err := rt.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestLifecycleErrorsAreObserved(t *testing.T) {
 	if !errors.Is(err, stopErr) || !errors.Is(err, closeErr) {
 		t.Fatalf("Stop err = %v", err)
 	}
-	metrics := rt.MetricsSnapshot()
+	metrics := rt.Inspect().Metrics
 	if got := metrics.Counter("service_stop_errors_total"); got != 1 {
 		t.Fatalf("stop errors = %d", got)
 	}
@@ -337,7 +337,7 @@ func TestRuntimeCloseWaitsForServiceInitialization(t *testing.T) {
 	}()
 	<-svc.started
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 1
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 1
 	})
 	closed := make(chan error, 1)
 	go func() { closed <- rt.Close(context.Background()) }()
@@ -358,7 +358,7 @@ func TestRuntimeCloseWaitsForServiceInitialization(t *testing.T) {
 	default:
 		t.Fatal("partially initialized Service was not closed")
 	}
-	if got := rt.MetricsSnapshot().Gauge("runtime_tasks_active"); got != 0 {
+	if got := rt.Inspect().Metrics.Gauge("runtime_tasks_active"); got != 0 {
 		t.Fatalf("active runtime tasks = %d", got)
 	}
 }

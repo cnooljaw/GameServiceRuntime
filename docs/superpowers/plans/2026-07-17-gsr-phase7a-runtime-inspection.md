@@ -249,7 +249,7 @@ P1/P2 Review 结论必须清零后才能进入 Task 6。修复按垂直切片单
 
 Review 清零后，把 `RFC-0100` 至 `RFC-0192` 的状态改为“已接受”，并把 `CF-010` 标记为已完成。
 
-**Review 结果：** 0 个 P1；2 个 P2 已修复。其一将 Core 公开 API 从混合范围的 `RFC-0230` 拆到独立 `RFC-0192`，其二补齐 Closing、Task 副本和 Stop/Close Task Kind 测试。全仓测试、vet、race 通过；完整路径 Benchmark 的分配次数未回退。
+**Review 结果：** 0 个 P1；累计 4 个 P2 均已修复。首轮将 Core 公开 API 从混合范围的 `RFC-0230` 拆到独立 `RFC-0192`，并补齐 Closing、Task 副本和 Stop/Close Task Kind 测试；发布复审删除与唯一观测入口冲突的 `Runtime.MetricsSnapshot`，并补齐 Metrics 独立副本测试。全仓测试、vet、race 通过；完整路径 Benchmark 的分配次数未回退。
 
 ## Task 6：发布 Core v0.1.0
 
@@ -307,4 +307,4 @@ Review 清零后，把 `RFC-0100` 至 `RFC-0192` 的状态改为“已接受”�
 - `go test ./runtime -run '^TestRuntimeInspect' -count=100`：通过。
 - 本地示例输出 `hello`，双节点示例输出 `hello cluster`。
 - Benchmark 分配保持基线：Send 448 B/op、5 allocs/op；Call/Reply 680 B/op、9 allocs/op；Timer 656 B/op、8 allocs/op。
-- API Review：0 个 P1；2 个 P2 已修复，无未处理 P1/P2。
+- API Review：0 个 P1；累计 4 个 P2 均已修复，无未处理 P1/P2。

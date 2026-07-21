@@ -34,7 +34,7 @@ func TestRuntimeCloseTimesOutWithBlockedInitAndTracksUntilReturn(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
 		t.Fatalf("Runtime.Close elapsed = %v, want bounded return", elapsed)
 	}
-	snapshot := rt.MetricsSnapshot()
+	snapshot := rt.Inspect().Metrics
 	if got := snapshot.Gauge("runtime_tasks_active"); got != 1 {
 		t.Fatalf("active runtime tasks = %d, want 1", got)
 	}
@@ -48,7 +48,7 @@ func TestRuntimeCloseTimesOutWithBlockedInitAndTracksUntilReturn(t *testing.T) {
 		t.Fatalf("CreateService err = %v, want ErrRuntimeClosed", err)
 	}
 	eventually(t, func() bool {
-		return rt.MetricsSnapshot().Gauge("runtime_tasks_active") == 0
+		return rt.Inspect().Metrics.Gauge("runtime_tasks_active") == 0
 	})
 	if got := svc.closeCalls.Load(); got != 1 {
 		t.Fatalf("Service.Close calls = %d, want 1", got)

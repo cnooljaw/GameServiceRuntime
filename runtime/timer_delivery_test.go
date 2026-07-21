@@ -28,7 +28,7 @@ func TestTimerDeliveryRecordsSuccess(t *testing.T) {
 		t.Fatal("timer command was not handled")
 	}
 	waitForMetric(t, rt, "timer_deliveries_total", 1)
-	snapshot := rt.MetricsSnapshot()
+	snapshot := rt.Inspect().Metrics
 	if got := snapshot.Counter("timers_fired_total"); got != 1 {
 		t.Fatalf("timers fired = %d, want 1", got)
 	}
@@ -65,7 +65,7 @@ func TestTimerDeliveryRecordsMailboxFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForMetric(t, rt, "timer_delivery_errors_total", 1)
-	snapshot := rt.MetricsSnapshot()
+	snapshot := rt.Inspect().Metrics
 	if got := snapshot.Counter("timers_fired_total"); got != 1 {
 		t.Fatalf("timers fired = %d, want 1", got)
 	}
@@ -96,7 +96,7 @@ func TestTimerDeliveryClassifiesErrors(t *testing.T) {
 			rt := NewRuntime(Config{NodeID: "local"})
 			defer rt.Close(context.Background())
 			rt.observeTimerDelivery(ServiceRef{Node: "local", ID: 1}, 3, tt.err)
-			snapshot := rt.MetricsSnapshot()
+			snapshot := rt.Inspect().Metrics
 			if got := snapshot.Counter("timer_delivery_errors_total"); got != 1 {
 				t.Fatalf("timer delivery errors = %d, want 1", got)
 			}
@@ -111,7 +111,7 @@ func waitForMetric(t *testing.T, rt *Runtime, name string, want uint64) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if rt.MetricsSnapshot().Counter(name) == want {
+		if rt.Inspect().Metrics.Counter(name) == want {
 			return
 		}
 		time.Sleep(time.Millisecond)

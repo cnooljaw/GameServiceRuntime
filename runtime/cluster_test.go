@@ -87,7 +87,7 @@ func TestRemoteSendDeliveryFailureIsObservedByReceiver(t *testing.T) {
 		t.Fatalf("asynchronous remote Send error = %v", err)
 	}
 	eventually(t, func() bool {
-		return nodeB.MetricsSnapshot().Counter("cluster_delivery_errors_total") == 1
+		return nodeB.Inspect().Metrics.Counter("cluster_delivery_errors_total") == 1
 	})
 }
 
@@ -109,7 +109,7 @@ func TestClusterRejectsEnvelopeWhoseSourceDoesNotMatchPeer(t *testing.T) {
 		t.Fatalf("invalid envelope delivered payload %q", value)
 	case <-time.After(20 * time.Millisecond):
 	}
-	if got := nodeB.MetricsSnapshot().Counter("cluster_invalid_envelopes_total"); got != 1 {
+	if got := nodeB.Inspect().Metrics.Counter("cluster_invalid_envelopes_total"); got != 1 {
 		t.Fatalf("invalid envelope metric = %d", got)
 	}
 }
@@ -235,7 +235,7 @@ func TestRemoteLateReplyIsDiscarded(t *testing.T) {
 		t.Fatalf("Call error = %v", err)
 	}
 	close(service.release)
-	eventually(t, func() bool { return nodeA.MetricsSnapshot().Counter("late_reply_total") == 1 })
+	eventually(t, func() bool { return nodeA.Inspect().Metrics.Counter("late_reply_total") == 1 })
 }
 
 func TestRemoteCallPathRejectsCrossNodeCycle(t *testing.T) {

@@ -155,9 +155,6 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 // Resolve resolves a long-lived ServiceName to its current ServiceRef.
 func (r *Runtime) Resolve(name ServiceName) (ServiceRef, error) { return r.registry.resolve(name) }
 
-// MetricsSnapshot returns an immutable metrics snapshot.
-func (r *Runtime) MetricsSnapshot() MetricsSnapshot { return r.metrics.snapshot() }
-
 // Send asynchronously delivers a Command to a Service.
 func (r *Runtime) Send(target ServiceRef, id CommandID, payload any) error {
 	return r.sendFrom(ServiceRef{}, target, id, payload)
