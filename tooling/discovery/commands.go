@@ -46,6 +46,22 @@ type getNodeRequest struct {
 
 type listNodesRequest struct{}
 
+type registerNameRequest struct {
+	Lease NodeLease
+	Name  gsr.ServiceName
+	Ref   gsr.ServiceRef
+}
+
+type unregisterNameRequest struct {
+	Lease NodeLease
+	Name  gsr.ServiceName
+	Ref   gsr.ServiceRef
+}
+
+type resolveNameRequest struct {
+	Name gsr.ServiceName
+}
+
 type leaseResponse struct {
 	Lease NodeLease
 	Error errorCode
@@ -62,6 +78,11 @@ type nodesResponse struct {
 }
 
 type emptyResponse struct {
+	Error errorCode
+}
+
+type refResponse struct {
+	Ref   gsr.ServiceRef
 	Error errorCode
 }
 

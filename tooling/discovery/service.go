@@ -19,8 +19,20 @@ type service struct {
 	config         Config
 	context        gsr.ServiceContext
 	nodes          map[gsr.NodeID]NodeRecord
+	names          map[gsr.ServiceName]nameBinding
+	namesByLease   map[leaseKey]map[gsr.ServiceName]struct{}
 	nextGeneration uint64
 	sweepScheduled bool
+}
+
+type leaseKey struct {
+	node       gsr.NodeID
+	generation uint64
+}
+
+type nameBinding struct {
+	ref   gsr.ServiceRef
+	owner leaseKey
 }
 
 // NewService creates a DiscoveryService with private node and name registries.
@@ -34,7 +46,12 @@ func NewService(config Config) (gsr.Service, error) {
 	if config.SweepInterval == 0 {
 		config.SweepInterval = defaultSweepInterval
 	}
-	return &service{config: config, nodes: make(map[gsr.NodeID]NodeRecord)}, nil
+	return &service{
+		config:       config,
+		nodes:        make(map[gsr.NodeID]NodeRecord),
+		names:        make(map[gsr.ServiceName]nameBinding),
+		namesByLease: make(map[leaseKey]map[gsr.ServiceName]struct{}),
+	}, nil
 }
 
 func (*service) Commands() []gsr.CommandID {
@@ -44,6 +61,9 @@ func (*service) Commands() []gsr.CommandID {
 		commandUnregisterNode,
 		commandGetNode,
 		commandListNodes,
+		commandRegisterName,
+		commandUnregisterName,
+		commandResolveName,
 		commandSweepExpired,
 	}
 }
@@ -90,6 +110,27 @@ func (s *service) Handle(context gsr.CommandContext, command gsr.Command) error 
 			return invalidPayload(command.ID)
 		}
 		return context.Reply(nodesResponse{Nodes: s.listNodes()})
+	case commandRegisterName:
+		request, ok := command.Payload.(registerNameRequest)
+		if !ok {
+			return invalidPayload(command.ID)
+		}
+		err := s.registerName(request)
+		return context.Reply(emptyResponse{Error: codeFromError(err)})
+	case commandUnregisterName:
+		request, ok := command.Payload.(unregisterNameRequest)
+		if !ok {
+			return invalidPayload(command.ID)
+		}
+		err := s.unregisterName(request)
+		return context.Reply(emptyResponse{Error: codeFromError(err)})
+	case commandResolveName:
+		request, ok := command.Payload.(resolveNameRequest)
+		if !ok {
+			return invalidPayload(command.ID)
+		}
+		ref, err := s.resolveName(request.Name)
+		return context.Reply(refResponse{Ref: ref, Error: codeFromError(err)})
 	case commandSweepExpired:
 		s.sweepScheduled = false
 		if len(s.nodes) > 0 {
@@ -103,12 +144,16 @@ func (s *service) Handle(context gsr.CommandContext, command gsr.Command) error 
 
 func (s *service) Stop(context.Context) error {
 	s.nodes = make(map[gsr.NodeID]NodeRecord)
+	s.names = make(map[gsr.ServiceName]nameBinding)
+	s.namesByLease = make(map[leaseKey]map[gsr.ServiceName]struct{})
 	s.sweepScheduled = false
 	return nil
 }
 
 func (s *service) Close() error {
 	s.nodes = nil
+	s.names = nil
+	s.namesByLease = nil
 	s.context = nil
 	return nil
 }
@@ -179,6 +224,59 @@ func (s *service) listNodes() []NodeRecord {
 	return nodes
 }
 
+func (s *service) registerName(request registerNameRequest) error {
+	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, request.Ref) {
+		return ErrInvalidName
+	}
+	owner := leaseKey{node: request.Lease.Node, generation: request.Lease.Generation}
+	if !s.leaseActive(owner) {
+		return ErrLeaseExpired
+	}
+	if binding, exists := s.names[request.Name]; exists && binding.owner != owner {
+		return ErrNameConflict
+	}
+	s.names[request.Name] = nameBinding{ref: request.Ref, owner: owner}
+	owned := s.namesByLease[owner]
+	if owned == nil {
+		owned = make(map[gsr.ServiceName]struct{})
+		s.namesByLease[owner] = owned
+	}
+	owned[request.Name] = struct{}{}
+	return nil
+}
+
+func (s *service) unregisterName(request unregisterNameRequest) error {
+	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, request.Ref) {
+		return ErrInvalidName
+	}
+	owner := leaseKey{node: request.Lease.Node, generation: request.Lease.Generation}
+	if !s.leaseActive(owner) {
+		return ErrLeaseExpired
+	}
+	binding, exists := s.names[request.Name]
+	if !exists || binding.owner != owner || binding.ref != request.Ref {
+		return ErrNameNotFound
+	}
+	delete(s.names, request.Name)
+	owned := s.namesByLease[owner]
+	delete(owned, request.Name)
+	if len(owned) == 0 {
+		delete(s.namesByLease, owner)
+	}
+	return nil
+}
+
+func (s *service) resolveName(name gsr.ServiceName) (gsr.ServiceRef, error) {
+	if strings.TrimSpace(string(name)) == "" {
+		return gsr.ServiceRef{}, ErrInvalidName
+	}
+	binding, exists := s.names[name]
+	if !exists || !s.leaseActive(binding.owner) {
+		return gsr.ServiceRef{}, ErrNameNotFound
+	}
+	return binding.ref, nil
+}
+
 func (s *service) scheduleSweep() error {
 	if _, err := s.context.After(s.config.SweepInterval, commandSweepExpired, nil); err != nil {
 		return err
@@ -196,7 +294,19 @@ func (s *service) pruneExpired(now time.Time) {
 }
 
 func (s *service) removeNode(node gsr.NodeID) {
+	if record, exists := s.nodes[node]; exists {
+		owner := leaseKey{node: node, generation: record.Generation}
+		for name := range s.namesByLease[owner] {
+			delete(s.names, name)
+		}
+		delete(s.namesByLease, owner)
+	}
 	delete(s.nodes, node)
+}
+
+func (s *service) leaseActive(owner leaseKey) bool {
+	record, exists := s.nodes[owner.node]
+	return exists && record.Generation == owner.generation
 }
 
 func invalidPayload(command gsr.CommandID) error {

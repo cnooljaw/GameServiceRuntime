@@ -115,6 +115,61 @@ func (c *Client) ListNodes(ctx context.Context) ([]NodeRecord, error) {
 	return append([]NodeRecord(nil), response.Nodes...), nil
 }
 
+// RegisterName creates or replaces a long-lived name owned by lease.
+func (c *Client) RegisterName(ctx context.Context, lease NodeLease, name gsr.ServiceName, ref gsr.ServiceRef) error {
+	if !validLease(lease) || !validNameBinding(lease, name, ref) {
+		return ErrInvalidName
+	}
+	value, err := c.caller.Call(ctx, c.target, commandRegisterName, registerNameRequest{Lease: lease, Name: name, Ref: ref})
+	if err != nil {
+		return err
+	}
+	response, ok := value.(emptyResponse)
+	if !ok {
+		return ErrInvalidResponse
+	}
+	return errorFromCode(response.Error)
+}
+
+// UnregisterName removes a binding only when lease, name, and ref all match.
+func (c *Client) UnregisterName(ctx context.Context, lease NodeLease, name gsr.ServiceName, ref gsr.ServiceRef) error {
+	if !validLease(lease) || !validNameBinding(lease, name, ref) {
+		return ErrInvalidName
+	}
+	value, err := c.caller.Call(ctx, c.target, commandUnregisterName, unregisterNameRequest{Lease: lease, Name: name, Ref: ref})
+	if err != nil {
+		return err
+	}
+	response, ok := value.(emptyResponse)
+	if !ok {
+		return ErrInvalidResponse
+	}
+	return errorFromCode(response.Error)
+}
+
+// ResolveName returns the ServiceRef owned by an active node lease.
+func (c *Client) ResolveName(ctx context.Context, name gsr.ServiceName) (gsr.ServiceRef, error) {
+	if strings.TrimSpace(string(name)) == "" {
+		return gsr.ServiceRef{}, ErrInvalidName
+	}
+	value, err := c.caller.Call(ctx, c.target, commandResolveName, resolveNameRequest{Name: name})
+	if err != nil {
+		return gsr.ServiceRef{}, err
+	}
+	response, ok := value.(refResponse)
+	if !ok {
+		return gsr.ServiceRef{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return gsr.ServiceRef{}, err
+	}
+	return response.Ref, nil
+}
+
 func validLease(lease NodeLease) bool {
 	return lease.Node != "" && lease.Generation != 0
+}
+
+func validNameBinding(lease NodeLease, name gsr.ServiceName, ref gsr.ServiceRef) bool {
+	return strings.TrimSpace(string(name)) != "" && ref.Node == lease.Node && ref.ID != 0
 }
