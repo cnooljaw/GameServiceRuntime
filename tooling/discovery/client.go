@@ -120,7 +120,7 @@ func (c *Client) RegisterName(ctx context.Context, lease NodeLease, name gsr.Ser
 	if !validLease(lease) || !validNameBinding(lease, name, ref) {
 		return ErrInvalidName
 	}
-	value, err := c.caller.Call(ctx, c.target, commandRegisterName, registerNameRequest{Lease: lease, Name: name, Ref: ref})
+	value, err := c.caller.Call(ctx, c.target, commandRegisterName, registerNameRequest{Lease: lease, Name: name, Ref: newWireServiceRef(ref)})
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func (c *Client) UnregisterName(ctx context.Context, lease NodeLease, name gsr.S
 	if !validLease(lease) || !validNameBinding(lease, name, ref) {
 		return ErrInvalidName
 	}
-	value, err := c.caller.Call(ctx, c.target, commandUnregisterName, unregisterNameRequest{Lease: lease, Name: name, Ref: ref})
+	value, err := c.caller.Call(ctx, c.target, commandUnregisterName, unregisterNameRequest{Lease: lease, Name: name, Ref: newWireServiceRef(ref)})
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (c *Client) ResolveName(ctx context.Context, name gsr.ServiceName) (gsr.Ser
 	if err := errorFromCode(response.Error); err != nil {
 		return gsr.ServiceRef{}, err
 	}
-	return response.Ref, nil
+	return response.Ref.serviceRef(), nil
 }
 
 func validLease(lease NodeLease) bool {

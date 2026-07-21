@@ -150,11 +150,13 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 ### Phase 7B：最小 Discovery
 
-状态：执行中（2026-07-21）。
+状态：已完成（2026-07-21）。
 
 实现 Node Discovery 和长期 ServiceName Discovery。ServiceGroup、Gossip、负载均衡和管理命令不进入本阶段。
 
 ### Phase 7C：本地 Monitor
+
+状态：下一阶段。
 
 实现本地 Monitor 适配器和 Metrics 输出。远程 NodeAgent 与管理面查询留到 Phase 8。
 

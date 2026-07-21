@@ -1,6 +1,6 @@
 # RFC-0200：DiscoveryService
 
-> 状态：草案
+> 状态：已接受
 > 范围：Runtime Tooling
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
@@ -137,6 +137,8 @@ func NewClient(CommandCaller, ServiceRef) (*Client, error)
 func NewCodec(fallback ClusterCodec) ClusterCodec
 ```
 
+`LeaseTTL=0` 默认使用 30 秒，`SweepInterval=0` 默认使用 5 秒；负值返回 `ErrInvalidConfig`。
+
 Client：
 
 ```go
@@ -188,12 +190,14 @@ Discovery CommandID 固定为：
 
 ## Codec
 
-`NewCodec(fallback)` 使用标准库 `encoding/json` 编解码 Discovery 请求和成功 Reply：
+`NewCodec(fallback)` 使用标准库 `encoding/json` 编解码 Discovery 请求和 Reply：
 
 - Discovery Command 由本 Codec 处理。
 - 其它 Command 委托给 fallback。
 - 无 fallback 时遇到其它 Command 返回 `ErrUnsupportedCommand`。
 - 内部 `SweepExpired` 不允许远程编解码。
+- 线格式字段使用固定的 `snake_case` 名称，不直接依赖 Go 结构体字段名。
+- 解码忽略未知字段，以允许只增加字段的滚动升级；格式错误或尾随第二个 JSON 值仍返回 `ErrInvalidResponse`。
 - Codec 只处理 payload，不接触 TCP、连接或 `WireEnvelope`。
 
 ## 过期清理
@@ -206,6 +210,8 @@ Discovery 在每个公开 Command 处理前根据 `ServiceContext.Now()` 清理�
 - 没有节点时停止重排。
 
 `ServiceContext` 不为此增加 `Cancel`。最后节点注销后，已经排定的 Sweep 可以到期执行一次；Service 关闭时 Runtime 负责取消绑定到目标的 Timer。
+
+后台 Sweep 是资源及时回收机制，不是查询正确性的唯一保障。若 Timer 因 Mailbox 满等原因投递失败，下一次公开 Command 仍会先同步删除过期租约和名字，因此不会返回过期事实。
 
 ## 与后续阶段的关系
 

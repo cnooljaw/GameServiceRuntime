@@ -53,7 +53,6 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 	}
 	target := reflect.New(reflect.TypeOf(prototype))
 	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target.Interface()); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
 	}

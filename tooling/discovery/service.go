@@ -130,7 +130,7 @@ func (s *service) Handle(context gsr.CommandContext, command gsr.Command) error 
 			return invalidPayload(command.ID)
 		}
 		ref, err := s.resolveName(request.Name)
-		return context.Reply(refResponse{Ref: ref, Error: codeFromError(err)})
+		return context.Reply(refResponse{Ref: newWireServiceRef(ref), Error: codeFromError(err)})
 	case commandSweepExpired:
 		s.sweepScheduled = false
 		if len(s.nodes) > 0 {
@@ -225,7 +225,8 @@ func (s *service) listNodes() []NodeRecord {
 }
 
 func (s *service) registerName(request registerNameRequest) error {
-	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, request.Ref) {
+	ref := request.Ref.serviceRef()
+	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, ref) {
 		return ErrInvalidName
 	}
 	owner := leaseKey{node: request.Lease.Node, generation: request.Lease.Generation}
@@ -235,7 +236,7 @@ func (s *service) registerName(request registerNameRequest) error {
 	if binding, exists := s.names[request.Name]; exists && binding.owner != owner {
 		return ErrNameConflict
 	}
-	s.names[request.Name] = nameBinding{ref: request.Ref, owner: owner}
+	s.names[request.Name] = nameBinding{ref: ref, owner: owner}
 	owned := s.namesByLease[owner]
 	if owned == nil {
 		owned = make(map[gsr.ServiceName]struct{})
@@ -246,7 +247,8 @@ func (s *service) registerName(request registerNameRequest) error {
 }
 
 func (s *service) unregisterName(request unregisterNameRequest) error {
-	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, request.Ref) {
+	ref := request.Ref.serviceRef()
+	if !validLease(request.Lease) || !validNameBinding(request.Lease, request.Name, ref) {
 		return ErrInvalidName
 	}
 	owner := leaseKey{node: request.Lease.Node, generation: request.Lease.Generation}
@@ -254,7 +256,7 @@ func (s *service) unregisterName(request unregisterNameRequest) error {
 		return ErrLeaseExpired
 	}
 	binding, exists := s.names[request.Name]
-	if !exists || binding.owner != owner || binding.ref != request.Ref {
+	if !exists || binding.owner != owner || binding.ref != ref {
 		return ErrNameNotFound
 	}
 	delete(s.names, request.Name)

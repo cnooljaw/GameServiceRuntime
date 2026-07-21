@@ -1,6 +1,6 @@
 # GSR Phase 7B 最小 Discovery 实施计划
 
-> 状态：执行中（2026-07-21）
+> 状态：执行中（Task 5 已完成，等待发布；2026-07-21）
 
 **目标：** 在不修改 Core Runtime 和 `ClusterTransport` 的前提下，实现一个可本地或跨节点调用的 `DiscoveryService`，提供带租约的活动节点发现和长期 `ServiceName` 解析；完成 API Review，并发布 `v0.2.0`。
 
@@ -136,12 +136,14 @@ Discovery 的稳定命令编号集中在包内 `commands.go`：
 
 ### Codec
 
-`NewCodec(fallback)` 使用标准库 `encoding/json` 编解码 Discovery 的请求和成功 Reply：
+`NewCodec(fallback)` 使用标准库 `encoding/json` 编解码 Discovery 的请求和 Reply：
 
 - Discovery Command 由本 Codec 处理。
 - 其它 Command 委托给 `fallback`。
 - 无 fallback 时遇到其它 Command 返回 `ErrUnsupportedCommand`。
 - 内部 `SweepExpired` 不允许经过远程 Codec。
+- 线格式使用固定 `snake_case` 字段和私有线类型，不依赖 Core Go 结构体的字段名。
+- Decoder 忽略未知字段以支持只增加字段的滚动升级，但拒绝格式错误和尾随第二个 JSON 值。
 - Codec 只处理 payload，不接触 TCP、连接或 `WireEnvelope`。
 
 ## 非目标
@@ -360,6 +362,19 @@ go test ./tooling/discovery -run '^Test(Codec|RemoteDiscovery)' -count=1
    ```
 
 7. 提交：`docs(discovery): 完成最小 Discovery 验收`。
+
+### Task 5 验收结果
+
+- 双轴 Review：0 个 P1；发现并修复 2 个 P2 Codec 兼容性问题。
+- P2-1：JSON 曾隐式依赖 Go 字段名，包含嵌套 `ServiceRef`；已改为稳定 `snake_case` 字段和私有线类型，并增加精确线格式测试。
+- P2-2：Decoder 曾拒绝未知字段，不利于滚动升级；已改为忽略未知字段，同时保留格式错误和尾随 JSON 拒绝测试。
+- 接受的剩余风险：Timer 投递失败时后台 Sweep 不保证自动重启，但每个后续 Command 都会同步清理；查询正确性不依赖 Timer，失败由 Runtime Metrics 记录。
+- 分层检查：Core Runtime 无 Discovery 依赖或 API 修改；Discovery 只依赖标准库和 `runtime`。
+- 并发检查：AST 门禁通过，Discovery Service 无裸 goroutine，Sweep 只由 Runtime Timer 投递 Command。
+- 完整门禁：`go test ./...`、`go vet ./...`、`go test -race ./...`、Discovery 100 次重复测试全部通过。
+- 示例输出：`hello`、`hello cluster`、`.config -> node-b/2`。
+- Apple M2 基准（1000 次，5 轮）：`ResolveName` 为 3.69-5.60 微秒、744 B、11 alloc；清理 10,000 个名字为 0.498-0.511 毫秒，计时区间 0 B、0 alloc。
+- Benchmark 只作为 `v0.2.0` 回归基线，不构成性能承诺。
 
 ## Task 6：发布 v0.2.0
 

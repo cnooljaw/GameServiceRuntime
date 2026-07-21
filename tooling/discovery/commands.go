@@ -28,62 +28,75 @@ const (
 )
 
 type registerNodeRequest struct {
-	Node    gsr.NodeID
-	Address string
+	Node    gsr.NodeID `json:"node"`
+	Address string     `json:"address"`
 }
 
 type heartbeatRequest struct {
-	Lease NodeLease
+	Lease NodeLease `json:"lease"`
 }
 
 type unregisterNodeRequest struct {
-	Lease NodeLease
+	Lease NodeLease `json:"lease"`
 }
 
 type getNodeRequest struct {
-	Node gsr.NodeID
+	Node gsr.NodeID `json:"node"`
 }
 
 type listNodesRequest struct{}
 
+type wireServiceRef struct {
+	Node gsr.NodeID    `json:"node"`
+	ID   gsr.ServiceID `json:"id"`
+}
+
+func newWireServiceRef(ref gsr.ServiceRef) wireServiceRef {
+	return wireServiceRef{Node: ref.Node, ID: ref.ID}
+}
+
+func (ref wireServiceRef) serviceRef() gsr.ServiceRef {
+	return gsr.ServiceRef{Node: ref.Node, ID: ref.ID}
+}
+
 type registerNameRequest struct {
-	Lease NodeLease
-	Name  gsr.ServiceName
-	Ref   gsr.ServiceRef
+	Lease NodeLease       `json:"lease"`
+	Name  gsr.ServiceName `json:"name"`
+	Ref   wireServiceRef  `json:"ref"`
 }
 
 type unregisterNameRequest struct {
-	Lease NodeLease
-	Name  gsr.ServiceName
-	Ref   gsr.ServiceRef
+	Lease NodeLease       `json:"lease"`
+	Name  gsr.ServiceName `json:"name"`
+	Ref   wireServiceRef  `json:"ref"`
 }
 
 type resolveNameRequest struct {
-	Name gsr.ServiceName
+	Name gsr.ServiceName `json:"name"`
 }
 
 type leaseResponse struct {
-	Lease NodeLease
-	Error errorCode
+	Lease NodeLease `json:"lease"`
+	Error errorCode `json:"error"`
 }
 
 type nodeResponse struct {
-	Node  NodeRecord
-	Error errorCode
+	Node  NodeRecord `json:"node"`
+	Error errorCode  `json:"error"`
 }
 
 type nodesResponse struct {
-	Nodes []NodeRecord
-	Error errorCode
+	Nodes []NodeRecord `json:"nodes"`
+	Error errorCode    `json:"error"`
 }
 
 type emptyResponse struct {
-	Error errorCode
+	Error errorCode `json:"error"`
 }
 
 type refResponse struct {
-	Ref   gsr.ServiceRef
-	Error errorCode
+	Ref   wireServiceRef `json:"ref"`
+	Error errorCode      `json:"error"`
 }
 
 func errorFromCode(code errorCode) error {

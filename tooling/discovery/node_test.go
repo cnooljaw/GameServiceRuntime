@@ -37,6 +37,32 @@ func TestRegisterNodeReturnsLeaseAndRecord(t *testing.T) {
 	}
 }
 
+func TestDiscoveryServiceUsesDefaultLeaseTTL(t *testing.T) {
+	started := time.Date(2026, 7, 21, 13, 0, 0, 0, time.UTC)
+	clock := &testClock{now: started}
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "discovery-node", Now: clock.Now})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	service, err := discovery.NewService(discovery.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: service})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := discovery.NewClient(runtime, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := client.RegisterNode(context.Background(), "node-a", "node-a:9000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := started.Add(30 * time.Second); !lease.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want default TTL deadline %v", lease.ExpiresAt, want)
+	}
+}
+
 func TestHeartbeatRenewsMatchingLease(t *testing.T) {
 	fixture := newDiscoveryFixture(t, discovery.Config{})
 	first, err := fixture.client.RegisterNode(context.Background(), "node-b", "127.0.0.1:9002")

@@ -2,6 +2,35 @@
 
 本文记录 GSR 对外发布版本的行为变化。
 
+## v0.2.0 - 2026-07-21
+
+在不修改 Core Runtime API 的前提下增加最小 Runtime Tooling Discovery。
+
+### Discovery
+
+- 新增独立 `tooling/discovery` 包和类型化 `Client`。
+- 节点注册返回带 Generation 的租约；Heartbeat 只能续期当前 Generation。
+- 节点过期、注销或同 NodeID 重注册时，清理其拥有的长期 `ServiceName`。
+- 节点列表按 `NodeID` 稳定排序，返回结果与内部状态隔离。
+- 同一租约可以替换长期名字的 `ServiceRef`；其它活动租约不能抢占名字。
+- 新增可组合 JSON Codec，非 Discovery Command 可以委托给 fallback。
+- Discovery JSON 使用稳定 `snake_case` 线字段，并允许解码端忽略新增未知字段。
+- Discovery 领域错误跨节点后仍可通过 `errors.Is` 判断。
+- 新增双节点 TCP Discovery 示例和本地/远程验收测试。
+
+### 限制
+
+- 第一版是单一内存权威，不提供复制、选主、持久化或 Gossip。
+- Discovery 的节点地址不会自动更新 `ClusterTransport` peer。
+- Discovery `ServiceRef` 和所在节点地址必须由部署配置提供。
+- Heartbeat 由部署编排调用；自动 NodeAgent 留到后续阶段。
+- Discovery Command 不提供身份认证或授权，只允许部署在可信集群网络。
+- Desired/Observed State、ServiceGroup、路由策略和管理命令尚未实现。
+
+### 兼容性
+
+Core Runtime 和 Cluster Data Plane 公开 API 相对 `v0.1.0` 保持不变。新 API 全部位于 `tooling/discovery`。
+
 ## v0.1.0 - 2026-07-17
 
 首个可复验的 Core Runtime 版本。公开语义以已接受的 `RFC-0100` 至 `RFC-0192` 为准。

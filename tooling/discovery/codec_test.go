@@ -30,12 +30,12 @@ func TestCodecRoundTripsDiscoveryRequestsAndReplies(t *testing.T) {
 		{name: "get node response", command: commandGetNode, response: true, value: nodeResponse{Node: node}},
 		{name: "list nodes request", command: commandListNodes, value: listNodesRequest{}},
 		{name: "list nodes response", command: commandListNodes, response: true, value: nodesResponse{Nodes: []NodeRecord{node}}},
-		{name: "register name request", command: commandRegisterName, value: registerNameRequest{Lease: lease, Name: ".config", Ref: ref}},
+		{name: "register name request", command: commandRegisterName, value: registerNameRequest{Lease: lease, Name: ".config", Ref: newWireServiceRef(ref)}},
 		{name: "register name response", command: commandRegisterName, response: true, value: emptyResponse{Error: errorNameConflict}},
-		{name: "unregister name request", command: commandUnregisterName, value: unregisterNameRequest{Lease: lease, Name: ".config", Ref: ref}},
+		{name: "unregister name request", command: commandUnregisterName, value: unregisterNameRequest{Lease: lease, Name: ".config", Ref: newWireServiceRef(ref)}},
 		{name: "unregister name response", command: commandUnregisterName, response: true, value: emptyResponse{}},
 		{name: "resolve name request", command: commandResolveName, value: resolveNameRequest{Name: ".config"}},
-		{name: "resolve name response", command: commandResolveName, response: true, value: refResponse{Ref: ref}},
+		{name: "resolve name response", command: commandResolveName, response: true, value: refResponse{Ref: newWireServiceRef(ref)}},
 	}
 
 	codec := NewCodec(nil)
@@ -53,6 +53,44 @@ func TestCodecRoundTripsDiscoveryRequestsAndReplies(t *testing.T) {
 				t.Fatalf("decoded = %#v (%T), want %#v (%T)", decoded, decoded, test.value, test.value)
 			}
 		})
+	}
+}
+
+func TestCodecUsesStableWireFieldNames(t *testing.T) {
+	codec := NewCodec(nil)
+	payload, err := codec.Encode(commandRegisterNode, false, registerNodeRequest{Node: "node-a", Address: "127.0.0.1:9001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), `{"node":"node-a","address":"127.0.0.1:9001"}`; got != want {
+		t.Fatalf("register node JSON = %s, want %s", got, want)
+	}
+	payload, err = codec.Encode(commandResolveName, true, refResponse{Ref: newWireServiceRef(gsr.ServiceRef{Node: "node-a", ID: 10})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), `{"ref":{"node":"node-a","id":10},"error":""}`; got != want {
+		t.Fatalf("resolve name JSON = %s, want %s", got, want)
+	}
+}
+
+func TestCodecIgnoresUnknownWireFields(t *testing.T) {
+	codec := NewCodec(nil)
+	value, err := codec.Decode(commandRegisterNode, false, []byte(`{"node":"node-a","address":"127.0.0.1:9001","future":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := registerNodeRequest{Node: "node-a", Address: "127.0.0.1:9001"}
+	if value != want {
+		t.Fatalf("decoded = %#v, want %#v", value, want)
+	}
+}
+
+func TestCodecRejectsTrailingJSONValue(t *testing.T) {
+	codec := NewCodec(nil)
+	_, err := codec.Decode(commandRegisterNode, false, []byte(`{"node":"node-a","address":"127.0.0.1:9001"}{}`))
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode error = %v, want ErrInvalidResponse", err)
 	}
 }
 
