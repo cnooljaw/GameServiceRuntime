@@ -23,14 +23,21 @@ func TestSnapshotRestoreCreatesNewServiceInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	oldRef, err := runtime.CreateService(gsr.ServiceSpec{Service: &integrationCounterService{value: 1, revision: 1}})
+	key := Key{Namespace: "counter", ID: "example"}
+	oldRef, err := runtime.CreateService(gsr.ServiceSpec{Service: &integrationCounterService{key: key, value: 1, revision: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.Send(oldRef, testCommandIncrement, 1); err != nil {
 		t.Fatal(err)
 	}
-	key := Key{Namespace: "counter", ID: "example"}
+	wrongKey := Key{Namespace: "counter", ID: "other"}
+	if _, err := manager.Capture(context.Background(), oldRef, wrongKey); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("Capture wrong Key error = %v, want ErrInvalidKey", err)
+	}
+	if _, err := store.Load(context.Background(), wrongKey); !errors.Is(err, ErrSnapshotNotFound) {
+		t.Fatalf("Load wrong Key error = %v, want ErrSnapshotNotFound", err)
+	}
 	captured, err := manager.Capture(context.Background(), oldRef, key)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +53,7 @@ func TestSnapshotRestoreCreatesNewServiceInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := newIntegrationCounterService(loaded.State)
+	restored, err := newIntegrationCounterService(loaded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +81,16 @@ type integrationCounterState struct {
 }
 
 type integrationCounterService struct {
+	key      Key
 	value    int
 	revision uint64
 }
 
-func newIntegrationCounterService(state State) (*integrationCounterService, error) {
+func newIntegrationCounterService(snapshot Snapshot) (*integrationCounterService, error) {
+	if err := validateKey(snapshot.Key); err != nil {
+		return nil, err
+	}
+	state := snapshot.State
 	if state.Schema != "counter" || state.Version != 1 || state.Revision == 0 {
 		return nil, ErrInvalidState
 	}
@@ -86,7 +98,7 @@ func newIntegrationCounterService(state State) (*integrationCounterService, erro
 	if err := json.Unmarshal(state.Payload, &payload); err != nil {
 		return nil, err
 	}
-	return &integrationCounterService{value: payload.Value, revision: state.Revision}, nil
+	return &integrationCounterService{key: snapshot.Key, value: payload.Value, revision: state.Revision}, nil
 }
 
 func (*integrationCounterService) Commands() []gsr.CommandID {
@@ -108,14 +120,18 @@ func (s *integrationCounterService) Handle(ctx gsr.CommandContext, command gsr.C
 	case testCommandGet:
 		return ctx.Reply(s.value)
 	case CaptureCommand:
-		if _, ok := command.Payload.(CaptureRequest); !ok {
+		request, ok := command.Payload.(CaptureRequest)
+		if !ok {
 			return ErrInvalidResponse
+		}
+		if request.Key != s.key {
+			return ErrInvalidKey
 		}
 		payload, err := json.Marshal(integrationCounterState{Value: s.value})
 		if err != nil {
 			return err
 		}
-		return ctx.Reply(CaptureResponse{State: State{
+		return ctx.Reply(CaptureResponse{Key: s.key, State: State{
 			Schema: "counter", Version: 1, Revision: s.revision, Payload: payload,
 		}})
 	default:

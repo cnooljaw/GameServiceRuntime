@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,13 +11,14 @@ import (
 )
 
 func TestRemoteSnapshotCaptureUsesComposableCodec(t *testing.T) {
+	key := Key{Namespace: "remote", ID: "service-1"}
 	transportB := clustertcp.New(clustertcp.Config{ListenAddress: "127.0.0.1:0"})
 	nodeB, err := gsr.NewClusterRuntime(gsr.Config{NodeID: "node-b", Workers: 2}, transportB, NewCodec(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = nodeB.Close(context.Background()) })
-	target, err := nodeB.CreateService(gsr.ServiceSpec{Service: remoteSnapshotService{}})
+	target, err := nodeB.CreateService(gsr.ServiceSpec{Service: remoteSnapshotService{key: key}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +39,6 @@ func TestRemoteSnapshotCaptureUsesComposableCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := Key{Namespace: "remote", ID: "service-1"}
 	captured, err := manager.Capture(context.Background(), target, key)
 	if err != nil {
 		t.Fatal(err)
@@ -57,20 +58,65 @@ func TestRemoteSnapshotCaptureUsesComposableCodec(t *testing.T) {
 	}
 }
 
-type remoteSnapshotService struct{}
+func TestRemoteSnapshotCaptureRejectsMismatchedOwnerKey(t *testing.T) {
+	transportB := clustertcp.New(clustertcp.Config{ListenAddress: "127.0.0.1:0"})
+	nodeB, err := gsr.NewClusterRuntime(gsr.Config{NodeID: "node-b-mismatch", Workers: 2}, transportB, NewCodec(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = nodeB.Close(context.Background()) })
+	target, err := nodeB.CreateService(gsr.ServiceSpec{Service: remoteSnapshotService{
+		key: Key{Namespace: "remote", ID: "owner"}, allowMismatchedRequest: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transportA := clustertcp.New(clustertcp.Config{
+		ListenAddress: "127.0.0.1:0",
+		Peers:         map[gsr.NodeID]string{"node-b-mismatch": transportB.Address()},
+	})
+	nodeA, err := gsr.NewClusterRuntime(gsr.Config{NodeID: "node-a-mismatch", Workers: 2}, transportA, NewCodec(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = nodeA.Close(context.Background()) })
+
+	store := NewMemoryStore()
+	manager, err := NewManager(nodeA, store, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requested := Key{Namespace: "remote", ID: "requested"}
+	if _, err := manager.Capture(context.Background(), target, requested); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Capture error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := store.Load(context.Background(), requested); !errors.Is(err, ErrSnapshotNotFound) {
+		t.Fatalf("Load error = %v, want ErrSnapshotNotFound", err)
+	}
+}
+
+type remoteSnapshotService struct {
+	key                    Key
+	allowMismatchedRequest bool
+}
 
 func (remoteSnapshotService) Commands() []gsr.CommandID { return []gsr.CommandID{CaptureCommand} }
 func (remoteSnapshotService) Init(gsr.ServiceContext) error {
 	return nil
 }
-func (remoteSnapshotService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
+func (s remoteSnapshotService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	if command.ID != CaptureCommand {
 		return gsr.ErrCommandNotRegistered
 	}
-	if _, ok := command.Payload.(CaptureRequest); !ok {
+	request, ok := command.Payload.(CaptureRequest)
+	if !ok {
 		return ErrInvalidResponse
 	}
-	return ctx.Reply(CaptureResponse{State: State{
+	if !s.allowMismatchedRequest && request.Key != s.key {
+		return ErrInvalidKey
+	}
+	return ctx.Reply(CaptureResponse{Key: s.key, State: State{
 		Schema: "remote", Version: 1, Revision: 9, Payload: []byte("cluster"),
 	}})
 }

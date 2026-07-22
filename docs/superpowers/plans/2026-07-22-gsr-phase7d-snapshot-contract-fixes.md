@@ -178,7 +178,7 @@ git commit -m "fix(snapshot): 收紧状态与存储不变量"
 - Modify: `tooling/snapshot/integration_test.go`
 - Modify: `examples/snapshot-runtime/main.go`
 
-- [ ] **Step 1: 写带 Key 线格式失败测试**
+- [x] **Step 1: 写带 Key 线格式失败测试**
 
 精确格式改为：
 
@@ -189,13 +189,13 @@ git commit -m "fix(snapshot): 收紧状态与存储不变量"
 
 增加 `payload:null`、缺失 payload、非法 UTF-8 wire，以及 Service owner Key 与请求不一致的拒绝测试。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./tooling/snapshot -run '^Test(Codec|Remote|Snapshot)' -count=1`
 
 Expected: 旧 wire 类型没有 Key，Service 也未拥有 Key，因此测试失败。
 
-- [ ] **Step 3: 实现稳定 wire 类型与 owner 验证**
+- [x] **Step 3: 实现稳定 wire 类型与 owner 验证**
 
 ```go
 type wireKey struct {
@@ -215,7 +215,7 @@ type wireCaptureResponse struct {
 
 `decodeJSONObject` 在 JSON 解码前拒绝非法 UTF-8。示例、本地测试和远程测试中的 Service 保存稳定 Key，验证请求 Key，并在响应中返回 owner Key；恢复构造函数接收完整 Snapshot。
 
-- [ ] **Step 4: 运行测试、Race 与示例**
+- [x] **Step 4: 运行测试、Race 与示例**
 
 Run:
 
@@ -227,7 +227,7 @@ go run ./examples/snapshot-runtime
 
 Expected: tests PASS；示例输出 `2`。
 
-- [ ] **Step 5: 提交协议与示例修复**
+- [x] **Step 5: 提交协议与示例修复**
 
 ```bash
 git add tooling/snapshot/codec.go tooling/snapshot/codec_test.go tooling/snapshot/remote_test.go tooling/snapshot/integration_test.go examples/snapshot-runtime/main.go

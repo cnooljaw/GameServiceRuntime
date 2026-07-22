@@ -25,14 +25,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	oldRef, err := runtime.CreateService(gsr.ServiceSpec{Service: &counterService{value: 1, revision: 1}})
+	key := snapshot.Key{Namespace: "counter", ID: "example"}
+	oldRef, err := runtime.CreateService(gsr.ServiceSpec{Service: &counterService{key: key, value: 1, revision: 1}})
 	if err != nil {
 		log.Fatal(err)
 	}
 	if err := runtime.Send(oldRef, commandIncrement, 1); err != nil {
 		log.Fatal(err)
 	}
-	key := snapshot.Key{Namespace: "counter", ID: "example"}
 	if _, err := manager.Capture(ctx, oldRef, key); err != nil {
 		log.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	restored, err := newCounterServiceFromSnapshot(loaded.State)
+	restored, err := newCounterServiceFromSnapshot(loaded)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,11 +67,16 @@ type counterState struct {
 }
 
 type counterService struct {
+	key      snapshot.Key
 	value    int
 	revision uint64
 }
 
-func newCounterServiceFromSnapshot(state snapshot.State) (*counterService, error) {
+func newCounterServiceFromSnapshot(saved snapshot.Snapshot) (*counterService, error) {
+	if saved.Key.Namespace == "" || saved.Key.ID == "" {
+		return nil, snapshot.ErrInvalidKey
+	}
+	state := saved.State
 	if state.Schema != "counter" || state.Version != 1 || state.Revision == 0 {
 		return nil, snapshot.ErrInvalidState
 	}
@@ -79,7 +84,7 @@ func newCounterServiceFromSnapshot(state snapshot.State) (*counterService, error
 	if err := json.Unmarshal(state.Payload, &payload); err != nil {
 		return nil, err
 	}
-	return &counterService{value: payload.Value, revision: state.Revision}, nil
+	return &counterService{key: saved.Key, value: payload.Value, revision: state.Revision}, nil
 }
 
 func (*counterService) Commands() []gsr.CommandID {
@@ -101,14 +106,18 @@ func (s *counterService) Handle(ctx gsr.CommandContext, command gsr.Command) err
 	case commandGet:
 		return ctx.Reply(s.value)
 	case snapshot.CaptureCommand:
-		if _, ok := command.Payload.(snapshot.CaptureRequest); !ok {
+		request, ok := command.Payload.(snapshot.CaptureRequest)
+		if !ok {
 			return snapshot.ErrInvalidResponse
+		}
+		if request.Key != s.key {
+			return snapshot.ErrInvalidKey
 		}
 		payload, err := json.Marshal(counterState{Value: s.value})
 		if err != nil {
 			return err
 		}
-		return ctx.Reply(snapshot.CaptureResponse{State: snapshot.State{
+		return ctx.Reply(snapshot.CaptureResponse{Key: s.key, State: snapshot.State{
 			Schema: "counter", Version: 1, Revision: s.revision, Payload: payload,
 		}})
 	default:

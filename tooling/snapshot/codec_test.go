@@ -9,21 +9,23 @@ import (
 
 func TestCodecUsesStableWireFormat(t *testing.T) {
 	codec := NewCodec(nil)
-	request, err := codec.Encode(CaptureCommand, false, CaptureRequest{})
+	key := testKey()
+	request, err := codec.Encode(CaptureCommand, false, CaptureRequest{Key: key})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(request) != `{}` {
-		t.Fatalf("request = %s, want {}", request)
+	const wantRequest = `{"key":{"namespace":"player","id":"42"}}`
+	if string(request) != wantRequest {
+		t.Fatalf("request = %s, want %s", request, wantRequest)
 	}
 
-	response, err := codec.Encode(CaptureCommand, true, CaptureResponse{State: State{
+	response, err := codec.Encode(CaptureCommand, true, CaptureResponse{Key: key, State: State{
 		Schema: "player", Version: 1, Revision: 2, Payload: []byte("ok"),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"state":{"schema":"player","version":1,"revision":2,"payload":"b2s="}}`
+	const want = `{"key":{"namespace":"player","id":"42"},"state":{"schema":"player","version":1,"revision":2,"payload":"b2s="}}`
 	if string(response) != want {
 		t.Fatalf("response = %s, want %s", response, want)
 	}
@@ -31,15 +33,19 @@ func TestCodecUsesStableWireFormat(t *testing.T) {
 
 func TestCodecRoundTripsCapturePayloads(t *testing.T) {
 	codec := NewCodec(nil)
-	requestPayload, err := codec.Decode(CaptureCommand, false, []byte(`{}`))
+	requestPayload, err := codec.Decode(CaptureCommand, false, []byte(`{"key":{"namespace":"player","id":"42"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := requestPayload.(CaptureRequest); !ok {
+	request, ok := requestPayload.(CaptureRequest)
+	if !ok {
 		t.Fatalf("request payload = %T, want CaptureRequest", requestPayload)
 	}
+	if request.Key != testKey() {
+		t.Fatalf("request Key = %#v, want %#v", request.Key, testKey())
+	}
 
-	want := CaptureResponse{State: State{Schema: "player", Version: 2, Revision: 7, Payload: []byte("state")}}
+	want := CaptureResponse{Key: testKey(), State: State{Schema: "player", Version: 2, Revision: 7, Payload: []byte("state")}}
 	wire, err := codec.Encode(CaptureCommand, true, want)
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +58,7 @@ func TestCodecRoundTripsCapturePayloads(t *testing.T) {
 	if !ok {
 		t.Fatalf("response payload = %T, want CaptureResponse", decoded)
 	}
-	if got.State.Schema != want.State.Schema || got.State.Version != want.State.Version ||
+	if got.Key != want.Key || got.State.Schema != want.State.Schema || got.State.Version != want.State.Version ||
 		got.State.Revision != want.State.Revision || string(got.State.Payload) != string(want.State.Payload) {
 		t.Fatalf("response = %#v, want %#v", got, want)
 	}
@@ -60,10 +66,10 @@ func TestCodecRoundTripsCapturePayloads(t *testing.T) {
 
 func TestCodecAllowsUnknownFieldsAndRejectsTrailingJSON(t *testing.T) {
 	codec := NewCodec(nil)
-	if _, err := codec.Decode(CaptureCommand, false, []byte(`{"future":true}`)); err != nil {
+	if _, err := codec.Decode(CaptureCommand, false, []byte(`{"key":{"namespace":"player","id":"42"},"future":true}`)); err != nil {
 		t.Fatalf("Decode request with unknown field error = %v", err)
 	}
-	decoded, err := codec.Decode(CaptureCommand, true, []byte(`{"state":{"schema":"player","version":1,"revision":2,"payload":"b2s=","future":true},"future":true}`))
+	decoded, err := codec.Decode(CaptureCommand, true, []byte(`{"key":{"namespace":"player","id":"42","future":true},"state":{"schema":"player","version":1,"revision":2,"payload":"b2s=","future":true},"future":true}`))
 	if err != nil {
 		t.Fatalf("Decode response with unknown fields error = %v", err)
 	}
@@ -78,6 +84,35 @@ func TestCodecAllowsUnknownFieldsAndRejectsTrailingJSON(t *testing.T) {
 	}
 	if _, err := codec.Decode(CaptureCommand, false, []byte(`null`)); !errors.Is(err, ErrInvalidResponse) {
 		t.Fatalf("Decode null error = %v, want ErrInvalidResponse", err)
+	}
+}
+
+func TestCodecRejectsInvalidSnapshotFieldsAndUTF8(t *testing.T) {
+	codec := NewCodec(nil)
+	invalidUTF8 := []byte{'{', '"', 0xff, '"', ':', '1', '}'}
+	tests := []struct {
+		name     string
+		response bool
+		payload  []byte
+	}{
+		{name: "request missing key", payload: []byte(`{}`)},
+		{name: "response null payload", response: true, payload: []byte(`{"key":{"namespace":"player","id":"42"},"state":{"schema":"player","version":1,"revision":2,"payload":null}}`)},
+		{name: "response missing payload", response: true, payload: []byte(`{"key":{"namespace":"player","id":"42"},"state":{"schema":"player","version":1,"revision":2}}`)},
+		{name: "invalid UTF-8 JSON", payload: invalidUTF8},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := codec.Decode(CaptureCommand, test.response, test.payload); !errors.Is(err, ErrInvalidResponse) {
+				t.Fatalf("Decode error = %v, want ErrInvalidResponse", err)
+			}
+		})
+	}
+
+	if _, err := codec.Encode(CaptureCommand, false, CaptureRequest{Key: Key{Namespace: string([]byte{0xff}), ID: "42"}}); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Encode invalid request error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := codec.Encode(CaptureCommand, true, CaptureResponse{Key: testKey(), State: State{Schema: "player", Version: 1, Revision: 1}}); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Encode nil payload error = %v, want ErrInvalidResponse", err)
 	}
 }
 
