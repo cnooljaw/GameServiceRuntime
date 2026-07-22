@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前发布版本为 `v0.3.0`，变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery 和本地 Monitor Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7D Snapshot，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor 和 Snapshot Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -21,8 +21,10 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 可组合 Discovery Codec 和类型化远程领域错误。
 - 本地 Monitor Report、稳定 JSON 输出和完整 Metrics 快照枚举。
 - 远程 Call 成功、失败结果指标。
+- 通过 Capture Command 串行采集的版本化业务状态快照。
+- 带 Revision 冲突保护的内存 Store、可组合 Cluster Codec 和组合根受限恢复。
 
-Snapshot、Supervisor、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Supervisor、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -66,3 +68,15 @@ go run ./examples/monitor-runtime
 ```
 
 示例输出一行 JSON，包含本节点 Runtime 状态、Service、Mailbox、Runtime Task、PendingCall、Timer 和 Metrics。`tooling/monitor` 只消费 `Runtime.Inspect()` 的独立副本，不启动 HTTP、不创建后台任务，也不提供远程管理命令。
+
+## Snapshot 示例
+
+```bash
+go run ./examples/snapshot-runtime
+```
+
+预期输出：`2`。
+
+示例先通过 `snapshot.CaptureCommand` 在目标 Service 的 Mailbox 中生成 State，再由 `Manager` 保存到 `MemoryStore`。停止旧实例后，组合根加载 Snapshot、构造新 Service 并获得新的 `ServiceRef`。
+
+Snapshot 不给运行中 Service 增加 `Snapshot()` 或 `Restore()` 旁路，也不替代数据库持久化、Wallet 账本或 Command Record。当前只提供内存 Store；数据库、对象存储、加密、压缩和自动恢复不在 Phase 7D 范围。

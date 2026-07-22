@@ -2,6 +2,23 @@
 
 本文记录 GSR 对外发布版本的行为变化。
 
+## Unreleased
+
+### Snapshot
+
+- 新增 `tooling/snapshot`，通过稳定 `CaptureCommand` 在目标 Service 的串行 Handler 中生成版本化 State。
+- `Manager` 使用窄 `CommandCaller` 和 `Store` 接口；Call 完成后才执行 Store IO。
+- Snapshot 使用稳定业务 Key、Schema、Version 和单调 Revision；默认 payload 上限为 1 MiB。
+- `MemoryStore` 返回独立副本，原子拒绝旧 Revision 和同 Revision 的不同内容；零值可直接使用。
+- 新增可组合 JSON Cluster Codec，使用稳定 `snake_case` 字段、允许未知字段并拒绝尾随 JSON。
+- 新增本地恢复和双节点 Capture 测试，以及组合根受限恢复示例。
+
+### 限制
+
+- 不修改 Core `Service` 接口，不支持对运行中实例原地 Restore。
+- 当前只提供内存 Store，不提供数据库、对象存储、压缩、加密、增量快照或自动恢复。
+- Supervisor 已拆为独立 Phase 7E；失败通知、launcher 和退避任务 owner 尚未裁决。
+
 ## v0.3.0 - 2026-07-22
 
 增加本地 Monitor Tooling，把 `Runtime.Inspect()` 转换为稳定报告和 JSON。Monitor 不进入 Core Runtime，不启动网络监听或后台任务。

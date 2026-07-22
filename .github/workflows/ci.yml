@@ -35,3 +35,12 @@ jobs:
 
       - name: Run cluster example
         run: test "$(go run ./examples/cluster-runtime)" = "hello cluster"
+
+      - name: Run discovery example
+        run: test "$(go run ./examples/discovery-runtime)" = ".config -> node-b/2"
+
+      - name: Run monitor example
+        run: go run ./examples/monitor-runtime
+
+      - name: Run snapshot example
+        run: test "$(go run ./examples/snapshot-runtime)" = "2"

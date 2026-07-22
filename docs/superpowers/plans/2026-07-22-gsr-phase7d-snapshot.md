@@ -105,7 +105,7 @@ git commit -m "docs(rfc): 审核后续阶段并冻结 Snapshot 边界"
 - Create: `tooling/snapshot/memory_store.go`
 - Test: `tooling/snapshot/memory_store_test.go`
 
-- [ ] **Step 1: 写 MemoryStore 失败测试**
+- [x] **Step 1: 写 MemoryStore 失败测试**
 
 测试至少包含以下完整行为：
 
@@ -140,13 +140,13 @@ func TestMemoryStoreOrdersRevisionsAndDetectsConflict(t *testing.T) {
 
 增加表驱动用例覆盖 invalid context、Key、Source、Schema、Version、Revision、nil Payload、zero CapturedAt、not found，以及并发 Save/Load。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./tooling/snapshot -run '^TestMemoryStore' -count=1`
 
 Expected: FAIL，包或符号尚不存在。
 
-- [ ] **Step 3: 写最小公开模型和错误**
+- [x] **Step 3: 写最小公开模型和错误**
 
 实现以下契约，并为全部导出符号写 Go doc：
 
@@ -165,7 +165,7 @@ type Config struct { MaxPayloadBytes int; Now func() time.Time }
 
 错误完整定义为：`ErrInvalidConfig`、`ErrInvalidContext`、`ErrInvalidKey`、`ErrInvalidTarget`、`ErrInvalidState`、`ErrPayloadTooLarge`、`ErrSnapshotNotFound`、`ErrStaleSnapshot`、`ErrSnapshotConflict`、`ErrInvalidResponse`、`ErrUnsupportedCommand`。
 
-- [ ] **Step 4: 实现验证、深复制和 MemoryStore**
+- [x] **Step 4: 实现验证、深复制和 MemoryStore**
 
 核心替换逻辑必须等价于：
 
@@ -193,7 +193,7 @@ func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
 
 `Load` 在锁内取值，锁外返回深复制；构造函数初始化非 nil map，不创建 goroutine。
 
-- [ ] **Step 5: 运行 Store 测试和 Race Detector**
+- [x] **Step 5: 运行 Store 测试和 Race Detector**
 
 Run:
 
@@ -204,7 +204,7 @@ go test -race ./tooling/snapshot -run '^TestMemoryStore' -count=20
 
 Expected: PASS，Race Detector 无报告。
 
-- [ ] **Step 6: 提交 Store 切片**
+- [x] **Step 6: 提交 Store 切片**
 
 ```bash
 git add tooling/snapshot/errors.go tooling/snapshot/types.go tooling/snapshot/validation.go tooling/snapshot/memory_store.go tooling/snapshot/memory_store_test.go
@@ -218,7 +218,7 @@ git commit -m "feat(snapshot): 增加版本化内存快照存储"
 - Create: `tooling/snapshot/manager.go`
 - Test: `tooling/snapshot/manager_test.go`
 
-- [ ] **Step 1: 写 Capture/Load 失败测试**
+- [x] **Step 1: 写 Capture/Load 失败测试**
 
 测试 fake Caller 收到稳定 Command 和请求，并让 fake Store 在 `Call` 返回前被调用时失败：
 
@@ -242,13 +242,13 @@ func TestManagerCaptureCallsServiceBeforeStore(t *testing.T) {
 
 增加用例：typed nil Caller/Store、nil context、invalid target/key、Call error 原样返回、错误响应类型、invalid state、payload 超限、Store error 返回零值、Load 校验 Store 返回值和独立副本。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./tooling/snapshot -run '^TestManager' -count=1`
 
 Expected: FAIL，`NewManager` 或方法尚不存在。
 
-- [ ] **Step 3: 实现 Manager**
+- [x] **Step 3: 实现 Manager**
 
 构造和 Capture 流程必须等价于：
 
@@ -277,7 +277,7 @@ func (m *Manager) Capture(ctx context.Context, target gsr.ServiceRef, key Key) (
 
 `Load` 调用 Store 后校验 Key 相等、结构合法和大小上限，再返回深复制。
 
-- [ ] **Step 4: 运行 Manager 测试**
+- [x] **Step 4: 运行 Manager 测试**
 
 Run:
 
@@ -288,7 +288,7 @@ go test -race ./tooling/snapshot -run '^TestManager' -count=20
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交 Manager 切片**
+- [x] **Step 5: 提交 Manager 切片**
 
 ```bash
 git add tooling/snapshot/manager.go tooling/snapshot/manager_test.go
@@ -303,7 +303,7 @@ git commit -m "feat(snapshot): 通过 Command 采集并保存快照"
 - Test: `tooling/snapshot/codec_test.go`
 - Test: `tooling/snapshot/remote_test.go`
 
-- [ ] **Step 1: 写 Codec 失败测试**
+- [x] **Step 1: 写 Codec 失败测试**
 
 覆盖精确线格式：
 
@@ -322,17 +322,17 @@ func TestCodecUsesStableWireFormat(t *testing.T) {
 
 增加未知字段兼容、尾随 JSON、错误 Go 类型、fallback 委托、无 fallback 的 `ErrUnsupportedCommand` 和 response round-trip。
 
-- [ ] **Step 2: 写双节点远程 Capture 失败测试**
+- [x] **Step 2: 写双节点远程 Capture 失败测试**
 
 使用 `transport/tcp` 的 `127.0.0.1:0` listener：node-b 创建实现 `CaptureCommand` 的 Service；node-a 使用 `NewCodec(nil)` 和 `Manager` 远程 Capture，断言 Store 中 Source 为 node-b ServiceRef、State 完整。
 
-- [ ] **Step 3: 运行测试并确认失败**
+- [x] **Step 3: 运行测试并确认失败**
 
 Run: `go test ./tooling/snapshot -run '^Test(Codec|Remote)' -count=1`
 
 Expected: FAIL，Codec 尚不存在。
 
-- [ ] **Step 4: 实现可组合 Codec**
+- [x] **Step 4: 实现可组合 Codec**
 
 私有 wire 类型固定字段：
 
@@ -348,7 +348,7 @@ type wireCaptureResponse struct { State wireState `json:"state"` }
 
 只有 `CaptureCommand` 由本 Codec 处理。Decoder 使用一次 `Decode` 后再确认 EOF；允许未知字段，拒绝第二个 JSON 值。非 Snapshot Command 委托非 nil fallback。
 
-- [ ] **Step 5: 运行 Codec、远程和 Race 测试**
+- [x] **Step 5: 运行 Codec、远程和 Race 测试**
 
 Run:
 
@@ -359,7 +359,7 @@ go test -race ./tooling/snapshot -run '^Test(Codec|Remote)' -count=10
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交 Codec 切片**
+- [x] **Step 6: 提交 Codec 切片**
 
 ```bash
 git add tooling/snapshot/codec.go tooling/snapshot/codec_test.go tooling/snapshot/remote_test.go
@@ -373,17 +373,17 @@ git commit -m "feat(snapshot): 增加跨节点快照编解码"
 - Create: `examples/snapshot-runtime/main.go`
 - Test: `tooling/snapshot/integration_test.go`
 
-- [ ] **Step 1: 写本地恢复失败测试**
+- [x] **Step 1: 写本地恢复集成测试**
 
 测试流程必须是：创建 revision=1 的 Service；发送状态变更 Command；Capture revision=2；Stop 旧 Service；Load；在构造函数中解析 Payload；CreateService 新实例；断言新 `ServiceRef` 不等于旧 Ref，查询状态等于快照；向旧 Ref Call 返回 `ErrServiceClosed`。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 在增加示例前运行集成测试**
 
 Run: `go test ./tooling/snapshot -run '^TestSnapshotRestoreCreatesNewServiceInstance$' -count=1`
 
-Expected: FAIL，示例 fixture 或恢复流程尚不存在。
+Expected: PASS。该任务不新增通用 Restore API；测试先证明现有 Manager/Store 已形成组合根恢复缝，再增加同一流程的可执行示例。
 
-- [ ] **Step 3: 实现示例**
+- [x] **Step 3: 实现示例**
 
 示例 Service 只在 Handler 中修改状态；Capture Handler 使用标准库 JSON 生成 `State`。恢复代码位于 `main` 组合根：
 
@@ -401,7 +401,7 @@ fmt.Println(value)
 
 预期输出：`2`。
 
-- [ ] **Step 4: 运行集成测试和示例**
+- [x] **Step 4: 运行集成测试和示例**
 
 Run:
 
@@ -413,7 +413,7 @@ go run ./examples/snapshot-runtime
 
 Expected: tests PASS；示例输出 `2`。
 
-- [ ] **Step 5: 提交恢复示例**
+- [x] **Step 5: 提交恢复示例**
 
 ```bash
 git add examples/snapshot-runtime/main.go tooling/snapshot/integration_test.go
@@ -429,18 +429,19 @@ git commit -m "feat(snapshot): 增加组合根受限恢复示例"
 - Modify: `docs/TODO.md`
 - Modify: `docs/rfcs/RFC-0210-Tooling-Snapshot.md`
 - Modify: `docs/rfcs/RFC-0500-Roadmap.md`
+- Modify: `docs/GSR-Book/04-第四篇-基础设施/01-Snapshot.md`
 - Modify: `docs/superpowers/plans/2026-07-22-gsr-phase7d-snapshot.md`
 - Modify: `.github/workflows/ci.yml`
 
-- [ ] **Step 1: 同步实现状态**
+- [x] **Step 1: 同步实现状态**
 
 `RFC-0210` 在 Review 清零后改为“已接受（2026-07-22）”；路线图把 7D 标记完成、下一阶段指向 7E Supervisor 的 RFC 裁决。README 增加 Snapshot 示例和“不会原地 Restore”的限制；CHANGELOG 增加 `[Unreleased]` Snapshot 条目。
 
-- [ ] **Step 2: 把全部示例纳入 CI**
+- [x] **Step 2: 把全部示例纳入 CI**
 
 在现有 local/cluster 检查后补充 discovery、monitor 和 snapshot，分别校验稳定输出或成功退出。Monitor JSON 用 `go run ./examples/monitor-runtime >/dev/null`，Snapshot 校验输出 `2`。
 
-- [ ] **Step 3: 执行双轴 Review**
+- [x] **Step 3: 执行双轴 Review**
 
 逐项确认：
 
@@ -451,7 +452,9 @@ git commit -m "feat(snapshot): 增加组合根受限恢复示例"
 - 失败轴：Call、Codec、Store、过期 Revision、冲突和旧 Ref 都有稳定结果。
 - 热路径轴：Core Send/Call/Timer 无修改；Store IO 不在目标 Handler。
 
-- [ ] **Step 4: 执行完整质量门禁**
+Review 结果：0 个 P1；发现 3 个 P2 并全部修复。P2 分别是公开 `MemoryStore` 零值写入 nil map、默认 1 MiB 上限缺少边界测试、RFC 对 Key/Schema 首尾空白的表述不够精确。修复后 Standards 轴和 Spec 轴均无遗留发现。
+
+- [x] **Step 4: 执行完整质量门禁**
 
 Run:
 
@@ -470,7 +473,7 @@ git diff --check
 
 Expected: 全部成功；示例依次包含 `hello`、`hello cluster`、`.config -> node-b/2`、一行 Monitor JSON、`2`；`git diff --check` 无输出。
 
-- [ ] **Step 5: 检查计划占位符和类型一致性**
+- [x] **Step 5: 检查计划占位符和类型一致性**
 
 Run:
 
@@ -481,7 +484,7 @@ rg -n 'CaptureCommand|MaxPayloadBytes|ErrSnapshotConflict|NewMemoryStore' docs/r
 
 Expected: 第一条无命中；第二条 RFC 与代码命名一致。
 
-- [ ] **Step 6: 提交验收文档**
+- [x] **Step 6: 提交验收文档**
 
 ```bash
 git add .github/workflows/ci.yml README.md CHANGELOG.md docs/TODO.md docs/rfcs/RFC-0210-Tooling-Snapshot.md docs/rfcs/RFC-0500-Roadmap.md docs/superpowers/plans/2026-07-22-gsr-phase7d-snapshot.md
@@ -496,3 +499,16 @@ git commit -m "docs(snapshot): 完成 Phase 7D 验收"
 - Load 只返回数据；恢复在组合根构造新 Service 和新 `ServiceRef`。
 - Supervisor、自动重启、持久化数据库和 Record/Replay 没有进入 Phase 7D。
 - 全量测试、vet、race、100 次 Snapshot 重复测试、全部示例和文档检查通过。
+
+## 实施结果
+
+- 文档审核提交：`3ac05f0`。
+- MemoryStore 提交：`7953625`。
+- Manager 提交：`6bec9d3`。
+- Cluster Codec 提交：`50b329b`。
+- 组合根恢复示例提交：`0745a90`。
+- Review 修正提交：`f203fe1`。
+- `go test ./... -count=1`、`go vet ./...`、`go test -race ./... -count=1` 通过。
+- `go test ./tooling/snapshot -count=100` 通过。
+- local、cluster、discovery、monitor 和 snapshot 示例全部通过；Snapshot 输出 `2`。
+- 双轴 Review 最终为 0 个 Standards 遗留、0 个 Spec 遗留。

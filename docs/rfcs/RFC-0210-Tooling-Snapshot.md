@@ -1,6 +1,6 @@
 # RFC-0210：Snapshot 与受限恢复
 
-> 状态：待实现
+> 状态：已接受（2026-07-22）
 > 目标阶段：Phase 7D
 > 范围：Runtime Tooling、Business Layer
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)
@@ -146,10 +146,10 @@ func NewCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec
 
 `Key` 是跨 Service 重建保持稳定的业务键，不是 `ServiceRef`：
 
-- `Namespace` 去除首尾空白后必须非空，UTF-8 字节长度不超过 128。
-- `ID` 去除首尾空白后必须非空，UTF-8 字节长度不超过 256。
+- `Namespace` 必须已经去除首尾空白且非空，UTF-8 字节长度不超过 128。
+- `ID` 必须已经去除首尾空白且非空，UTF-8 字节长度不超过 256。
 - `Source.Node` 非空，`Source.ID` 非零。
-- `Schema` 去除首尾空白后必须非空，UTF-8 字节长度不超过 128。
+- `Schema` 必须已经去除首尾空白且非空，UTF-8 字节长度不超过 128。
 - `Version` 非零，表示 payload Schema 版本。
 - `Revision` 非零，并由状态 owner 在每次可见业务状态变化后单调递增。
 - `Payload` 必须是非 nil 字节切片；空状态使用非 nil 空切片。
@@ -170,6 +170,8 @@ func NewCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec
 5. `Revision` 相同但 Schema、Version 或 Payload 不同，返回 `ErrSnapshotConflict`。
 
 不同 `Key` 之间不承诺事务。第一版不提供 Delete；保留时间和删除策略由具体 Store adapter 定义。
+
+`MemoryStore` 的零值可直接使用。nil `*MemoryStore` 调用返回 `ErrInvalidConfig`，不得 panic。
 
 ## 错误语义
 
@@ -244,3 +246,16 @@ Phase 7D 不引入 Recorder 类型。Command Record/Replay 以 [RFC-0280](RFC-02
 - 通过 Load 在组合根构造新 Service，旧 `ServiceRef` 不被复用。
 - Service、Manager 和 MemoryStore 不创建 goroutine。
 - 全量测试、`go vet`、Race Detector、重复测试和本地示例。
+
+## 实现状态
+
+Phase 7D 已完成：
+
+- `tooling/snapshot` 已实现公开模型、Manager、MemoryStore 和可组合 Cluster Codec。
+- Manager 在 Capture Call 返回并完成校验后才执行 Store IO。
+- MemoryStore 已覆盖独立副本、并发 Save/Load、Revision 顺序、幂等和冲突。
+- 本地恢复测试证明旧实例停止后由组合根构造新 Service，且 `ServiceRef` 不复用。
+- 双节点测试证明远程 Capture 与本地 Capture 使用同一公开 API。
+- `examples/snapshot-runtime` 提供可执行受限恢复流程。
+
+数据库 Store、自动恢复和 Supervisor 仍按本文非目标留在后续阶段。
