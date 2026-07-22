@@ -83,17 +83,35 @@ func (r *InMemorySessionRegistry) DiscardSecret(ref SecretRef) {
 
 // Issue atomically turns stored secret material into the ticket that Gateway will verify.
 func (r *InMemorySessionRegistry) Issue(ticket LoginTicket, identity AuthIdentity) error {
+	_, err := r.Replace(ticket, identity, nil)
+	return err
+}
+
+// Replace atomically issues ticket and revokes previous when it is still the current ticket.
+func (r *InMemorySessionRegistry) Replace(ticket LoginTicket, identity AuthIdentity, previous *LoginTicket) (ConnectionID, error) {
 	if !validTicket(ticket) || !validIdentity(identity) || ticket.Server != identity.Server {
-		return ErrInvalidTicket
+		return "", ErrInvalidTicket
+	}
+	if previous != nil && !validTicket(*previous) {
+		return "", ErrInvalidTicket
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	material, exists := r.pending[ticket.SecretRef]
 	if !exists || material.identity != identity || !material.expires.Equal(ticket.ExpiresAt) {
-		return ErrUnauthorized
+		return "", ErrUnauthorized
 	}
 	if !ticket.ExpiresAt.After(r.now()) {
-		return ErrTicketExpired
+		return "", ErrTicketExpired
+	}
+	var replaced ConnectionID
+	if previous != nil {
+		key := sessionKey{uid: previous.UID, server: previous.Server}
+		if old, current := r.sessions[key]; current && old.ticket.Generation == previous.Generation && old.ticket.SubID == previous.SubID {
+			delete(r.sessions, key)
+			replaced = old.connection
+			zero(old.secret)
+		}
 	}
 	delete(r.pending, ticket.SecretRef)
 	key := sessionKey{uid: ticket.UID, server: ticket.Server}
@@ -101,7 +119,7 @@ func (r *InMemorySessionRegistry) Issue(ticket LoginTicket, identity AuthIdentit
 		zero(old.secret)
 	}
 	r.sessions[key] = sessionRecord{ticket: ticket, identity: identity, secret: material.secret}
-	return nil
+	return replaced, nil
 }
 
 // VerifyAndBind validates one proof and records its strictly increasing sequence with a connection binding.
