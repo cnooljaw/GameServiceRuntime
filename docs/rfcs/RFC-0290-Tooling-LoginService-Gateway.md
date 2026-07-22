@@ -1,7 +1,8 @@
 # RFC-0290：客户端登录与 Gateway 入口
 
-> 状态：待实现
+> 状态：已接受
 > 目标阶段：Phase 7F
+> 接受日期：2026-07-22
 > 范围：Runtime Tooling、客户端入口
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0120](RFC-0120-Core-Command.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0140](RFC-0140-Core-Session-PendingCall.md)
 > 依据：Skynet `examples/login/client.lua`、`examples/login/logind.lua`、`examples/login/gated.lua`、`lualib/snax/loginserver.lua`
@@ -98,13 +99,13 @@ SessionRegistry 必须把下列状态作为一个受锁保护的记录维护：t
 
 ```text
 StoreSecret(identity, secret, expiresAt) -> SecretRef
-Issue(ticket, identity) -> error
-VerifyAndBind(proof, connectionID, now) -> SessionIdentity
+Replace(ticket, identity, previous) -> replaced ConnectionID
+VerifyAndBind(proof, connectionID) -> SessionBinding
 Unbind(connectionID, generation) -> void
 Revoke(uid, server, generation) -> void
 ```
 
-`Issue` 只接受先前由 `StoreSecret` 返回的 `SecretRef`，并将 ticket 与 identity 绑定。`VerifyAndBind` 必须在同一临界区内完成：查找当前 ticket、检查未过期和未撤销、检查 `UID`/`SubID`/`Server`/`Generation`、校验 HMAC、要求 `Sequence` 严格大于已接受序号、记录新序号，并建立或替换该代际的连接绑定。它不得分成“先验证、后绑定”的两个可竞争调用。
+`Replace` 只接受先前由 `StoreSecret` 返回的 `SecretRef`，将 ticket 与 identity 绑定，并在同一临界区撤销仍匹配的旧 ticket。`VerifyAndBind` 返回 `SessionBinding`（已认证 `SessionIdentity` 与被替换连接 ID），并必须在同一临界区完成：查找当前 ticket、检查未过期和未撤销、检查 `UID`/`SubID`/`Server`/`Generation`、校验 HMAC、要求 `Sequence` 严格大于已接受序号、记录新序号，并建立或替换该代际的连接绑定。它不得分成“先验证、后绑定”的两个可竞争调用。
 
 同一 ticket 的新连接绑定会替换旧绑定；Gateway 通过由 Registry 返回的被替换 connection ID 主动关闭旧连接。`Unbind` 必须同时匹配 connection ID 与 Generation，迟到断线不能删除新绑定。票据过期、撤销或被新代际覆盖时必须删除 secret、proof 序号和绑定。Registry 清理也必须受 TTL 和最大活动会话数限制；容量满时拒绝新登录，不能驱逐仍有效的任意会话。
 
@@ -120,7 +121,7 @@ LoginService 只接受已经完成握手和认证的 `IssueLoginTicket` Command�
 
 LoginService 对 Registry 写入失败返回稳定错误且不 Reply 成功 ticket。Login Adapter 仅在收到成功 Reply 后才向客户端写入 ticket；连接中断、认证失败、Registry 满、Call 超时或 LoginService 关闭都不得产生半签发 ticket。若 LoginService 成功 Reply 但 Adapter 写回客户端失败，ticket 保留到过期；客户端可用该 ticket 进入 Gateway，调用方不得猜测它未签发。
 
-第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket，并在 `TicketIssue` 中返回旧绑定的 `ConnectionID`，由组合根注入的 Gateway connection closer 关闭旧连接。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
+第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket，并在 `TicketIssue` 中返回旧绑定的 `ConnectionID`，由必填的 Gateway `ConnectionCloser` 关闭旧连接。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
 
 ## 登录握手 seam
 

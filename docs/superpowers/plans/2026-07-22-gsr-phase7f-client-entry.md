@@ -1,6 +1,6 @@
 # Phase 7F：客户端入口实施计划
 
-> 状态：执行中
+> 状态：已完成
 > 依据：[RFC-0290](../../rfcs/RFC-0290-Tooling-LoginService-Gateway.md)
 > 范围：`tooling/entry`、TCP 示例、文档验收
 

@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+### 客户端入口
+
+- 新增 `tooling/entry`：内存 `SessionRegistry` 在一个私有同步边界内保存 secret、ticket、严格递增 proof Sequence 和 Gateway 连接绑定。
+- 新增 Mailbox 串行的 `LoginService` 和 typed `LoginClient`；首版 `SingleSession` 以 `AccountID + Server` 签发单调 Generation，新票据原子撤销旧 ticket 并返回旧连接 ID。
+- Gateway 固定 `GSR-Gateway-Proof-v1` HMAC-SHA-256 proof 与带上限的 `AUTH` TCP 行格式；篡改、过期、重放或无效 proof 不会触发业务 mapper 或 Runtime Command。
+- 新增由组合根持有的 TCP Login/Gateway Adapter。它们跟踪 listener 和连接任务，`Close(ctx)` 会等待任务真实返回；Adapter 通过窄 Handshake、Registry、Issuer、ConnectionCloser、ProtocolMapper 和 Runtime dispatch seam 组合。
+- `ProtocolMapper` 仅接收 `SessionIdentity` 和业务包；Call 结果必须由 `CallResponseMapper` 编码，Gateway 不解释业务协议或持有业务状态。
+- 新增 TCP 端到端示例，以及 proof 并发重放、迟到 Unbind、SingleSession 旧连接关闭、Call 响应和 Adapter 关闭竞争测试。
+
 ### Supervisor
 
 - 新增 `tooling/supervisor`，Decorator 在 Handler panic 时发送不含 panic value、堆栈或业务状态的不可变失败通知，并重新 panic 交给 Core 隔离。
@@ -31,6 +40,7 @@
 - Supervisor 只处理同节点 Handler panic，不提供跨进程恢复、持久故障队列、完整 Supervisor Tree 或远程 Codec。
 - 失败通知投递是单次非阻塞 Send；投递失败有指标和日志，但不保证自动恢复。
 - 长期名字通过调用方提供的 `BindingPublisher` 发布；Supervisor 不强制依赖 Discovery。
+- 客户端入口当前只提供内存 Registry、单进程 TCP 行协议和测试 Handshake；不提供生产账号体系、TLS/密钥协商、WebSocket/HTTP、持久化或跨节点会话。
 
 ## v0.3.0 - 2026-07-22
 

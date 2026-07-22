@@ -190,6 +190,7 @@ func (r *InMemorySessionRegistry) Revoke(uid, server string, generation uint64) 
 func (r *InMemorySessionRegistry) Connection(uid, server string) ConnectionID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.pruneExpiredLocked(r.now())
 	record := r.sessions[sessionKey{uid: uid, server: server}]
 	return record.connection
 }

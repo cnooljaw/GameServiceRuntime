@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7E Supervisor，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot 和 Supervisor Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7F 客户端入口，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor 和客户端入口 Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -25,8 +25,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 带 Revision 冲突保护和 canonical 返回值的内存 Store、可组合 Cluster Codec 和组合根受限恢复。
 - Handler panic 的不可变失败通知、稳定 Key/Generation fencing 和 typed Supervisor 状态查询。
 - 有界恢复 Runner、尝试/窗口/退避策略，以及 Prepare/Commit/Abort 两阶段新实例发布。
+- 内存 SessionRegistry、Mailbox 串行的 SingleSession LoginService、固定 HMAC proof 线格式和 TCP Login/Gateway Adapter。
 
-客户端入口、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+远程 NodeAgent、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -94,3 +95,13 @@ go run ./examples/supervisor-runtime
 示例先提交 revision 2 的 Snapshot，再让旧实例 Handler panic。Decorator 发送失败事实并重新 panic；Core 清理旧实例，Runner 在 Service 外加载 Snapshot，Prepare 新实例，Supervisor 登记 Generation 2 后再发布绑定。预期输出类似：`old=2 new=3 generation=1->2 revision=2 value=2`。
 
 Supervisor 不恢复旧对象，不在 panic 后抓取状态。失败通知投递是 panic 路径中的单次非阻塞 Send；Mailbox 满或 Supervisor 不可用时记录指标和日志，Core 仍隔离旧实例，但自动恢复不保证发生。Runner、Snapshot Factory 和名字 Publisher 都由组合根持有，普通业务 Service 不获取 Runtime 指针、不访问 Store、不创建 goroutine。
+
+## 客户端入口示例
+
+```bash
+go run ./examples/client-entry
+```
+
+预期输出：`player=player-1 generation=1`。
+
+`tooling/entry` 把登录 Handshake、受控 secret、LoginService 的 SingleSession 策略、Gateway proof 和业务协议映射分开。首版 TCP Gateway 固定 `AUTH` proof 行，并只在 `SessionRegistry.VerifyAndBind` 原子验证成功后调用业务 `ProtocolMapper`。示例 Handshake 返回固定测试密钥，不能用于公网部署；生产实现必须使用 TLS 或等价的认证密钥交换。完整边界见 [`RFC-0290`](docs/rfcs/RFC-0290-Tooling-LoginService-Gateway.md)。

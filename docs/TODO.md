@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot 和 Phase 7E Supervisor 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。Phase 7F 客户端入口已完成 RFC 审核：会话 Generation、proof 线格式、SessionRegistry 原子绑定，以及 Login Adapter 与 LoginService 的失败交接已冻结，正在实现。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot、Phase 7E Supervisor 和 Phase 7F 客户端入口已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。客户端入口提供单进程内存 SessionRegistry、SingleSession ticket、固定 proof 线格式、TCP Login/Gateway Adapter 和 ProtocolMapper seam；生产 Handshake、持久化或跨节点会话不在本阶段。
 
 ## P1：Core API 冻结前完成
 

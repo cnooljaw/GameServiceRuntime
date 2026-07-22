@@ -217,7 +217,7 @@ func TestLoginAdapterCloseWaitsForHandshakeReturn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
 	}
-	adapter, err := NewLoginAdapter(LoginAdapterConfig{Listener: listener, Handshake: handshake, Registry: registry, Issuer: rejectingIssuer{}})
+	adapter, err := NewLoginAdapter(LoginAdapterConfig{Listener: listener, Handshake: handshake, Registry: registry, Issuer: rejectingIssuer{}, ConnectionCloser: noopConnectionCloser{}})
 	if err != nil {
 		t.Fatalf("NewLoginAdapter() error = %v", err)
 	}
@@ -316,6 +316,10 @@ type rejectingIssuer struct{}
 func (rejectingIssuer) IssueTicket(context.Context, IssueTicket) (TicketIssue, error) {
 	return TicketIssue{}, errors.New("must not issue")
 }
+
+type noopConnectionCloser struct{}
+
+func (noopConnectionCloser) CloseConnection(ConnectionID) {}
 
 type testMapper struct{ target gsr.ServiceRef }
 

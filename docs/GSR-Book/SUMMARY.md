@@ -22,6 +22,7 @@
 - 04-第四篇-基础设施/02-Supervisor.md
 - 04-第四篇-基础设施/03-Monitor.md
 - 04-第四篇-基础设施/04-Performance.md
+- 04-第四篇-基础设施/05-客户端入口.md
 - 05-第五篇-游戏层/01-GameLayer.md
 - 05-第五篇-游戏层/02-Battle.md
 - 05-第五篇-游戏层/03-Timeline.md

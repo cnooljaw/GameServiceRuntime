@@ -53,7 +53,7 @@ type LoginAdapter struct {
 
 // NewLoginAdapter creates a TCP Login Adapter without starting its listener loop.
 func NewLoginAdapter(config LoginAdapterConfig) (*LoginAdapter, error) {
-	if nilInterface(config.Listener) || nilInterface(config.Handshake) || nilInterface(config.Registry) || nilInterface(config.Issuer) {
+	if nilInterface(config.Listener) || nilInterface(config.Handshake) || nilInterface(config.Registry) || nilInterface(config.Issuer) || nilInterface(config.ConnectionCloser) {
 		return nil, ErrInvalidConfig
 	}
 	adapter := &LoginAdapter{config: config}
@@ -86,7 +86,7 @@ func (a *LoginAdapter) handle(ctx context.Context, connection net.Conn) {
 		writeEntryError(connection, "unauthorized")
 		return
 	}
-	if issue.ReplacedConnectionID != "" && a.config.ConnectionCloser != nil {
+	if issue.ReplacedConnectionID != "" {
 		a.config.ConnectionCloser.CloseConnection(issue.ReplacedConnectionID)
 	}
 	line, err := formatTicketLine(issue.Ticket)
