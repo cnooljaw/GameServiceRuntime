@@ -1,6 +1,11 @@
 package monitor
 
-import gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+import (
+	"encoding/json"
+	"io"
+
+	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+)
 
 // Inspector provides independent local Runtime inspections.
 type Inspector interface {
@@ -63,6 +68,15 @@ func (m *Monitor) Capture() Report {
 			DurationsNanos: durationsNanos,
 		},
 	}
+}
+
+// WriteJSON writes one newly captured report and a trailing newline to writer.
+// It does not close writer.
+func (m *Monitor) WriteJSON(writer io.Writer) error {
+	if writer == nil {
+		return ErrInvalidWriter
+	}
+	return json.NewEncoder(writer).Encode(m.Capture())
 }
 
 func reportRef(ref gsr.ServiceRef) Ref {
