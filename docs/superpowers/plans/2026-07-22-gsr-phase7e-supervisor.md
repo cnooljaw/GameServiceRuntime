@@ -264,23 +264,23 @@ git commit -m "feat(supervisor): 增加两阶段恢复执行器"
 - Create: `tooling/supervisor/integration_test.go`
 - Create: `examples/supervisor-runtime/main.go`
 
-- [ ] **Step 1: 写端到端失败测试**
+- [x] **Step 1: 写端到端失败测试**
 
 场景：创建稳定 Key 的计数 Service → Capture revision 2 → 注册并发布初始实例 → Call 触发 panic → Core 返回 `ErrServiceFailed` 并移除旧 Ref → Factory 从 `snapshot.Manager.Load` 构造新 Service → Runner Prepare/Commit → Client.Get 返回 Generation+1 和新 Ref → 新实例返回 revision 2 的状态。
 
 同时覆盖 Snapshot 不存在、连续 CreateService 失败、Publish 失败后 prepared 实例已停止，以及旧 Generation 通知不会覆盖新实例。
 
-- [ ] **Step 2: 运行并确认失败**
+- [x] **Step 2: 运行并确认失败**
 
 Run: `go test ./tooling/supervisor -run '^TestSupervisorSnapshotRecovery' -count=1`
 
 Expected: 纵向装配或边界行为尚不完整，测试失败。
 
-- [ ] **Step 3: 完成最小装配与示例**
+- [x] **Step 3: 完成最小装配与示例**
 
 Factory 内显式把 `ServiceKey` 转成 `snapshot.Key`；`snapshot.ErrSnapshotNotFound` 用 `errors.Join(supervisor.ErrSnapshotNotFound, err)` 保留双方 `errors.Is`。示例组合根显式持有 Runtime、Runner、Snapshot Manager 和 Launcher，不让业务 Service 获取这些对象。
 
-- [ ] **Step 4: 验证端到端重复与示例**
+- [x] **Step 4: 验证端到端重复与示例**
 
 Run:
 
@@ -292,7 +292,7 @@ go run ./examples/supervisor-runtime
 
 Expected: PASS；示例输出旧/新 Ref、Generation `1 -> 2` 和恢复后的 revision/value。
 
-- [ ] **Step 5: 提交纵向切片**
+- [x] **Step 5: 提交纵向切片**
 
 ```bash
 git add tooling/supervisor/integration_test.go examples/supervisor-runtime/main.go
