@@ -156,9 +156,9 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 ### Phase 7C：本地 Monitor
 
-状态：下一阶段。
+状态：执行中（2026-07-22）。
 
-实现本地 Monitor 适配器和 Metrics 输出。远程 NodeAgent 与管理面查询留到 Phase 8。
+实现本地 Monitor Report、JSON 输出、Metrics 枚举副本和远程 Call 结果指标。远程 NodeAgent、HTTP/CLI、Prometheus exporter 与管理面查询留到 Phase 8 或独立 adapter。
 
 ### Phase 7D：Snapshot 与 Supervisor
 
