@@ -127,9 +127,22 @@ func (c *clusterRuntime) send(envelope Envelope) error {
 	if source == (ServiceRef{}) {
 		source = ServiceRef{Node: c.runtime.node}
 	}
-	payload, err := c.codec.Encode(envelope.Command, false, envelope.Payload)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+	var payload []byte
+	if envelope.Target.ID == 0 {
+		if envelope.Command != coreResolveNameCommand || envelope.Session == 0 || source.ID != 0 {
+			return ErrInvalidClusterEnvelope
+		}
+		var err error
+		payload, err = encodeCoreResolveName(envelope.Payload)
+		if err != nil {
+			return err
+		}
+	} else {
+		var err error
+		payload, err = c.codec.Encode(envelope.Command, false, envelope.Payload)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+		}
 	}
 	wire := WireEnvelope{
 		Source:   source,
@@ -160,9 +173,19 @@ func (c *clusterRuntime) reply(responder, caller ServiceRef, command CommandID, 
 	if resultErr != nil {
 		wire.ErrorCode, wire.ErrorMessage = encodeRemoteError(resultErr)
 	} else {
-		payload, err := c.codec.Encode(command, true, value)
+		var payload []byte
+		var err error
+		if responder.ID == 0 && command == coreResolveNameCommand {
+			payload, err = encodeCoreResolveResponse(value, c.runtime.node)
+		} else {
+			payload, err = c.codec.Encode(command, true, value)
+		}
 		if err != nil {
-			resultErr = fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+			if errors.Is(err, ErrInvalidClusterEnvelope) {
+				resultErr = err
+			} else {
+				resultErr = fmt.Errorf("%w: %v", ErrPayloadEncode, err)
+			}
 			wire.ErrorCode, wire.ErrorMessage = encodeRemoteError(resultErr)
 			c.runtime.metrics.Inc("cluster_encode_errors_total")
 		} else {
@@ -186,7 +209,7 @@ func (c *clusterRuntime) receive(peer NodeID, wire WireEnvelope) {
 		if errors.Is(err, ErrRuntimeClosed) {
 			return
 		}
-		if !wire.Response && wire.Session != 0 && wire.Source.Node == peer && wire.Target.Node == c.runtime.node {
+		if !wire.Response && wire.Session != 0 && wire.Source.Node == peer && wire.Target.Node == c.runtime.node && (wire.Target.ID != 0 || wire.Command == coreResolveNameCommand) {
 			_ = c.reply(wire.Target, wire.Source, wire.Command, wire.Session, nil, err)
 		}
 		return
@@ -209,10 +232,25 @@ func (c *clusterRuntime) validate(peer NodeID, wire WireEnvelope) error {
 		if wire.Session == 0 || len(wire.CallPath) != 0 || (wire.ErrorCode == "" && wire.ErrorMessage != "") || (wire.ErrorCode != "" && len(wire.Payload) != 0) {
 			return ErrInvalidClusterEnvelope
 		}
+		if wire.Source.ID == 0 && (wire.Command != coreResolveNameCommand || wire.Target.ID != 0) {
+			return ErrInvalidClusterEnvelope
+		}
+		if wire.Source.ID == 0 && wire.ErrorCode == "" && len(wire.Payload) != 8 {
+			return ErrInvalidClusterEnvelope
+		}
 		return nil
 	}
-	if wire.Target.ID == 0 || wire.ErrorCode != "" || wire.ErrorMessage != "" {
+	if wire.ErrorCode != "" || wire.ErrorMessage != "" {
 		return ErrInvalidClusterEnvelope
+	}
+	if wire.Target.ID == 0 {
+		if wire.Command != coreResolveNameCommand || wire.Session == 0 || wire.Source.ID != 0 || len(wire.Payload) > maxCoreServiceNameLength {
+			return ErrInvalidClusterEnvelope
+		}
+		if len(wire.CallPath) == 0 || wire.CallPath[len(wire.CallPath)-1] != wire.Target {
+			return ErrInvalidClusterEnvelope
+		}
+		return nil
 	}
 	if wire.Session == 0 {
 		if len(wire.CallPath) != 0 {
@@ -227,6 +265,16 @@ func (c *clusterRuntime) validate(peer NodeID, wire WireEnvelope) error {
 }
 
 func (c *clusterRuntime) receiveCommand(wire WireEnvelope) {
+	if wire.Target.ID == 0 {
+		name, err := decodeCoreResolveName(wire.Payload)
+		if err != nil {
+			_ = c.reply(wire.Target, wire.Source, wire.Command, wire.Session, nil, err)
+			return
+		}
+		ref, err := c.runtime.registry.resolve(name)
+		_ = c.reply(wire.Target, wire.Source, wire.Command, wire.Session, ref, err)
+		return
+	}
 	payload, err := c.codec.Decode(wire.Command, false, wire.Payload)
 	if err != nil {
 		err = fmt.Errorf("%w: %v", ErrPayloadDecode, err)
@@ -261,6 +309,13 @@ func (c *clusterRuntime) receiveReply(wire WireEnvelope) {
 	var result callResult
 	if wire.ErrorCode != "" {
 		result.err = decodeRemoteError(wire.ErrorCode, wire.ErrorMessage)
+	} else if wire.Source.ID == 0 && wire.Command == coreResolveNameCommand {
+		value, err := decodeCoreResolveResponse(wire.Payload, wire.Source.Node)
+		if err != nil {
+			result.err = err
+		} else {
+			result.value = value
+		}
 	} else {
 		value, err := c.codec.Decode(wire.Command, true, wire.Payload)
 		if err != nil {
