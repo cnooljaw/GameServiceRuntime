@@ -78,6 +78,56 @@ func TestRemoteCallReturnsDeliveryError(t *testing.T) {
 	}
 }
 
+func TestRemoteCallRecordsOneResultMetric(t *testing.T) {
+	network := newMemoryCluster()
+	nodeA := newTestClusterRuntime(t, "node-a", network)
+	nodeB := newTestClusterRuntime(t, "node-b", network)
+
+	successRef := createClusterService(t, nodeB, clusterReplyService{})
+	if _, err := nodeA.Call(context.Background(), successRef, 1, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	metrics := nodeA.Inspect().Metrics
+	if got := metrics.Counter("remote_calls_succeeded_total"); got != 1 {
+		t.Fatalf("remote_calls_succeeded_total = %d, want 1", got)
+	}
+	if got := metrics.Counter("remote_calls_failed_total"); got != 0 {
+		t.Fatalf("remote_calls_failed_total = %d, want 0", got)
+	}
+
+	errorRef := createClusterService(t, nodeB, clusterErrorService{})
+	if _, err := nodeA.Call(context.Background(), errorRef, 1, nil); err == nil {
+		t.Fatal("remote handler error Call succeeded")
+	}
+	if _, err := nodeA.Call(context.Background(), gsr.ServiceRef{Node: "missing-node", ID: 1}, 1, nil); !errors.Is(err, gsr.ErrRemoteUnavailable) {
+		t.Fatalf("unavailable remote Call error = %v, want ErrRemoteUnavailable", err)
+	}
+	metrics = nodeA.Inspect().Metrics
+	if got := metrics.Counter("remote_calls_succeeded_total"); got != 1 {
+		t.Fatalf("remote_calls_succeeded_total after failures = %d, want 1", got)
+	}
+	if got := metrics.Counter("remote_calls_failed_total"); got != 2 {
+		t.Fatalf("remote_calls_failed_total = %d, want 2", got)
+	}
+}
+
+func TestRemoteCallMetricsIgnoreLocalCall(t *testing.T) {
+	network := newMemoryCluster()
+	nodeA := newTestClusterRuntime(t, "node-a", network)
+	localRef := createClusterService(t, nodeA, clusterReplyService{})
+
+	if _, err := nodeA.Call(context.Background(), localRef, 1, "local"); err != nil {
+		t.Fatal(err)
+	}
+	metrics := nodeA.Inspect().Metrics
+	if got := metrics.Counter("remote_calls_succeeded_total"); got != 0 {
+		t.Fatalf("remote_calls_succeeded_total = %d, want 0", got)
+	}
+	if got := metrics.Counter("remote_calls_failed_total"); got != 0 {
+		t.Fatalf("remote_calls_failed_total = %d, want 0", got)
+	}
+}
+
 func TestRemoteSendDeliveryFailureIsObservedByReceiver(t *testing.T) {
 	network := newMemoryCluster()
 	nodeA := newTestClusterRuntime(t, "node-a", network)

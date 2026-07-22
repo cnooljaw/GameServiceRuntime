@@ -155,7 +155,16 @@ func (r *Runtime) callFromService(ctx context.Context, source *serviceInstance, 
 	return result, err
 }
 
-func (r *Runtime) call(ctx context.Context, source, target ServiceRef, id CommandID, payload any, path []ServiceRef) (any, error) {
+func (r *Runtime) call(ctx context.Context, source, target ServiceRef, id CommandID, payload any, path []ServiceRef) (result any, err error) {
+	if target.Node != "" && target.Node != r.node {
+		defer func() {
+			if err != nil {
+				r.metrics.Inc("remote_calls_failed_total")
+				return
+			}
+			r.metrics.Inc("remote_calls_succeeded_total")
+		}()
+	}
 	if r.state.Load() != runtimeRunning {
 		return nil, ErrRuntimeClosed
 	}
@@ -168,7 +177,7 @@ func (r *Runtime) call(ctx context.Context, source, target ServiceRef, id Comman
 		r.pending.remove(session)
 		return nil, err
 	}
-	result, err := pending.wait(ctx)
+	result, err = pending.wait(ctx)
 	if err != nil {
 		r.pending.remove(session)
 	}
