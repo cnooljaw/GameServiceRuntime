@@ -106,6 +106,46 @@ func TestRuntimeInspectReturnsIndependentMetricsSnapshot(t *testing.T) {
 	}
 }
 
+func TestMetricsSnapshotEnumerationsReturnIndependentCopies(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	if _, err := runtime.CreateService(gsr.ServiceSpec{Service: inspectionMetricsService{}}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := runtime.Inspect().Metrics
+	counters := snapshot.Counters()
+	gauges := snapshot.Gauges()
+	durations := snapshot.Durations()
+	if counters["inspection_counter"] != 7 {
+		t.Fatalf("Counters inspection_counter = %d, want 7", counters["inspection_counter"])
+	}
+	if gauges["inspection_gauge"] != -3 {
+		t.Fatalf("Gauges inspection_gauge = %d, want -3", gauges["inspection_gauge"])
+	}
+	if durations["inspection_duration"] != 5*time.Second {
+		t.Fatalf("Durations inspection_duration = %v, want 5s", durations["inspection_duration"])
+	}
+
+	counters["inspection_counter"] = 99
+	gauges["inspection_gauge"] = 99
+	durations["inspection_duration"] = 99
+	if snapshot.Counter("inspection_counter") != 7 || snapshot.Gauge("inspection_gauge") != -3 || snapshot.Duration("inspection_duration") != 5*time.Second {
+		t.Fatal("enumeration map mutation changed MetricsSnapshot")
+	}
+	second := runtime.Inspect().Metrics
+	if second.Counters()["inspection_counter"] != 7 || second.Gauges()["inspection_gauge"] != -3 || second.Durations()["inspection_duration"] != 5*time.Second {
+		t.Fatal("enumeration map mutation changed Runtime metrics")
+	}
+}
+
+func TestZeroMetricsSnapshotEnumerationsAreNonNil(t *testing.T) {
+	var snapshot gsr.MetricsSnapshot
+	if snapshot.Counters() == nil || snapshot.Gauges() == nil || snapshot.Durations() == nil {
+		t.Fatal("zero MetricsSnapshot returned a nil enumeration map")
+	}
+}
+
 func TestRuntimeInspectWorksAfterClose(t *testing.T) {
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
 	if err := runtime.Close(context.Background()); err != nil {
@@ -426,6 +466,19 @@ func (inspectionService) Handle(gsr.CommandContext, gsr.Command) error {
 }
 func (inspectionService) Stop(context.Context) error { return nil }
 func (inspectionService) Close() error               { return nil }
+
+type inspectionMetricsService struct{}
+
+func (inspectionMetricsService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
+func (inspectionMetricsService) Init(context gsr.ServiceContext) error {
+	context.Metrics().Add("inspection_counter", 7)
+	context.Metrics().SetGauge("inspection_gauge", -3)
+	context.Metrics().Observe("inspection_duration", 5*time.Second)
+	return nil
+}
+func (inspectionMetricsService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
+func (inspectionMetricsService) Stop(context.Context) error                   { return nil }
+func (inspectionMetricsService) Close() error                                 { return nil }
 
 type inspectionBlockingReplyService struct {
 	started chan struct{}

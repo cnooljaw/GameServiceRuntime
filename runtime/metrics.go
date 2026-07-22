@@ -24,11 +24,38 @@ type MetricsSnapshot struct {
 // Counter returns a counter value.
 func (s MetricsSnapshot) Counter(name string) uint64 { return s.counters[name] }
 
+// Counters returns an independent copy of all counter values.
+func (s MetricsSnapshot) Counters() map[string]uint64 {
+	result := make(map[string]uint64, len(s.counters))
+	for name, value := range s.counters {
+		result[name] = value
+	}
+	return result
+}
+
 // Gauge returns a gauge value.
 func (s MetricsSnapshot) Gauge(name string) int64 { return s.gauges[name] }
 
+// Gauges returns an independent copy of all gauge values.
+func (s MetricsSnapshot) Gauges() map[string]int64 {
+	result := make(map[string]int64, len(s.gauges))
+	for name, value := range s.gauges {
+		result[name] = value
+	}
+	return result
+}
+
 // Duration returns the accumulated duration for a metric.
 func (s MetricsSnapshot) Duration(name string) time.Duration { return s.durations[name] }
+
+// Durations returns an independent copy of all accumulated durations.
+func (s MetricsSnapshot) Durations() map[string]time.Duration {
+	result := make(map[string]time.Duration, len(s.durations))
+	for name, value := range s.durations {
+		result[name] = value
+	}
+	return result
+}
 
 // MailboxDepth returns the queued item count for a Service.
 func (s MetricsSnapshot) MailboxDepth(ref ServiceRef) int64 { return s.Gauge(mailboxDepthMetric(ref)) }

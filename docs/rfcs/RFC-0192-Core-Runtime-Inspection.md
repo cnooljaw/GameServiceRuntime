@@ -61,6 +61,19 @@ type RuntimeTaskInspection struct {
 }
 ```
 
+`MetricsSnapshot` 提供单项读取和全量枚举：
+
+```go
+func (s MetricsSnapshot) Counter(string) uint64
+func (s MetricsSnapshot) Counters() map[string]uint64
+func (s MetricsSnapshot) Gauge(string) int64
+func (s MetricsSnapshot) Gauges() map[string]int64
+func (s MetricsSnapshot) Duration(string) time.Duration
+func (s MetricsSnapshot) Durations() map[string]time.Duration
+```
+
+三个枚举方法每次返回新 map；修改返回值不能影响原快照、Runtime 或后续 Inspection。零值快照返回非 nil 空 map。
+
 ## 生命周期
 
 `Inspect` 可以在 Running、Closing 和 Closed 状态调用。它不返回 error，不启动后台任务，不阻止关闭，也不延长 Runtime 生命周期。
@@ -73,6 +86,7 @@ Runtime 关闭超时后，尚未真实返回的 Init、Dispatch、Stop 或 Close
 
 - 不包含 Service、Mailbox、PendingCall、Timer、Task、Registry、channel、取消函数或 Transport 指针。
 - `Services`、`Tasks` 和 `Metrics` 是独立副本。调用方修改自己的结果不能影响 Runtime 或后续 Inspection。
+- Metrics 枚举方法返回的 map 也是独立副本，不暴露 collector 或写接口。
 - `Services` 按 `ServiceRef.Node`、`ServiceRef.ID` 排序。
 - `Tasks` 按任务 ID 排序。
 
