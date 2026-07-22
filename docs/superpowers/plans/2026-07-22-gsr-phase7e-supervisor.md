@@ -146,11 +146,11 @@ git commit -m "feat(supervisor): 增加故障通知装饰器"
 - Create: `tooling/supervisor/service_test.go`
 - Create: `tooling/supervisor/policy_test.go`
 
-- [ ] **Step 1: 写注册和查询失败测试**
+- [x] **Step 1: 写注册和查询失败测试**
 
 覆盖有效注册/查询、重复 Key、错误节点、Supervisor 自身、未知 Key、错误响应类型、nil/dynamic-nil caller，以及返回 `Record` 不泄露包内可变结构。
 
-- [ ] **Step 2: 写通知与策略失败测试**
+- [x] **Step 2: 写通知与策略失败测试**
 
 使用 fake `RecoveryExecutor` 精确断言：
 
@@ -166,19 +166,19 @@ func TestSupervisorCannotRegisterItself(t *testing.T)
 
 通过真实 Runtime Send 产生不可伪造 Source；需要精确内部错误时在同包测试直接调用状态转换 helper，但最终行为仍由公开 Client/Runtime 测试复核。
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `go test ./tooling/supervisor -run '^Test(Client|Failure|Duplicate|Restart|Recovery|Supervisor)' -count=1`
 
 Expected: Client、Service 和状态机尚不存在，测试失败。
 
-- [ ] **Step 4: 实现 typed 协议和最小状态机**
+- [x] **Step 4: 实现 typed 协议和最小状态机**
 
 Command 只在包内暴露，至少包括 register、get、failure notice、prepared、committed、failed。业务错误编码到 response；`CommandContext.Reply` 的基础设施错误直接从 `Handle` 返回。
 
 状态机记录：已提交 Registration、当前状态、active Attempt、fault attempts、窗口内 commit 时间、prepared Ref/Generation。`Submit` 成功才进入 Backoff；队列满进入 `ServiceRecoveryFailed`。退避使用饱和乘法，不能 duration 溢出。
 
-- [ ] **Step 5: 验证指标和重复行为**
+- [x] **Step 5: 验证指标和重复行为**
 
 用 `Runtime.Inspect().Metrics` 断言八个 Supervisor 指标；同一 notice 重复 100 次只能 Submit 一次。
 
@@ -189,7 +189,7 @@ go test ./tooling/supervisor -run '^Test(Client|Failure|Duplicate|Restart|Recove
 go test -race ./tooling/supervisor -run '^Test(Client|Failure|Duplicate|Restart|Recovery|Supervisor)' -count=20
 ```
 
-- [ ] **Step 6: 提交状态机**
+- [x] **Step 6: 提交状态机**
 
 ```bash
 git add tooling/supervisor/commands.go tooling/supervisor/client.go tooling/supervisor/service.go tooling/supervisor/client_test.go tooling/supervisor/service_test.go tooling/supervisor/policy_test.go

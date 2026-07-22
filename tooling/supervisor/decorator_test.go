@@ -160,6 +160,29 @@ func TestDecoratorRecordsDeliveryFailureAndRepanics(t *testing.T) {
 	}
 }
 
+func TestDecoratorDeliveryFailureIsVisibleThroughRuntimeInspection(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	decorated, err := Decorate(panicDecoratorService{}, DecoratorConfig{
+		Key:        ServiceKey{Namespace: "player", ID: "42"},
+		Generation: 1,
+		Supervisor: gsr.ServiceRef{Node: "node-a", ID: 999},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedRef, err := runtime.CreateService(gsr.ServiceSpec{Service: decorated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Call(context.Background(), failedRef, 10, nil); !errors.Is(err, gsr.ErrServiceFailed) {
+		t.Fatalf("Call error = %v, want ErrServiceFailed", err)
+	}
+	if got := runtime.Inspect().Metrics.Counter(metricFailureNoticeDeliveryErrors); got != 1 {
+		t.Fatalf("delivery error metric = %d, want 1", got)
+	}
+}
+
 func TestDecoratorRejectsSupervisorSelfReferenceDuringInit(t *testing.T) {
 	serviceContext := newDecoratorTestContext()
 	serviceContext.self = serviceContext.sendTarget
