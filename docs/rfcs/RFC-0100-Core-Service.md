@@ -1,7 +1,7 @@
 # RFC-0100：Service 模型
 
 > 状态：已接受
-> 范围：Core Runtime  
+> 范围：Core Runtime
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的
@@ -58,14 +58,7 @@ type CommandContext interface {
 
 Runtime 外部调用者统一表示为 `{Node: localNode, ID: 0}`。本地 Send、Call 与跨节点 Send、Call 必须使用相同表示；Service 发起的消息使用该 Service 自己的 `ServiceRef`。
 
-后续可选能力：
-
-```go
-type Stateful interface {
-    Snapshot() ([]byte, error)
-    Restore([]byte) error
-}
-```
+Snapshot 不扩展 Core `Service` 接口。运行中状态只能由进入 Mailbox 的 Command 读取或修改：快照采集通过只读 Call 串行进入目标 Service；恢复由外层组合根在 `CreateService` 前构造新实例，不对运行中实例直接调用 `Restore`。具体契约见 [RFC-0210](RFC-0210-Tooling-Snapshot.md)。
 
 ## ServiceContext
 

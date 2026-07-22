@@ -1,7 +1,9 @@
 # RFC-0400：打地鼠示例
 
-> 状态：草案  
-> 范围：Business Layer、Examples  
+> 状态：草案
+> 目标阶段：Phase 13
+> 范围：Business Layer、Examples
+> 依赖：[RFC-0310](RFC-0310-Business-Battle.md)、[RFC-0320](RFC-0320-Business-Timeline.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)、[RFC-0360](RFC-0360-Business-WalletService.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -13,7 +15,7 @@
 ## 服务划分
 
 ```text
-GateService
+Gateway Adapter + ProtocolMapper
 RoomService
 BattleService
 PlayerService
@@ -64,7 +66,7 @@ Timeline.After(ttl, CmdExpireShrew)
 ## 玩家点击
 
 ```text
-Gate receives client input
+Gateway Adapter receives authenticated client input
   ↓
 runtime.Call(battleRef, CmdKickShrew, req)
   ↓
@@ -94,16 +96,22 @@ Broadcast CmdShrewExpired
 ```text
 CmdFinishBattle
   ↓
-Calculate settlement
+Freeze settlement request(RequestID)
   ↓
-Call WalletService CmdCommitSettlement
+Send WalletService CmdCommitSettlement
   ↓
-Notify PlayerService
+WalletService persists idempotently
   ↓
-Snapshot final state
+CmdSettlementCommitted / CmdSettlementRejected
   ↓
-Stop BattleService
+BattleService applies result and emits CmdBattleFinished
+  ↓
+Room/composition root captures final Snapshot
+  ↓
+Runtime.Stop(BattleRef)
 ```
+
+BattleService 不在修改本地状态后同步 Call Wallet，也不在自己的 Handler 中调用 `Runtime.Stop`。结算结果和停止请求分别由后续 Command 与外层生命周期 owner 收敛。
 
 ## 验收
 

@@ -1,7 +1,9 @@
 # RFC-0250：Cluster Control Plane
 
-> 状态：草案  
-> 范围：Runtime Tooling、Admin  
+> 状态：草案
+> 目标阶段：Phase 8
+> 范围：Runtime Tooling、Admin
+> 依赖：[RFC-0200](RFC-0200-Tooling-Discovery.md)、[RFC-0230](RFC-0230-Tooling-Monitor.md)
 > 依据：`hanxi/skynet-admin` 对 Skynet cluster 的管理面补充
 
 ## 目的
@@ -31,7 +33,7 @@ Admin API / CLI / Console
   ↓
 ClusterControlService
   ↓
-DiscoveryService / MonitorService / NodeAgentService
+DiscoveryService / NodeAgentService / local Monitor adapter
   ↓
 Command
   ↓
@@ -78,7 +80,8 @@ CmdDisableNode
 - 响应 ping。
 - 返回节点运行信息。
 - 返回 Service 列表。
-- 返回 Mailbox、PendingCall、慢 Command 等观测信息。
+- 调用本地 Monitor adapter，返回 Runtime、Service、Mailbox、Task、PendingCall、Timer 和 Metrics 报告。
+- 组合独立的 Transport/进程观测 adapter；不得要求 `Runtime.Inspect()` 暴露连接对象或进程内存实现。
 
 建议 Command：
 
@@ -88,7 +91,6 @@ CmdGetNodeStats
 CmdListServices
 CmdGetServiceStats
 CmdGetMailboxStats
-CmdGetSlowCommands
 CmdGetPendingCalls
 ```
 
@@ -138,18 +140,19 @@ Version mismatch
 
 ## 节点详情
 
-节点详情至少包括：
+节点详情第一版至少包括：
 
 - NodeID。
 - 地址。
 - 版本。
-- 连接状态。
+- 控制面心跳状态。
 - 最近心跳。
 - Service 数量。
 - Mailbox 概览。
 - Pending Call 数量。
-- 慢 Command 统计。
-- Runtime 内存指标。
+- Runtime Task 和 Metrics 概览。
+
+TCP 连接状态由 Transport 观测 adapter 提供；进程内存由进程观测 adapter 提供。两者可以出现在节点详情报告中，但不能反向加入 Core `RuntimeInspection`。
 
 Game Layer 可以追加 Battle 数量、Room 数量、在线玩家数等业务指标，但这些不进入 Core Runtime。
 
@@ -172,7 +175,7 @@ Game Layer 可以追加 Battle 数量、Room 数量、在线玩家数等业务�
 - Web Handler 直接操作 `ClusterTransport`。
 - 生产环境默认开放危险命令。
 
-后续需要补充：
+进入“待实现”前必须补充并裁决：
 
 - 管理面认证。
 - 管理面授权。
@@ -225,3 +228,4 @@ NodeAgentService
 5. 高危命令必须显式白名单、权限校验和审计。
 6. Data Plane 和 Control Plane 的错误指标必须分开统计。
 7. Control Plane 只能编排 Drain 和切换，不能绕过生命周期直接关闭 Service。
+8. NodeAgent 只能消费本地 Monitor 和明确的观测 adapter，不能读取 Runtime 私有字段。

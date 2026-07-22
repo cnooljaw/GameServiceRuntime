@@ -1,7 +1,7 @@
 # RFC-0180：Service 生命周期
 
 > 状态：已接受
-> 范围：Core Runtime  
+> 范围：Core Runtime
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`、`hanxi/skynet-demo` 的服务退出管理
 
 ## 目的
@@ -128,7 +128,7 @@ Wake pending sessions
   ↓
 Remove registry
   ↓
-Report to Supervisor / Monitor
+Record Metrics / structured log
 ```
 
 超时不能导致 Service 永久卡在 `ServiceStopping`。
@@ -166,8 +166,10 @@ Remove registry
   ↓
 Wake pending sessions
   ↓
-Supervisor decides restart or destroy
+Finalize and remove the failed instance
 ```
+
+Core 第一版不会重启实例，也不会保留可恢复的 Service 指针。Monitor 只能从 `Runtime.Inspect()` 和 Metrics 读取当前事实。后续 Supervisor 必须通过 Tooling decorator 或显式失败通知契约取得不可变失败事实，再使用工厂创建新实例；它不能复活或继续调用已经失败的对象。具体契约见 [RFC-0220](RFC-0220-Tooling-Supervisor.md)。
 
 Stop 超时或调用方 context 取消时，Runtime 不再并发调用 `Close()`；实例直接标记为 `ServiceFailed` 并释放 Runtime 自有结构。普通 Stop error 仍继续调用 Close，并汇总两阶段错误。
 

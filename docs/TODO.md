@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 和 Phase 7C 本地 Monitor 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 和 Phase 7C 本地 Monitor 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。后续 RFC 已完成首轮一致性审核，下一阶段拆为 Phase 7D Snapshot；Supervisor 独立为 Phase 7E，待失败通知和恢复任务 owner 裁决后实施。
 
 ## P1：Core API 冻结前完成
 

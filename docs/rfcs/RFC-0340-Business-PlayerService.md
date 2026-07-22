@@ -1,7 +1,9 @@
 # RFC-0340：PlayerService 设计
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0290](RFC-0290-Tooling-LoginService-Gateway.md)、[RFC-0300](RFC-0300-Business-Layering.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -48,7 +50,7 @@ type PlayerState struct {
 ```text
 Player reconnect
   ↓
-GateService
+Gateway Adapter
   ↓
 PlayerService
   ↓

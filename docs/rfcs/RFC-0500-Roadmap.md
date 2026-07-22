@@ -1,7 +1,8 @@
 # RFC-0500：开发路线图
 
-> 状态：草案  
-> 范围：Implementation Plan  
+> 状态：已接受
+> 范围：Implementation Plan
+> 依赖：[RFC-0001](RFC-0001-Foundation-Design-Principles.md)、[RFC-0003](RFC-0003-Foundation-RFC-Lifecycle.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -39,7 +40,25 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery 和本地 Monitor 已完成；下一实施阶段是 Phase 7D Snapshot 与 Supervisor。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery 和本地 Monitor 已完成；下一实施阶段是 Phase 7D Snapshot。
+
+## 后续 RFC 审核结果
+
+2026-07-22 根据已接受 Core RFC、`v0.3.0` 代码和测试完成首轮审核。结果如下：
+
+| RFC | 阶段 | 状态 | 审核结论 |
+|---|---|---|---|
+| RFC-0210 Snapshot | 7D | 待实现 | 已删除绕过 Mailbox 的 `Stateful.Snapshot/Restore`，冻结为 Capture Command、外部 Store 和组合根恢复。 |
+| RFC-0220 Supervisor | 7E | 草案 | 与 Snapshot 拆分；失败通知、launcher owner、退避任务 owner 和名字发布失败仍需裁决。 |
+| RFC-0290 客户端入口 | 7F | 草案 | 已拆分 Login Adapter 的连接 IO 与 LoginService 的 Command 状态；会话代际和 proof 线格式仍需补齐。 |
+| RFC-0250 Control Plane | 8 | 草案 | NodeAgent 只消费本地 Monitor 和独立观测 adapter；认证、授权和审计格式仍需补齐。 |
+| RFC-0260 ServiceGroup | 9 | 草案 | ServiceGroup 不进入现有 Discovery；需要独立 DirectoryService，Watch 使用 ServiceRef + Command。 |
+| RFC-0270 Drain | 10 | 草案 | Visitor 状态改由 Service + Command 持有；需要租约、代际和失败回滚契约。 |
+| RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
+| RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
+| RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
+
+审核只把没有开放接口问题的 RFC 提升为“待实现”。其它 RFC 保持“草案”，不能直接进入代码。
 
 ## Phase 0：文档和术语冻结
 
@@ -134,7 +153,7 @@ Local Send/Call 与 Remote Send/Call 行为一致
 
 ## Phase 7：Runtime Tooling 基础
 
-Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能力压入 Core。
+Phase 7 拆成六个可独立验收的子阶段，避免一次把所有外层能力压入 Core。
 
 ### Phase 7A：Runtime Inspection 与 Core 首版
 
@@ -160,13 +179,19 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 实现本地 Monitor Report、JSON 输出、Metrics 枚举副本和远程 Call 结果指标。远程 NodeAgent、HTTP/CLI、Prometheus exporter 与管理面查询留到 Phase 8 或独立 adapter。
 
-### Phase 7D：Snapshot 与 Supervisor
+### Phase 7D：Snapshot
 
-实现版本化状态接口、存储适配器和受限恢复策略。业务持久化不下沉到 Core。
+状态：执行中（2026-07-22）。
 
-### Phase 7E：客户端入口
+实现 Capture Command、版本化 State、稳定业务 Key、存储适配器、修订号冲突检查、可组合 Codec 和组合根受限恢复。业务持久化不下沉到 Core，不修改运行中实例。
 
-实现 `SessionRegistry`、`LoginService`、最小 `Gateway Adapter` 和 `ProtocolMapper`，保持认证、连接和业务 Command 分层。
+### Phase 7E：Supervisor
+
+先裁决失败通知、launcher、退避任务 owner 和长期名字发布失败，再实现受限恢复策略。Supervisor 只能创建新实例，不能复活旧 `ServiceRef`，不能在 panic 后临时抓取状态。
+
+### Phase 7F：客户端入口
+
+实现 `SessionRegistry`、`Login Adapter`、`LoginService`、最小 `Gateway Adapter` 和 `ProtocolMapper`，保持握手、认证状态、连接 IO 和业务 Command 分层。
 
 ## Phase 8：Cluster Control Plane
 

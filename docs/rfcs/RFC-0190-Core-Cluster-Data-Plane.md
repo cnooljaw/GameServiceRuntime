@@ -1,7 +1,7 @@
 # RFC-0190：Cluster Data Plane
 
 > 状态：已接受
-> 范围：Core Runtime、Cluster  
+> 范围：Core Runtime、Cluster
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`、`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的
@@ -79,7 +79,7 @@ Admin API / CLI
   ↓
 ClusterControlService
   ↓
-DiscoveryService / MonitorService / NodeAgentService
+DiscoveryService / NodeAgentService / Monitor adapter
   ↓
 Command
 ```

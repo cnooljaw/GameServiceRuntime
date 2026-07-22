@@ -1,7 +1,9 @@
 # RFC-0320：Timeline 设计
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0170](RFC-0170-Core-Timer.md)、[RFC-0310](RFC-0310-Business-Battle.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -10,7 +12,7 @@
 
 ## 定义
 
-Timeline 是 Game Layer 的时间模型。
+Timeline 是 Business Layer 的时间模型。
 
 它不等于 Core Runtime 的 Timer。
 
@@ -28,6 +30,8 @@ type Timeline interface {
     Rev() TimelineRev
 }
 ```
+
+Timeline 是 BattleService 内部状态的一部分，只能在该 Service 的 Handler 中调用。它使用 `ServiceContext.After` 创建 Core Timer，但不要求 `ServiceContext` 暴露 `Cancel`。
 
 ## 用途
 
@@ -52,3 +56,6 @@ Timeline 用于：
 3. Timeline 必须支持取消。
 4. Timeline 事件应进入 Battle 的 Mailbox。
 5. Timeline 状态应可被 Snapshot 描述。
+6. `Cancel` 只把对应 Timeline entry 标记为失效并递增 `TimelineRev`；已经创建的 Core Timer 可以迟到投递，但 Handler 必须按 `TimelineID + TimelineRev` 忽略失效 Command。
+7. Service 停止时 Core 自动取消目标 Timer；Timeline 不持有 Timer 对象或回调。
+8. Timeline 的状态修订只能在 BattleService Handler 中变化。

@@ -1,7 +1,9 @@
 # RFC-0300：Business Layer 分层
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0290](RFC-0290-Tooling-LoginService-Gateway.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`、Skynet `examples/login` 的 LoginService / Gateway 分工
 
 ## 目的
@@ -32,7 +34,7 @@ Business Layer
   └── Game Examples
 
 Runtime Tooling
-  ├── LoginService
+  ├── Login Adapter / LoginService
   ├── Gateway Adapter
   ├── SessionRegistry
   ├── Discovery
@@ -124,16 +126,14 @@ BattleService -> settlement request -> WalletService
 - 对局输入、计时器和结果使用可追踪事件，支持录像和复盘。
 - 基础逻辑与具体游戏规则分离，允许麻将等玩法在稳定流程上扩展。
 
-GSR 吸收这些结果，但不复制其实现边界：认证和密钥交换由 `LoginService` 负责；协议编解码留在 Gateway/ProtocolMapper；业务状态不依赖全局表、Service 指针或跨对象直接调用；录像以 Command Record/Replay 和业务事件实现。
+GSR 吸收这些结果，但不复制其实现边界：Login Adapter 负责连接级握手和密钥协商，LoginService 负责编排认证状态与票据；协议编解码留在 Gateway/ProtocolMapper；业务状态不依赖全局表、Service 指针或跨对象直接调用；录像以 Command Record/Replay 和业务事件实现。
 
 ## Gateway 与 ProtocolMapper 边界
 
-LoginService 和 Gateway Adapter 属于 Runtime Tooling 或外层 adapter。
+Login Adapter、LoginService 和 Gateway Adapter 属于 Runtime Tooling 或外层 adapter。
 
-LoginService 负责登录入口：
+Login Adapter 负责登录连接、challenge、密钥协商和帧读写；LoginService 负责：
 
-- 登录握手。
-- `secret` 交换。
 - token 校验编排。
 - 单点登录、多端登录或顶号策略。
 - 签发短期 `LoginTicket`。
@@ -151,7 +151,7 @@ ProtocolMapper 属于 Business Layer。它负责把外部协议转换成内部 `
 ```text
 WebSocket frame / HTTP request / TCP packet
   ↓
-LoginService 完成登录认证
+Login Adapter 完成握手，LoginService 完成认证编排
   ↓
 Gateway Adapter
   ↓
@@ -201,9 +201,9 @@ GSR 可以学习它的业务组织方式：
 ```text
 PlayerService owns PlayerState
 PlayerService composes PlayerModule
-Gate forwards client packets
+Gateway Adapter forwards authenticated client packets
 ProtocolMapper maps packet to Command
-PlayerStateRepository handles persistence
+PlayerStateRepository adapter handles persistence outside active Handler
 ```
 
 但不能把 `PlayerAgent`、`onPlayerOnline`、`onBackup` 等具体业务生命周期放进 Core Runtime。

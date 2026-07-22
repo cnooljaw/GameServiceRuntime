@@ -1,8 +1,8 @@
 # RFC-0240：性能模型
 
-> 状态：草案  
-> 范围：Core Runtime、Runtime Tooling  
-> 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
+> 状态：已接受
+> 范围：Core Runtime、Runtime Tooling
+> 依赖：[RFC-0150](RFC-0150-Core-Mailbox.md)、[RFC-0160](RFC-0160-Core-Scheduler.md)、[RFC-0170](RFC-0170-Core-Timer.md)
 
 ## 目的
 
@@ -38,6 +38,8 @@ Service = State + Mailbox + Handler
 - channel Mailbox。
 - Go timer。
 - 固定执行许可池。
+
+这些策略已经由 Core `v0.1.0` 实现并建立基准。后续优化仍必须先用完整路径基准证明收益。
 
 ## 优化方向
 

@@ -1,7 +1,9 @@
 # RFC-0280：Command Record 与 Replay
 
-> 状态：草案  
-> 范围：Runtime Tooling、Debug、Business Layer  
+> 状态：草案
+> 目标阶段：Phase 11
+> 范围：Runtime Tooling、Debug、Business Layer
+> 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)
 > 依据：`skynet_fly` 的服务录像与重放能力
 
 ## 目的
@@ -12,21 +14,20 @@ Record/Replay 用于复现问题，不替代 Snapshot、数据库持久化或业
 
 ## Core Runtime 边界
 
-Core Runtime 不直接依赖录制系统。
+Core Runtime 不直接依赖录制系统，也不增加返回可变 Envelope 的事件钩子。
 
-Record/Replay 通过观察 `Envelope` 和 `Command` 实现：
+第一版使用 Service decorator 包装目标 Service，在同一个 `Handle` 边界编码并记录进入该 Service 的 Command：
 
 ```text
-Envelope
-  ↓
-Recorder
-  ↓
 Mailbox
   ↓
-Handler
+Recording decorator Handle
+  ├── encode immutable record
+  ├── Send record to RecorderService
+  └── delegate to business Handle
 ```
 
-Recorder 是可插拔扩展，不改变 `Service` 接口。
+Decorator 是可插拔组合对象，不改变 `Service` 接口，也不暴露被包装 Service。Timer、Service 间 Send/Call 和外部入口最终都进入同一 Handle，因此可以在这一边界得到每个目标 Service 的串行输入顺序。
 
 ## Record 内容
 
@@ -34,10 +35,11 @@ Recorder 是可插拔扩展，不改变 `Service` 接口。
 
 ```text
 RecordVersion
-ServiceRef
+Source ServiceRef
+Target stable business key and current ServiceRef
 CommandID
 Payload
-SessionMode
+Per-target Sequence
 LogicalTime or Timestamp
 RandomSeed if any
 TraceID if any
@@ -138,3 +140,5 @@ Payload 可能包含用户数据，必须支持：
 4. Battle Replay 必须控制时间和随机数。
 5. Record 文件必须有版本和脱敏策略。
 6. 录制失败不能影响业务 Command 执行，除非测试模式显式要求 fail fast。
+7. 第一版不承诺记录 Call/Send 的 Session 模式；Core `CommandContext` 不公开 Session。需要验证 Reply 时，应记录业务输出或最终状态，而不是推断内部 PendingCall。
+8. RecorderService 的存储状态只能通过 Command 修改；持久化 IO 的 owner 和背压策略必须在进入“待实现”前明确。

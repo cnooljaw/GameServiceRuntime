@@ -1,7 +1,9 @@
 # RFC-0360：WalletService 设计
 
-> 状态：草案  
-> 范围：Business Layer、Persistence  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer、Persistence
+> 依赖：[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -57,3 +59,5 @@ Wallet 不应只依赖内存 Snapshot。
 3. PlayerService 接收最终可见结果。
 4. Wallet 崩溃时优先保护一致性。
 5. Wallet 错误必须明确返回给结算流程。
+6. Snapshot 不是余额、流水或幂等结果的权威来源。
+7. 持久化成功与业务 Reply 的先后顺序、超时后的查询接口和重复请求结果必须在进入“待实现”前写成稳定契约。

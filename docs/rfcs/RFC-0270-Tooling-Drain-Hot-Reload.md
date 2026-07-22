@@ -1,7 +1,9 @@
 # RFC-0270：Drain、热更新与访问者追踪
 
-> 状态：草案  
-> 范围：Runtime Tooling、Cluster Control Plane  
+> 状态：草案
+> 目标阶段：Phase 10
+> 范围：Runtime Tooling、Cluster Control Plane
+> 依赖：[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0260](RFC-0260-Tooling-ServiceGroup-Routing.md)
 > 依据：`skynet_fly` 的热更新、访问者追踪和旧服务退出流程
 
 ## 目的
@@ -80,13 +82,13 @@ Stop failed new instances
 
 访问者追踪用于判断旧实例是否仍被使用。
 
-最小模型：
+访问者关系是 Tooling 状态，不能由调用方直接修改共享 map。第一版应由 `VisitorRegistryService` 持有，并通过类型化 Client 投递 Command：
 
 ```go
-type VisitorTracker interface {
-    AddVisitor(target ServiceRef, visitor ServiceRef, weak bool)
-    RemoveVisitor(target ServiceRef, visitor ServiceRef)
-    ActiveVisitors(target ServiceRef) []VisitorRef
+type VisitorRegistryClient interface {
+    Acquire(ctx context.Context, target ServiceRef, visitor ServiceRef, weak bool) (VisitorLease, error)
+    Release(ctx context.Context, lease VisitorLease) error
+    List(ctx context.Context, target ServiceRef) ([]VisitorRef, error)
 }
 ```
 
@@ -121,6 +123,8 @@ v2 -> [new refs]
 客户端 watch 到新版本后，根据自身策略切换。
 
 旧版本进入 Drain。
+
+ServiceSet 切换只能阻止通过 ServiceGroup 解析的新请求。已经缓存旧 `ServiceRef` 的调用方仍可能直接投递，直到旧实例进入 Core Stop 接受边界。因此 Draining 实例还必须由 Tooling decorator 或业务入口 Command 拒绝新的外部工作；不能声称 Core 原生存在 `Draining` 状态。
 
 ## 与 Control Plane 的关系
 
@@ -165,3 +169,5 @@ CmdRollbackServiceGroup
 4. 访问者追踪必须能防止旧实例过早关闭。
 5. Weak Visitor 必须显式声明。
 6. 热更新不等于代码热补丁。
+7. Visitor lease 必须有 owner、代际和过期语义，迟到 Release 不能删除新 lease。
+8. VisitorRegistryService 的状态只能通过 Command 修改，Timer 只投递过期清理 Command。

@@ -1,7 +1,9 @@
 # RFC-0370：业务模板与状态归属
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0310](RFC-0310-Business-Battle.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)、[RFC-0360](RFC-0360-Business-WalletService.md)
 > 依据：本地稳定运行的棋牌游戏框架、Skynet 服务拆分经验、`quix` 的玩家模块组织
 
 ## 目的

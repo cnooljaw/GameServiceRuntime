@@ -18,6 +18,7 @@
 - [RFC-0000：术语表](rfcs/RFC-0000-Foundation-Glossary.md)
 - [RFC-0001：设计原则](rfcs/RFC-0001-Foundation-Design-Principles.md)
 - [RFC-0002：冲突裁决记录](rfcs/RFC-0002-Foundation-Conflict-Resolution.md)
+- [RFC-0003：RFC 生命周期与写作规范](rfcs/RFC-0003-Foundation-RFC-Lifecycle.md)
 
 ## Layer 1：Core Runtime（运行时内核）
 

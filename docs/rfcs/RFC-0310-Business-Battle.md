@@ -1,7 +1,9 @@
 # RFC-0310：Battle 设计
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0320](RFC-0320-Business-Timeline.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -22,11 +24,11 @@ Battle 是一组参与者在同一个游戏活动中的权威上下文。
 
 Battle 淡化“桌子”概念。桌子只是棋牌游戏里的表现形式，不是 GSR 的通用业务模型。
 
-Battle 在 Game Layer 中是概念封装，默认落地为一个 `BattleService`。
+Battle 在 Business Layer 中是概念封装，默认落地为一个 `BattleService`。
 
 ## 创建
 
-Game Layer API：
+Business Layer 组合根 API：
 
 ```go
 battleRef, err := game.CreateBattle(ctx, CreateBattleOptions{
@@ -35,7 +37,7 @@ battleRef, err := game.CreateBattle(ctx, CreateBattleOptions{
 })
 ```
 
-内部：
+`game.CreateBattle` 由持有 Runtime 创建能力的组合根调用；BattleService Handler 不保存完整 Runtime，也不直接创建另一个 Service。内部：
 
 ```go
 runtime.CreateService(BattleServiceSpec{...})
@@ -54,7 +56,7 @@ type BattleContext interface {
 }
 ```
 
-`BattleContext` 属于 Game Layer，不属于 Core Runtime。
+`BattleContext` 属于 Business Layer，不属于 Core Runtime。它只在 `BattleService.Handle` 执行期间有效，不得保存到 goroutine 或跨 Command 使用。
 
 ## Battle 状态
 
@@ -132,3 +134,5 @@ CmdFinishBattle
 ```
 
 具体游戏增加自己的 Command。
+
+`CmdFinishBattle` 只冻结结果并发出带 `RequestID` 的结算请求。Wallet 结果必须通过后续 `CmdSettlementCommitted` 或 `CmdSettlementRejected` 返回；BattleService 不在修改本地状态后同步等待 Wallet。

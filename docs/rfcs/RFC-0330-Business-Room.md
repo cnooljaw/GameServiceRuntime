@@ -1,7 +1,9 @@
 # RFC-0330：Room 设计
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0310](RFC-0310-Business-Battle.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的
@@ -23,10 +25,16 @@ Match success
   ↓
 RoomService
   ↓
-game.CreateBattle
+CmdRequestBattleCreation(RequestID)
+  ↓
+Business composition root / FactoryService
   ↓
 BattleService
+  ↓
+CmdBattleCreated(RequestID, BattleRef)
 ```
+
+RoomService 不持有完整 Runtime，也不在 Handler 内直接调用 `Runtime.CreateService`。Service 创建能力属于组合根；如需要从 Command 流程触发，应使用一个边界明确的 FactoryService，并把创建结果作为后续 Command 返回。
 
 ## 状态
 

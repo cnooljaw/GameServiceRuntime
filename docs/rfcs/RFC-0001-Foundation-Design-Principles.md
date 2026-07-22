@@ -1,7 +1,7 @@
 # RFC-0001：设计原则
 
-> 状态：草案  
-> 范围：GSR 总体架构  
+> 状态：已接受
+> 范围：GSR 总体架构
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`、`hanxi/skynet-demo`
 
 ## 目的
@@ -198,7 +198,7 @@ Service 的创建、停止、重启、关闭由 Runtime 管理。
 
 WebSocket、HTTP、TCP、自定义二进制协议都属于外层入口适配。
 
-入口层采用类似 Skynet `examples/login` 的职责切分：LoginService 负责认证和 `secret` 交换，Gateway Adapter 负责连接验证和绑定，ProtocolMapper 负责业务协议到 `Command` 的映射。
+入口层采用类似 Skynet `examples/login` 的职责切分，并适配 GSR 的 Service goroutine 约束：Login Adapter 负责登录连接、握手和 `secret` 交换，LoginService 负责编排认证状态和票据，Gateway Adapter 负责游戏连接验证和绑定，ProtocolMapper 负责业务协议到 `Command` 的映射。
 
 LoginService 和 Gateway Adapter 属于 Runtime Tooling 或外层 adapter；ProtocolMapper 属于 Business Layer。
 
@@ -207,7 +207,9 @@ LoginService 和 Gateway Adapter 属于 Runtime Tooling 或外层 adapter；Prot
 ```text
 Client Connection
   ↓
-LoginService 完成认证和 secret 交换
+Login Adapter 完成握手和 secret 交换
+  ↓
+LoginService 完成认证状态与票据编排
   ↓
 Gateway Adapter
   ↓
@@ -224,7 +226,7 @@ Service
 
 Core Runtime 不理解连接、fd、HTTP path、WebSocket frame、JSON 包名、客户端协议号、登录 token 或 `secret`。
 
-登录握手和 `secret` 交换只能存在于 LoginService。连接和链路细节只能存在于 Gateway Adapter。业务协议到 `Command` 的映射只能存在于 ProtocolMapper。
+登录握手和 `secret` 交换只能存在于 Login Adapter。认证状态和票据策略属于 LoginService。连接和链路细节只能存在于 Login/Gateway Adapter。业务协议到 `Command` 的映射只能存在于 ProtocolMapper。
 
 ### Business Layer 不污染 Core Runtime
 
@@ -259,7 +261,7 @@ Send / Call
 | Battle 是否内建进 Runtime？ | 否。Battle 是 Business Layer 封装。 |
 | ServiceGroup 是否进入 Core Runtime？ | 否。它是 Runtime Tooling 能力。 |
 | Gateway 是否进入 Core Runtime？ | 否。Gateway 是外层入口适配，进入 Runtime 前必须映射为 Command。 |
-| LoginService 是否进入 Core Runtime？ | 否。LoginService 是 Runtime Tooling，负责认证编排和登录票据。 |
+| LoginService 是否进入 Core Runtime？ | 否。Login Adapter 和 LoginService 都是 Runtime Tooling；前者负责握手，后者负责认证状态和票据编排。 |
 | secret 是否作为业务 Command 参数传递？ | 否。业务只接收已认证身份上下文。 |
 | 热更新是否第一版实现？ | 否。第一版只保证生命周期清晰，后续做 Drain。 |
 | 录制回放是否替代 Snapshot？ | 否。Snapshot 是状态，Record 是输入序列。 |
@@ -269,11 +271,4 @@ Send / Call
 
 ## 实现顺序
 
-1. 单节点 Core Runtime。
-2. Command、Send、Call、Reply。
-3. Scheduler。
-4. Timer。
-5. Game Layer 最小 Battle 示例。
-6. Cluster。
-7. Discovery。
-8. Snapshot、Supervisor、Monitor。
+实现顺序以 [RFC-0500](RFC-0500-Roadmap.md) 为准。总体约束保持不变：先稳定 Core Runtime，再按可独立验收的纵向切片实现 Runtime Tooling，最后实现 Business Layer 和端到端业务示例。

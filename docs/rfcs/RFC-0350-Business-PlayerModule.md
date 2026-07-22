@@ -1,7 +1,9 @@
 # RFC-0350：PlayerModule 与玩家业务组合
 
-> 状态：草案  
-> 范围：Business Layer  
+> 状态：草案
+> 目标阶段：Phase 12
+> 范围：Business Layer
+> 依赖：[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)
 > 依据：`quix` 的 PlayerAgent 与模块生命周期设计
 
 ## 目的
@@ -75,7 +77,7 @@ type PlayerModule interface {
 }
 ```
 
-所有回调都由 `PlayerService` 编排。
+所有回调都由 `PlayerService` 编排。`OnActivate`、`OnOnline`、`OnOffline`、`OnBackup` 和 `OnTimeEvent` 只能在对应 Command 的 Handler 内执行；它们不是绕过 Mailbox 的外部生命周期入口。`OnLoad` 只构造尚未注册的初始模块状态，不执行无界 IO。
 
 模块之间共享的上下文必须通过 `PlayerContext` 暴露，不能互相持有具体模块指针。
 
@@ -88,7 +90,7 @@ type PlayerModule interface {
 ```text
 Client Packet
   ↓
-Gate
+Gateway Adapter
   ↓
 ProtocolMapper
   ↓
@@ -132,7 +134,7 @@ PlayerService 可以使用：
 
 1. PlayerModule 只属于 Business Layer。
 2. Core Runtime 不内建玩家生命周期。
-3. Gate 只负责连接和转发，不拥有玩家状态。
+3. Gateway Adapter 只负责连接和转发，不拥有玩家状态。
 4. 客户端包必须先映射成 Command。
 5. PlayerService 是玩家状态唯一 owner。
 6. 模块间交互必须通过 PlayerContext、Command 或明确的业务接口。

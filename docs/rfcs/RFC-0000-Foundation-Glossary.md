@@ -1,7 +1,7 @@
 # RFC-0000：术语表
 
-> 状态：草案  
-> 范围：GSR 全项目  
+> 状态：已接受
+> 范围：GSR 全项目
 > 依据：`docs/learn/004-整理索引.md`、`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的
@@ -45,7 +45,8 @@
 | Cluster Data Plane | 集群数据面，负责业务 `Envelope` 的跨节点投递。 |
 | Cluster Control Plane | 集群控制面，负责节点管理、健康检查、观测查询和受控运维命令。 |
 | Transport Protocol | 传输层编码和链路协议，例如 protobuf、TCP、WebSocket、QUIC。它不参与业务分发。 |
-| LoginService | 客户端登录服务，负责登录握手、密钥交换、token 校验编排和登录票据签发。它属于 Runtime Tooling，不属于 Core Runtime。 |
+| Login Adapter | 登录连接适配器，负责监听连接、challenge、密钥协商、HMAC 校验和登录帧读写。它不拥有玩家业务状态。 |
+| LoginService | 客户端登录状态 Service，负责认证结果、重复登录策略、`SecretRef` 和登录票据编排。它不监听 socket，不持有连接 goroutine。 |
 | SessionRegistry | 登录会话注册表，保存 `LoginTicket`、连接绑定和受控密钥引用。它属于 Runtime Tooling。 |
 | LoginTicket | LoginService 签发给客户端进入 Gateway 的短期凭证，通常包含 uid、subid、server、过期时间和密钥引用。 |
 | SecretRef | 登录密钥引用，不是明文密钥。明文 `secret` 不进入普通业务 Command、日志、快照和录制回放。 |
@@ -91,7 +92,7 @@
 | GameManager | 具体 Service、Registry 或 Runtime 组件 |
 | PTYPE / Protocol Type | 不进入 GSR 公开模型。Skynet 的 `PTYPE_LUA`、`PTYPE_RESPONSE` 等只作为设计背景。 |
 | Remote Code Injection | 不进入生产 Runtime。远程运维只能通过白名单 Command。 |
-| Agent 登录握手 | LoginService |
+| Agent 登录握手 | Login Adapter + LoginService |
 
 ## 术语裁决
 
@@ -126,6 +127,6 @@ Battle 是游戏业务封装。Core Runtime 只知道 Service 和 Command。Game
 5. Timer 只能生成 Command，不能直接修改业务状态。
 6. 不新增 Skynet 风格的 `PTYPE_*` 公开概念。
 7. `ServiceGroup`、热更新、录制回放都属于扩展层，不进入 Core Runtime 最小接口。
-8. 登录握手和 `secret` 交换只能由 `LoginService` 负责，不能放进 Gateway、Agent、ProtocolMapper 或 Core Runtime。
+8. 登录握手和 `secret` 交换只能由 Login Adapter 负责；LoginService 只接收认证结果和 `SecretRef`。这些能力不能放进 Gateway、Agent、ProtocolMapper 或 Core Runtime。
 9. 一份可变的权威状态只能有一个状态 owner；不得以嵌套锁协调两个 Service 的状态。
 10. Service 实现不得直接创建 goroutine；异步业务必须通过 Command、Timer 或独立 Service 表达。

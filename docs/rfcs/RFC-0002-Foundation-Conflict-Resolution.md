@@ -1,7 +1,7 @@
 # RFC-0002：冲突裁决记录
 
-> 状态：草案  
-> 范围：设计决策  
+> 状态：已接受
+> 范围：设计决策
 > 依据：`docs/learn/go-skynet-chatgpt-20260708-1207.md` 后半段结论
 
 ## 目的
@@ -103,7 +103,7 @@ Data Plane: 业务 Envelope 跨节点投递
 Control Plane: 节点管理、健康检查、观测查询、受控运维命令
 ```
 
-`ClusterTransport` 只属于数据面。管理面能力必须放在 `ClusterControlService`、`DiscoveryService`、`MonitorService`、`NodeAgentService` 等系统 Service 中。
+`ClusterTransport` 只属于数据面。管理面能力必须放在 `ClusterControlService`、`DiscoveryService`、`NodeAgentService` 等系统 Service 或 Monitor adapter 中。当前 Monitor 不是 Service；远程查询由 `NodeAgentService` 消费本地 Monitor 报告。
 
 ### Skynet PTYPE 是否进入 GSR
 
@@ -223,23 +223,25 @@ Drain 旧实例
 
 裁决：不进入 Core Runtime 最小接口。
 
-Record/Replay 是 Debug、测试和 Battle 问题复现能力。它通过观察 `Envelope` 和 `Command` 实现，不改变 Service 的基本模型。
+Record/Replay 是 Debug、测试和 Battle 问题复现能力。第一版通过 Service decorator 在同一 `Handle` 边界记录进入目标 Service 的 `Command`，不要求 Core 暴露可变 Envelope 或新增旁路。若未来需要 Core 热路径事件钩子，必须先单独修改 RFC，明确复制、背压和失败语义。
 
 ### 登录握手放在哪里
 
-裁决：放在 `LoginService`。
+裁决：连接级握手放在 Login Adapter，认证状态和票据编排放在 `LoginService`。
 
 Skynet `examples/login` 的标准分工是：登录服务完成 challenge、密钥协商、HMAC 校验和 token 认证；游戏网关只验证客户端持有同一个 `secret` 并绑定连接；已认证请求再交给 agent 或业务服务。
 
-GSR 采用这个分工：
+GSR 采用这个分工，并把 socket IO 从 Runtime Service 中分离：
 
 ```text
-LoginService -> Gateway Adapter -> ProtocolMapper -> Command -> Service
+Login Adapter -> LoginService -> Gateway Adapter -> ProtocolMapper -> Command -> Service
 ```
 
 因此：
 
-- `LoginService` 属于 Runtime Tooling。
+- Login Adapter 和 `LoginService` 属于 Runtime Tooling。
+- Login Adapter 负责 challenge、密钥协商、HMAC 和登录连接；`LoginService` 不创建 goroutine。
+- `LoginService` 只接收认证结果和 `SecretRef`，负责重复登录策略与票据。
 - `Gateway Adapter` 不重新交换 `secret`。
 - `ProtocolMapper` 不做登录握手。
 - Core Runtime 不知道 token、fd、subid、secret。
@@ -279,11 +281,9 @@ Service 在挂起期间仍保持 busy，不消费自己的后续 Command。Runti
 ## 仍需后续细化的问题
 
 1. Command 泛型 API 的最终形态。
-2. Timer 第一版是否直接上 Timer Wheel。
-3. DiscoveryService 是否单点还是 Gossip。
-4. Wallet 持久化接口是否进入 GSR 项目范围。
-5. Transport 是否需要 Codec Registry；即使需要，也不暴露成业务可见的 `ProtocolID`。
-6. 管理面认证授权的第一版实现方式。
-7. ServiceGroup 路由策略的默认组合。
-8. Record 文件格式和脱敏策略。
-9. LoginService 第一版使用 TCP 还是 WebSocket 入口。
+2. Wallet 持久化接口是否进入 GSR 项目范围。
+3. Transport 是否需要 Codec Registry；即使需要，也不暴露成业务可见的 `ProtocolID`。
+4. 管理面认证授权的第一版实现方式。
+5. ServiceGroup 路由策略的默认组合。
+6. Record 文件格式和脱敏策略。
+7. LoginService 第一版使用 TCP 还是 WebSocket 入口。
