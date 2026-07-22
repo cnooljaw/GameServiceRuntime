@@ -15,8 +15,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - Service 生命周期、超时、panic 隔离、任务追踪和基础指标。
 - `Runtime.Inspect` 只读运行状态观测。
 - WireEnvelope、远程 Send/Call/Reply 和跨节点调用环检测。
+- `CommandContext.Source` 调用来源和按节点本地名字查询的 `Runtime.ResolveRemote`。
 - TCP Transport、版本握手、受限帧、连接复用和断线通知。
-- 带 Generation 的节点租约、活动节点查询和长期 `ServiceName` 发现。
+- 带 AuthorityEpoch、Generation 和私有 owner 的节点租约、活动节点查询和长期 `ServiceName` 发现。
 - 可组合 Discovery Codec 和类型化远程领域错误。
 
 Snapshot、Supervisor、Monitor 适配器、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
@@ -48,4 +49,6 @@ go run ./examples/discovery-runtime
 
 预期输出：`.config -> node-b/2`。
 
-当前 Discovery 是单一内存权威，启动地址和 `ServiceRef` 由部署配置提供。Heartbeat 由部署编排调用；Discovery 不会动态修改 TCP peer。
+当前 Discovery 是单一内存权威。部署配置只提供权威节点的 `NodeID`、TCP 地址和稳定名字 `.discovery`，调用方通过 `Runtime.ResolveRemote` 获取当前动态 `ServiceRef`。Heartbeat 由部署编排调用；Discovery 不会动态修改 TCP peer。
+
+GSR 信任可信内网中的集群节点，但不信任错误的程序状态。`Source`、租约 owner 和 AuthorityEpoch 用于状态约束，不是身份认证或安全令牌。

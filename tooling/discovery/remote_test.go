@@ -105,7 +105,14 @@ func newRemoteDiscoveryFixture(t *testing.T) remoteDiscoveryFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = nodeA.Close(context.Background()) })
-	remote, err := discovery.NewClient(nodeA, discoveryRef)
+	remoteDiscoveryRef, err := nodeA.ResolveRemote(context.Background(), "node-b", discovery.DefaultServiceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remoteDiscoveryRef != discoveryRef {
+		t.Fatalf("ResolveRemote = %v, want %v", remoteDiscoveryRef, discoveryRef)
+	}
+	remote, err := discovery.NewClient(nodeA, remoteDiscoveryRef)
 	if err != nil {
 		t.Fatal(err)
 	}

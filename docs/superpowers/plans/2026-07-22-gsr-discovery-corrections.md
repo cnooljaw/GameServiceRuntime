@@ -1,6 +1,6 @@
 # GSR Discovery 审查修正实施计划
 
-> 状态：执行中（2026-07-22）
+> 状态：已完成（2026-07-22）
 
 **目标：** 在可信集群网络前提下修复 Discovery 的程序状态一致性问题：保留清晰调用来源、稳定启动入口、跨 authority 重启的租约身份，以及不降级的错误和响应语义。
 
@@ -79,7 +79,7 @@ go test -race ./runtime -run 'Source' -count=20
 **实现：**
 
 - `ServiceID(0)` 作为节点级 Core endpoint，只接受私有 Resolve Command 的 Call。
-- 请求 payload 使用受限 UTF-8 名字字节，响应 payload 只编码 `ServiceID`，NodeID 来自已验证的 responder。
+- 请求 payload 使用受限长度的名字字节，响应 payload 只编码 `ServiceID`，NodeID 来自已验证的 responder。
 - 请求、响应继续使用 `WireEnvelope`、Session、PendingCall 和稳定 Runtime error。
 - 其它发往 `ServiceID(0)` 的消息仍返回 `ErrInvalidClusterEnvelope`。
 
@@ -204,3 +204,10 @@ git diff --check
 - 租约 owner 错误不会修改节点或名字状态。
 - Core 错误不降级，成功响应不接受无效零值。
 - 全量测试、vet、race、重复测试和示例通过。
+
+## 执行结果
+
+- 已按六个垂直切片完成 RFC、Core Source、远端名字查询、Discovery 租约身份、错误语义和发布文档。
+- 双轴审查未发现遗留 P1/P2；可信内网前提保持不变，没有引入认证体系。
+- `go test ./... -count=1`、`go vet ./...`、`go test -race ./... -count=1` 和 `go test ./tooling/discovery -count=100` 通过。
+- `local-runtime`、`cluster-runtime` 和 `discovery-runtime` 示例通过；Discovery 示例输出 `.config -> node-b/2`。

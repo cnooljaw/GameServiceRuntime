@@ -1,5 +1,7 @@
 # GSR Phase 7B 最小 Discovery 实施计划
 
+> 历史计划：初版已完成，后续审查修正见 [`2026-07-22-gsr-discovery-corrections.md`](2026-07-22-gsr-discovery-corrections.md)。最终契约以 `docs/rfcs/` 为准，本计划中“不修改 Core”及仅使用 Generation 的内容不再代表现行设计。
+
 > 状态：已完成（2026-07-21）
 
 **目标：** 在不修改 Core Runtime 和 `ClusterTransport` 的前提下，实现一个可本地或跨节点调用的 `DiscoveryService`，提供带租约的活动节点发现和长期 `ServiceName` 解析；完成 API Review，并发布 `v0.2.0`。

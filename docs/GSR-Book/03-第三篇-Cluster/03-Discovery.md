@@ -37,9 +37,15 @@ discovery.Client
 第一版只有一个权威 `DiscoveryService`。远程节点必须从部署配置获得：
 
 - Discovery 节点的 `NodeID` 和 TCP 地址。
-- Discovery 的 `ServiceRef`。
+- Discovery 的稳定本地名字 `.discovery`。
 
-Discovery 不能发现自己。`.discovery` 只用于所在 Runtime 的本地 `Resolve`。
+建立到目标节点的 Transport 连接后，通过 Core 节点级查询获取当前动态地址：
+
+```go
+discoveryRef, err := runtime.ResolveRemote(ctx, "node-b", discovery.DefaultServiceName)
+```
+
+`ResolveRemote` 只查询指定节点的本地 Registry，对应 Skynet `cluster.query(node, name)` 的启动职责。它不是全局 Discovery，也不依赖业务 `ClusterCodec`。
 
 ## 节点租约
 
@@ -47,17 +53,24 @@ Discovery 不能发现自己。`.discovery` 只用于所在 Runtime 的本地 `R
 
 ```go
 type NodeLease struct {
-    Node       NodeID
-    Generation uint64
-    ExpiresAt  time.Time
+    Node           NodeID
+    AuthorityEpoch uint64
+    Generation     uint64
+    ExpiresAt      time.Time
 }
 ```
 
-NodeID 和 Generation 共同确定租约身份。Heartbeat 只能续期当前 Generation。
+NodeID、AuthorityEpoch 和 Generation 共同确定租约身份。Heartbeat 只能续期当前身份。Discovery authority 每次创建都会生成新的非零 AuthorityEpoch，因此 authority 重启后，即使 Generation 又从 1 开始，旧租约也不会重新有效。
 
 同一 NodeID 重新注册会生成新 Generation。旧进程即使迟到发送 Heartbeat，也不能延长新进程的租约。旧 Generation 拥有的长期名字同时删除。
 
-`ExpiresAt` 只用于观测，不参与调用方构造身份。租约不是认证令牌；当前 Discovery 只能部署在可信集群网络。
+Discovery 私下记录租约的精确 `CommandContext.Source()`：
+
+- 注册请求的 `Source.Node` 必须等于登记的 NodeID。
+- Heartbeat、注销和名字写操作必须来自原始 owner。
+- 同一可信节点可以重新注册并建立新的租约 owner；旧租约随即失效。
+
+`ExpiresAt` 只用于观测，不参与调用方构造身份。GSR 信任集群节点，但不信任错误的程序状态。Source、owner 和租约都不是认证凭据；当前 Discovery 只能部署在可信集群网络。
 
 ## 长期名字
 
@@ -131,6 +144,8 @@ errors.Is(err, discovery.ErrNameConflict)
 
 Core Runtime 不需要注册 Tooling 错误。
 
+只有明确的 Discovery 领域错误会放入类型化 Reply。Timer、Runtime 和生命周期错误直接从 Handler 返回，保持 Core 错误语义。Client 在领域错误为空后还会校验 Lease、NodeRecord、ServiceRef 和排序后的节点列表，类型正确但内容无效的响应返回 `ErrInvalidResponse`。
+
 ## 过期清理
 
 第一个节点注册后，Discovery 使用 Runtime Timer 向自己投递 `SweepExpired` Command。Service 不创建 goroutine。
@@ -146,7 +161,7 @@ Service 停止时，Runtime 会取消绑定到该 ServiceRef 的 Timer。
 - 节点地址不会自动修改 TCP peer。
 - 不表达 Desired State、Observed State 或“配置存在但未连接”。
 - 不提供 ServiceGroup、Hash、RoundRobin 或 Broadcast。
-- 不提供身份认证和授权。
+- 不提供身份认证和授权，Cluster 端口只能位于可信内网。
 
 完整契约见 `RFC-0200`。可运行示例：
 

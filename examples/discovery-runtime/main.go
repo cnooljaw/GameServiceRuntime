@@ -52,7 +52,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer nodeA.Close(context.Background())
-	remote, err := discovery.NewClient(nodeA, discoveryRef)
+	remoteDiscoveryRef, err := nodeA.ResolveRemote(context.Background(), "node-b", discovery.DefaultServiceName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	remote, err := discovery.NewClient(nodeA, remoteDiscoveryRef)
 	if err != nil {
 		log.Fatal(err)
 	}

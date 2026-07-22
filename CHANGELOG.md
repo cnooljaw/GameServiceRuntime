@@ -2,34 +2,43 @@
 
 本文记录 GSR 对外发布版本的行为变化。
 
-## v0.2.0 - 2026-07-21
+## v0.2.0 - 2026-07-22
 
-在不修改 Core Runtime API 的前提下增加最小 Runtime Tooling Discovery。
+增加最小 Runtime Tooling Discovery，并补齐它依赖的通用 Core 调用来源和节点级启动入口。
+
+### Core Runtime
+
+- `CommandContext` 新增 `Source()`，Runtime 自身发起的 Command 使用 `{Node: localNode, ID: 0}`，Service 调用保留真实 `ServiceRef`。
+- 新增 `Runtime.ResolveRemote(ctx, node, name)`，对应 Skynet `cluster.query` 的启动职责。
+- `ServiceID(0)` 仅处理 Core 私有名字查询 Call；名字请求和 ServiceID 响应不经过业务 `ClusterCodec`。
 
 ### Discovery
 
 - 新增独立 `tooling/discovery` 包和类型化 `Client`。
-- 节点注册返回带 Generation 的租约；Heartbeat 只能续期当前 Generation。
+- 节点注册返回带 AuthorityEpoch 和 Generation 的租约；authority 重启后旧租约不会重新有效。
+- 注册来源必须匹配节点，Heartbeat、注销和名字写操作必须匹配私有租约 owner。
 - 节点过期、注销或同 NodeID 重注册时，清理其拥有的长期 `ServiceName`。
 - 节点列表按 `NodeID` 稳定排序，返回结果与内部状态隔离。
 - 同一租约可以替换长期名字的 `ServiceRef`；其它活动租约不能抢占名字。
 - 新增可组合 JSON Codec，非 Discovery Command 可以委托给 fallback。
 - Discovery JSON 使用稳定 `snake_case` 线字段，并允许解码端忽略新增未知字段。
 - Discovery 领域错误跨节点后仍可通过 `errors.Is` 判断。
+- Timer、Runtime 等基础设施错误直接由 Handler 返回，不降级为 Discovery 响应错误。
+- Client 校验成功 Lease、NodeRecord、ServiceRef 和节点列表的结构不变量。
 - 新增双节点 TCP Discovery 示例和本地/远程验收测试。
 
 ### 限制
 
 - 第一版是单一内存权威，不提供复制、选主、持久化或 Gossip。
 - Discovery 的节点地址不会自动更新 `ClusterTransport` peer。
-- Discovery `ServiceRef` 和所在节点地址必须由部署配置提供。
+- Discovery 所在节点的 `NodeID` 和地址仍由部署配置提供；动态 `ServiceRef` 通过 `.discovery` 查询。
 - Heartbeat 由部署编排调用；自动 NodeAgent 留到后续阶段。
-- Discovery Command 不提供身份认证或授权，只允许部署在可信集群网络。
+- Discovery Command 不提供身份认证或授权，只允许部署在可信集群网络；Source、owner 和租约只约束程序状态。
 - Desired/Observed State、ServiceGroup、路由策略和管理命令尚未实现。
 
 ### 兼容性
 
-Core Runtime 和 Cluster Data Plane 公开 API 相对 `v0.1.0` 保持不变。新 API 全部位于 `tooling/discovery`。
+相对 `v0.1.0`，Core 新增 `CommandContext.Source` 和 `Runtime.ResolveRemote`；Discovery API 新增 `AuthorityEpoch` 和 `ErrLeaseOwnerMismatch`。本次修正直接纳入 `v0.2.0` 基线。
 
 ## v0.1.0 - 2026-07-17
 

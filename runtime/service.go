@@ -31,6 +31,7 @@ type ServiceContext interface {
 // CommandContext describes the Service currently handling a Command.
 type CommandContext interface {
 	Self() ServiceRef
+	// Source returns the Runtime or Service that sent the current Command.
 	Source() ServiceRef
 	Reply(any) error
 }

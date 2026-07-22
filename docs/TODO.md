@@ -1,6 +1,6 @@
 # GSR 待办列表
 
-> 更新时间：2026-07-21
+> 更新时间：2026-07-22
 >
 > 作用：记录已实现里程碑的工程欠账和收口项；尚未开始的新能力仍以 `RFC-0500` 为准。
 
@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 已于 2026-07-21 完成；下一阶段是 Phase 7C 本地 Monitor。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 已于 2026-07-22 完成审查修正，补齐调用 Source、稳定 bootstrap、AuthorityEpoch、租约 owner 和错误语义；下一阶段是 Phase 7C 本地 Monitor。
 
 ## P1：Core API 冻结前完成
 
@@ -59,4 +59,5 @@ go vet ./...
 go test -race ./...
 go run ./examples/local-runtime
 go run ./examples/cluster-runtime
+go run ./examples/discovery-runtime
 ```

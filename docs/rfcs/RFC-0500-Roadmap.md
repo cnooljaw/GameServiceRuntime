@@ -150,9 +150,9 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 ### Phase 7B：最小 Discovery
 
-状态：已完成（2026-07-21）。
+状态：已完成并通过审查修正（2026-07-22）。
 
-实现 Node Discovery 和长期 ServiceName Discovery。ServiceGroup、Gossip、负载均衡和管理命令不进入本阶段。
+实现 Node Discovery、长期 ServiceName Discovery、AuthorityEpoch 与租约 owner 约束，并通过 Core 节点级名字查询完成稳定 bootstrap。ServiceGroup、Gossip、负载均衡和管理命令不进入本阶段。
 
 ### Phase 7C：本地 Monitor
 
@@ -198,7 +198,7 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 约束：
 
-- 不修改 Core Runtime。
+- Tooling 能力不得下沉为 Core 领域概念；只有多个上层共同需要的通用 Runtime 能力，才可先修改 RFC 后进入 Core。
 - 不让 Discovery 决定路由策略。
 
 ## Phase 10：Drain 与热更新切换
