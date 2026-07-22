@@ -1,7 +1,8 @@
 # RFC-0170：Timer 设计
 
 > 状态：已接受
-> 范围：Core Runtime  
+> 范围：Core Runtime
+> 依赖：[RFC-0120](RFC-0120-Core-Command.md)、[RFC-0150](RFC-0150-Core-Mailbox.md)
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`
 
 ## 目的

@@ -1,7 +1,7 @@
 # RFC-0500：开发路线图
 
 > 状态：已接受
-> 范围：Implementation Plan
+> 范围：Roadmap
 > 依赖：[RFC-0001](RFC-0001-Foundation-Design-Principles.md)、[RFC-0003](RFC-0003-Foundation-RFC-Lifecycle.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 

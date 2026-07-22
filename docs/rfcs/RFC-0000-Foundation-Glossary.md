@@ -1,7 +1,8 @@
 # RFC-0000：术语表
 
 > 状态：已接受
-> 范围：GSR 全项目
+> 范围：Foundation
+> 依赖：无
 > 依据：`docs/learn/004-整理索引.md`、`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

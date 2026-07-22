@@ -1,7 +1,8 @@
 # RFC-0160：Scheduler 设计
 
 > 状态：已接受
-> 范围：Core Runtime  
+> 范围：Core Runtime
+> 依赖：[RFC-0150](RFC-0150-Core-Mailbox.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`
 
 ## 目的

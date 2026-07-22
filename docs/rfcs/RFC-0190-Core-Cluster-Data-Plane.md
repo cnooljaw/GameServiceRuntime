@@ -2,6 +2,7 @@
 
 > 状态：已接受
 > 范围：Core Runtime、Cluster
+> 依赖：[RFC-0110](RFC-0110-Core-ServiceRef.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0140](RFC-0140-Core-Session-PendingCall.md)
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`、`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

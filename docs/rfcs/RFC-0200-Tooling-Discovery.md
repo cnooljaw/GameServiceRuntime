@@ -2,6 +2,7 @@
 
 > 状态：已接受
 > 范围：Runtime Tooling
+> 依赖：[RFC-0110](RFC-0110-Core-ServiceRef.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)、[RFC-0191](RFC-0191-Core-Cluster-Transport.md)
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

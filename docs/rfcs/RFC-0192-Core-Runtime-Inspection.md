@@ -2,6 +2,7 @@
 
 > 状态：已接受
 > 范围：Core Runtime
+> 依赖：[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)
 > 依据：`RFC-0180` 的任务追踪与 `RFC-0230` 的只读观测需求
 
 ## 目的

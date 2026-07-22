@@ -2,6 +2,7 @@
 
 > 状态：已接受
 > 范围：Core Runtime
+> 依赖：[RFC-0000](RFC-0000-Foundation-Glossary.md)、[RFC-0001](RFC-0001-Foundation-Design-Principles.md)、[RFC-0002](RFC-0002-Foundation-Conflict-Resolution.md)
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

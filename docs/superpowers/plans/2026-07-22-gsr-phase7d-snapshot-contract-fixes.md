@@ -241,21 +241,21 @@ git commit -m "fix(snapshot): 绑定快照 Key 与状态 owner"
 - Create: `runtime/rfc_document_policy_test.go`
 - Modify: `docs/rfcs/*.md`
 
-- [ ] **Step 1: 写 RFC policy 失败测试**
+- [x] **Step 1: 写 RFC policy 失败测试**
 
 测试从仓库根目录读取 `docs/rfcs/*.md`，逐份校验：状态属于精确枚举；`状态`、`范围`、`依赖` 存在且不重复；草案和待实现包含 `目标阶段`；`接受日期` 只用于已接受状态且符合 `YYYY-MM-DD`；RFC 不包含尾随空白。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./runtime -run '^TestRFCMetadataPolicy$' -count=1`
 
 Expected: FAIL，报告带日期的状态、缺失依赖字段和尾随空白。
 
-- [ ] **Step 3: 迁移全部 RFC 头部**
+- [x] **Step 3: 迁移全部 RFC 头部**
 
 基础依赖从 `RFC-0000` 向后单向排列；Core RFC 按 ServiceRef、Command、Call、Mailbox、Scheduler、Timer、Lifecycle、Cluster、Inspection 的真实依赖填写；无依赖写 `无`。把带日期的状态改为精确状态，日期移到 `接受日期`。
 
-- [ ] **Step 4: 运行 policy 和文档检查**
+- [x] **Step 4: 运行 policy 和文档检查**
 
 Run:
 
@@ -266,7 +266,7 @@ git diff --check -- docs/rfcs runtime/rfc_document_policy_test.go
 
 Expected: PASS；差异检查无输出。
 
-- [ ] **Step 5: 提交治理门禁**
+- [x] **Step 5: 提交治理门禁**
 
 ```bash
 git add runtime/rfc_document_policy_test.go docs/rfcs

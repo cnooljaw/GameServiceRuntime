@@ -1,7 +1,7 @@
 # RFC-0230：Monitor 与可观测性
 
-> 状态：已接受（2026-07-22）
->
+> 状态：已接受
+> 接受日期：2026-07-22
 > 范围：Runtime Tooling
 > 依赖：[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)
 

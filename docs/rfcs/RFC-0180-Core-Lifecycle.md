@@ -2,6 +2,7 @@
 
 > 状态：已接受
 > 范围：Core Runtime
+> 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0150](RFC-0150-Core-Mailbox.md)、[RFC-0160](RFC-0160-Core-Scheduler.md)
 > 依据：`docs/learn/007-Game-Service-Runtime详细设计与实现.md`、`hanxi/skynet-demo` 的服务退出管理
 
 ## 目的

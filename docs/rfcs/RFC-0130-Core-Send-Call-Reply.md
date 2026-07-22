@@ -1,7 +1,8 @@
 # RFC-0130：Send、Call 与 Reply
 
 > 状态：已接受
-> 范围：Core Runtime  
+> 范围：Core Runtime
+> 依赖：[RFC-0110](RFC-0110-Core-ServiceRef.md)、[RFC-0120](RFC-0120-Core-Command.md)
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

@@ -1,7 +1,8 @@
 # RFC-0002：冲突裁决记录
 
 > 状态：已接受
-> 范围：设计决策
+> 范围：Foundation
+> 依赖：[RFC-0000](RFC-0000-Foundation-Glossary.md)、[RFC-0001](RFC-0001-Foundation-Design-Principles.md)
 > 依据：`docs/learn/go-skynet-chatgpt-20260708-1207.md` 后半段结论
 
 ## 目的

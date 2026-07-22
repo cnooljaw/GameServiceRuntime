@@ -1,7 +1,8 @@
 # RFC-0110：ServiceRef 与寻址
 
 > 状态：已接受
-> 范围：Core Runtime、Cluster  
+> 范围：Core Runtime、Cluster
+> 依赖：[RFC-0100](RFC-0100-Core-Service.md)
 > 依据：`docs/learn/006-Go-Service-Runtime概要设计与约定.md`
 
 ## 目的

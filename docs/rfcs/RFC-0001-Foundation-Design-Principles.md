@@ -1,7 +1,8 @@
 # RFC-0001：设计原则
 
 > 状态：已接受
-> 范围：GSR 总体架构
+> 范围：Foundation
+> 依赖：[RFC-0000](RFC-0000-Foundation-Glossary.md)
 > 依据：`docs/learn/005-Skynet设计思想与优雅实现.md`、`hanxi/skynet-demo`
 
 ## 目的
