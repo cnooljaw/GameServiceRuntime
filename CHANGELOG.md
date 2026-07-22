@@ -6,6 +6,8 @@
 
 增加最小 Runtime Tooling Discovery，并补齐它依赖的通用 Core 调用来源和节点级启动入口。
 
+基础 Cluster 仍默认使用静态节点配置和 `Runtime.ResolveRemote` 节点内名字解析，不依赖 Discovery。Discovery 只作为全局位置解耦、动态迁移和控制面的可选 Tooling。
+
 ### Core Runtime
 
 - `CommandContext` 新增 `Source()`，Runtime 自身发起的 Command 使用 `{Node: localNode, ID: 0}`，Service 调用保留真实 `ServiceRef`。

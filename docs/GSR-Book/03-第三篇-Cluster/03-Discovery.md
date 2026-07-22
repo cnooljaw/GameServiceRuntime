@@ -4,7 +4,17 @@
 
 ## 为什么需要 Discovery
 
-`ServiceRef` 是具体运行实例地址。节点或长期 Service 重启后，旧地址会失效，因此调用方不能把 `.config`、`.match` 等长期职责永久绑定到某个 ServiceID。
+`ServiceRef` 是具体运行实例地址。节点或长期 Service 重启后，旧地址会失效，但这不意味着所有 Cluster 都需要 Discovery。
+
+调用方已知服务所在节点时，直接使用静态节点配置和节点内名字解析：
+
+```go
+configRef, err := runtime.ResolveRemote(ctx, "node-b", ".config")
+```
+
+这就是默认 Cluster 模式，也对应 Skynet `cluster.config + cluster.query` 的思路。
+
+只有调用方不应知道服务所在节点，或者长期 Service 需要动态迁移、节点目录和控制面时，才启用 Discovery。
 
 GSR 的最小 Discovery 分开处理两类事实：
 
@@ -16,7 +26,7 @@ ServiceName Discovery:
   长期名字当前映射到哪个 ServiceRef。
 ```
 
-它不处理 ServiceGroup、负载均衡或管理状态。
+它不处理 ServiceGroup、负载均衡或管理状态，也不是普通 Send、Call 的前置组件。
 
 ## 所在层次
 
@@ -32,9 +42,9 @@ discovery.Client
 
 调用方只使用类型化 `Client`。CommandID、请求和 Reply 类型由 Discovery 包隐藏。
 
-## 启动根
+## 启用后的启动根
 
-第一版只有一个权威 `DiscoveryService`。远程节点必须从部署配置获得：
+选择启用 Discovery 时，第一版只有一个权威 `DiscoveryService`。远程节点必须从部署配置获得：
 
 - Discovery 节点的 `NodeID` 和 TCP 地址。
 - Discovery 的稳定本地名字 `.discovery`。
@@ -46,6 +56,8 @@ discoveryRef, err := runtime.ResolveRemote(ctx, "node-b", discovery.DefaultServi
 ```
 
 `ResolveRemote` 只查询指定节点的本地 Registry，对应 Skynet `cluster.query(node, name)` 的启动职责。它不是全局 Discovery，也不依赖业务 `ClusterCodec`。
+
+基础 Cluster 不执行这一步。只有需要全局名字或节点目录的调用方才创建 `discovery.Client`。
 
 ## 节点租约
 

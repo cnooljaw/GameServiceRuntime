@@ -6,9 +6,30 @@
 
 ## 目的
 
-本文定义 GSR 的活动节点发现和长期 `ServiceName` 解析。
+本文定义 GSR 可选的活动节点发现和全局长期 `ServiceName` 解析。
 
-Discovery 是 Runtime Tooling，不进入 Core Runtime。Core 只提供通用的 `NodeID`、`ServiceRef`、`Command`、本地 `Runtime.Resolve` 和节点级 `Runtime.ResolveRemote`；Core 不理解租约或 Discovery 名字表。
+Discovery 是可选 Runtime Tooling，不是 Cluster 的启动前提，也不进入 Core Runtime。Core 只提供通用的 `NodeID`、`ServiceRef`、`Command`、本地 `Runtime.Resolve` 和节点级 `Runtime.ResolveRemote`；Core 不理解租约或 Discovery 名字表。
+
+## 启用条件
+
+调用方已知服务所在节点时，默认使用：
+
+```text
+静态 NodeID -> Transport 地址
+  +
+Runtime.ResolveRemote(node, localName)
+```
+
+这已经覆盖 Skynet `cluster` 的基础定位模型，不需要 Discovery。
+
+只有出现以下需求时才启用 Discovery：
+
+- 调用方不应知道长期 Service 位于哪个节点。
+- 长期 Service 需要在节点之间动态迁移。
+- 控制面需要查询带租约的节点目录。
+- 后续 NodeAgent、ServiceGroup 或管理面需要共享动态位置事实。
+
+普通业务 Service、临时 Battle 和已知节点上的长期 Service 不得仅为跨节点调用而依赖 Discovery。
 
 ## 第一版范围
 
@@ -49,9 +70,9 @@ Business / Tooling caller
 - `Stop`、`Close` 只清理 Service 自有资源。
 - 调用方不能读取内部 map 或持有 Service 指针。
 
-## 启动根
+## 启用后的启动根
 
-第一版采用单一权威 `DiscoveryService`。
+启用 Discovery 时，第一版采用单一权威 `DiscoveryService`。
 
 远程调用方必须从部署配置获得：
 
@@ -64,7 +85,9 @@ Business / Tooling caller
 discoveryRef, err := runtime.ResolveRemote(ctx, discoveryNode, discovery.DefaultServiceName)
 ```
 
-`ResolveRemote` 只查询已知节点的本地 Registry，对应 Skynet `cluster.query(node, name)` 的启动职责。取得 `ServiceRef` 后，节点和全局名字发现全部通过 `discovery.Client` 完成。部署配置不得依赖 Runtime 动态分配的 ServiceID。
+`ResolveRemote` 只查询已知节点的本地 Registry，对应 Skynet `cluster.query(node, name)` 的启动职责。取得 Discovery 的 `ServiceRef` 后，节点目录和全局名字解析通过 `discovery.Client` 完成。部署配置不得依赖 Runtime 动态分配的 ServiceID。
+
+这条启动路径只属于已选择启用 Discovery 的进程。基础 Cluster 不需要解析 `.discovery`。
 
 ## 信任与状态边界
 
@@ -249,19 +272,20 @@ ServiceGroup 保存多个同职责 Service 的版本化集合，属于独立扩�
 ## 规则
 
 1. Discovery 不进入 Core Runtime。
-2. Discovery 不负责业务状态或 Battle 实例分配。
-3. Discovery 第一版只保存活动节点和长期 ServiceName。
-4. Discovery 不执行远程管理命令。
-5. Discovery 不修改 `ClusterTransport` peer。
-6. Discovery 不内建负载均衡、取模或广播。
-7. 所有状态修改必须通过 Command 串行处理。
-8. Timer 只能投递 `SweepExpired` Command。
-9. 返回的节点列表必须排序并与内部状态隔离。
-10. 节点失效时必须清理其拥有的所有名字。
-11. 租约写操作必须匹配 Command Source 和私有 LeaseOwner。
-12. authority 重启必须使旧 Epoch 的租约失效。
-13. Discovery bootstrap 不依赖动态 ServiceID。
-14. 基础设施错误不得降级为 Discovery 响应格式错误。
+2. Discovery 不是 Cluster、普通业务 Service 或节点内名字解析的必需依赖。
+3. Discovery 不负责业务状态或 Battle 实例分配。
+4. Discovery 第一版只保存活动节点和长期 ServiceName。
+5. Discovery 不执行远程管理命令。
+6. Discovery 不修改 `ClusterTransport` peer。
+7. Discovery 不内建负载均衡、取模或广播。
+8. 所有状态修改必须通过 Command 串行处理。
+9. Timer 只能投递 `SweepExpired` Command。
+10. 返回的节点列表必须排序并与内部状态隔离。
+11. 节点失效时必须清理其拥有的所有名字。
+12. 租约写操作必须匹配 Command Source 和私有 LeaseOwner。
+13. authority 重启必须使旧 Epoch 的租约失效。
+14. Discovery bootstrap 不依赖动态 ServiceID。
+15. 基础设施错误不得降级为 Discovery 响应格式错误。
 
 ## 验收
 
@@ -275,6 +299,7 @@ ServiceGroup 保存多个同职责 Service 的版本化集合，属于独立扩�
 - Discovery Codec 的类型保持、fallback 和内部 Command 拒绝。
 - 领域错误经过远程调用后仍可用 `errors.Is` 判断。
 - 仅凭目标 NodeID、静态 peer 地址和 `.discovery` 完成远程 bootstrap。
+- 基础 Cluster 示例和普通跨节点调用不依赖 Discovery。
 - 基础设施错误保持 Core 错误，成功响应拒绝无效零值。
 - Service 无 goroutine，Sweep 只通过 Timer Command 运行。
 - 全量测试、`go vet` 和 Race Detector。

@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前发布版本为 `v0.2.0`，变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane 和最小 Discovery Tooling：
+当前发布版本为 `v0.2.0`，变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane 和可选的最小 Discovery Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -41,7 +41,9 @@ go run ./examples/cluster-runtime
 
 当前 TCP Transport 不提供节点身份认证，只允许部署在可信内网，不能把 Cluster 端口直接暴露到公网。
 
-## Discovery 示例
+基础 Cluster 默认只依赖静态节点配置和 `Runtime.ResolveRemote` 节点内名字解析，不需要 Discovery。
+
+## 可选 Discovery 示例
 
 ```bash
 go run ./examples/discovery-runtime
@@ -50,5 +52,7 @@ go run ./examples/discovery-runtime
 预期输出：`.config -> node-b/2`。
 
 当前 Discovery 是单一内存权威。部署配置只提供权威节点的 `NodeID`、TCP 地址和稳定名字 `.discovery`，调用方通过 `Runtime.ResolveRemote` 获取当前动态 `ServiceRef`。Heartbeat 由部署编排调用；Discovery 不会动态修改 TCP peer。
+
+只有调用方不应知道服务所在节点，或者需要动态迁移、节点目录和控制面时才启用 Discovery。普通业务 Service 不应仅为跨节点调用而依赖它。
 
 GSR 信任可信内网中的集群节点，但不信任错误的程序状态。`Source`、租约 owner 和 AuthorityEpoch 用于状态约束，不是身份认证或安全令牌。

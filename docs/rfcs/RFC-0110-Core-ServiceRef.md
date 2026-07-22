@@ -101,7 +101,7 @@ NameRegistry
 ref, err := runtime.ResolveRemote(ctx, node, name)
 ```
 
-`ResolveRemote` 是 Cluster bootstrap 能力，不是全局 Discovery。它只查询指定节点的 `NameRegistry`，用于从稳定名字取得动态 `ServiceRef`。全局名字、租约和节点发现仍由 Runtime Tooling Discovery 负责。
+`ResolveRemote` 是默认 Cluster bootstrap 能力，不是全局 Discovery。它只查询指定节点的 `NameRegistry`，用于从稳定名字取得动态 `ServiceRef`。调用方已知服务所在节点时，不需要启用 Discovery。只有调用方不应知道服务所在节点，或系统需要动态迁移、节点目录和控制面时，才使用 Runtime Tooling Discovery。
 
 关闭后的 `ServiceRef` 可以在短期 tombstone 窗口内返回 `ErrServiceClosed`。tombstone 必须同时受 TTL 和数量上限约束，不能随短生命周期 Service 数量永久增长；窗口过期后返回 `ErrServiceNotFound`。
 
@@ -129,6 +129,7 @@ Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 6. ServiceName 在单个 Registry 中唯一，实例退出时自动注销。
 7. 关闭地址记录必须有 TTL 和容量上限。
 8. 远程启动配置只保存节点地址和稳定 `ServiceName`，不得依赖动态分配的 ServiceID。
+9. 基础 Cluster 默认使用静态节点配置和节点内名字解析，不依赖 Discovery。
 
 ## 为什么不用对象指针
 

@@ -54,6 +54,22 @@ Local Mailbox or ClusterTransport
 
 数据面不提供管理后台，不查询节点详情，不执行运维命令。
 
+## 默认 Cluster 模式
+
+GSR Cluster 默认采用与 Skynet `cluster` 一致的静态拓扑模型：
+
+```text
+部署配置：
+  NodeID -> Transport 地址
+
+节点内名字：
+  ServiceName -> ServiceRef
+```
+
+调用方先从部署配置取得目标 `NodeID` 和地址，再用 `Runtime.ResolveRemote(node, name)` 解析目标节点的本地名字。基础 Cluster、普通业务 Service 和 Cluster Data Plane 都不依赖 Discovery。
+
+Discovery 是可选 Runtime Tooling。只有调用方不应知道服务所在节点，或者系统需要动态迁移、节点目录和控制面时才启用。Discovery 不参与已知节点之间的普通 Send、Call 或名字解析。
+
 ## Control Plane
 
 控制面负责 Runtime 运维能力：
@@ -110,7 +126,7 @@ if ref.Node == localNode {
 部署配置先提供目标 `NodeID` 和 Transport 地址，再通过稳定本地名字取得动态 ServiceRef：
 
 ```go
-ref, err := runtime.ResolveRemote(ctx, node, ".discovery")
+ref, err := runtime.ResolveRemote(ctx, node, ".config")
 ```
 
 这对应 Skynet `cluster.query(node, name)` 的启动职责。实现规则：
@@ -123,6 +139,8 @@ ref, err := runtime.ResolveRemote(ctx, node, ".discovery")
 6. 其它发往 ServiceID 0 的 Command 或 Send 均视为 `ErrInvalidClusterEnvelope`。
 
 该能力只解决已知节点上的启动名字，不实现全局 Discovery、负载均衡或动态 peer 更新。
+
+当调用方已知 `.config` 位于哪个节点时，应直接使用本节能力，不应为了取得它而先访问 Discovery。`.discovery` 只是启用可选 Discovery Tooling 时的启动名字。
 
 ## 构造边界
 
