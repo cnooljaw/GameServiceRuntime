@@ -47,7 +47,7 @@ func validateFailureNotice(notice FailureNotice) error {
 }
 
 func validateRecord(record Record, key ServiceKey) error {
-	if record.Registration.Key != key || validateRegistration(record.Registration) != nil || record.Status < ServiceRunning || record.Status > ServiceRestartSuppressed || record.AttemptsInFault < 0 || record.RestartsInWindow < 0 {
+	if record.Registration.Key != key || validateRegistration(record.Registration) != nil || record.Status < ServiceRunning || record.Status > ServiceRestartSuppressed || record.AttemptsInFault < 0 || record.RestartsInWindow < 0 || record.LastFailure > RecoveryFailureSuppressed {
 		return ErrInvalidResponse
 	}
 	return nil

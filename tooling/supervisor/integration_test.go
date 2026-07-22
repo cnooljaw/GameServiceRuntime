@@ -96,6 +96,76 @@ func TestSupervisorSnapshotRecoveryAbortsEveryPublishFailure(t *testing.T) {
 	}
 }
 
+func TestSupervisorStopsContinuousCreateFailuresAtAttemptBudget(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Workers: 2})
+	control := &launcherControl{createErr: errors.New("runtime create unavailable")}
+	launcher, err := NewRuntimeLauncher(control, ServiceFactoryFunc(func(context.Context, ServiceKey, uint64) (gsr.ServiceSpec, error) {
+		return gsr.ServiceSpec{Service: panicDecoratorService{}}, nil
+	}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := NewRunner(runtime, launcher, RunnerConfig{
+		Workers: 1, QueueSize: 4, AttemptTimeout: time.Second,
+		ResultTimeout: time.Second, ResultRetryInterval: time.Millisecond,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = runner.Close(context.Background())
+		_ = runtime.Close(context.Background())
+	})
+	supervisorService, err := NewService(runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisorRef, err := runtime.CreateService(gsr.ServiceSpec{Service: supervisorService})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := testServiceKey()
+	decorated, err := Decorate(panicDecoratorService{}, DecoratorConfig{Key: key, Generation: 1, Supervisor: supervisorRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialRef, err := runtime.CreateService(gsr.ServiceSpec{Service: decorated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := testRestartPolicy()
+	policy.MaxAttempts = 2
+	client, err := NewClient(runtime, supervisorRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Register(context.Background(), Registration{Key: key, Ref: initialRef, Generation: 1, Policy: policy}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Call(context.Background(), initialRef, 10, nil); !errors.Is(err, gsr.ErrServiceFailed) {
+		t.Fatalf("panic Call error = %v, want ErrServiceFailed", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		record, err := client.Get(context.Background(), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Status == ServiceRecoveryFailed {
+			if record.LastFailure != RecoveryFailureCreate || record.AttemptsInFault != 2 {
+				t.Fatalf("record = %#v", record)
+			}
+			if control.created() != 2 {
+				t.Fatalf("CreateService calls = %d, want 2", control.created())
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for continuous create failure suppression")
+}
+
 type snapshotRecoveryFixture struct {
 	runtime      *gsr.Runtime
 	runner       *Runner

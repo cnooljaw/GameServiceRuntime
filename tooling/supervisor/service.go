@@ -144,6 +144,18 @@ func (s *service) handleFailure(source gsr.ServiceRef, notice FailureNotice) err
 	if entry == nil {
 		return ErrServiceNotRegistered
 	}
+	if entry.status == ServicePublishing && notice.FailedRef == entry.preparedRef && notice.Generation == entry.activeTask.Generation {
+		now := s.context.Now()
+		entry.registration.Ref = notice.FailedRef
+		entry.registration.Generation = notice.Generation
+		entry.status = ServiceRunning
+		entry.attemptsInFault = 0
+		entry.lastFailure = RecoveryFailureNone
+		entry.preparedRef = gsr.ServiceRef{}
+		entry.restarts = append(entry.restarts, now)
+		s.pruneRestarts(entry, now)
+		s.context.Metrics().Inc(metricRestartsSucceeded)
+	}
 	if notice.FailedRef != entry.registration.Ref || notice.Generation != entry.registration.Generation {
 		s.context.Metrics().Inc(metricFailureNoticesStale)
 		return ErrStaleNotice

@@ -1,7 +1,8 @@
 # RFC-0220：Supervisor 与故障恢复
 
-> 状态：待实现
+> 状态：已接受
 > 目标阶段：Phase 7E
+> 接受日期：2026-07-22
 > 范围：Runtime Tooling
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0110](RFC-0110-Core-ServiceRef.md)、[RFC-0170](RFC-0170-Core-Timer.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)、[RFC-0200](RFC-0200-Tooling-Discovery.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)
 
@@ -126,10 +127,12 @@ Supervisor 必须同时校验：
 
 - `CommandContext.Source() == FailureNotice.FailedRef`。
 - `Key` 已注册且结构有效。
-- `FailedRef` 和 `Generation` 等于该 Key 当前已提交实例。
-- 当前状态允许从 Running 进入故障决策。
+- `FailedRef` 和 `Generation` 等于该 Key 当前已提交实例；或等于已经登记、正在发布的 prepared 实例。
+- 当前状态允许从 Running 或 Publishing 进入故障决策。
 
 一个失败代际只能触发一次决策。同代际重复通知返回 `ErrDuplicateNotice`，旧代际或旧 `ServiceRef` 返回 `ErrStaleNotice`，其它结构错误返回 `ErrInvalidNotice`。
+
+名字 Publish 与 committed 结果进入 Supervisor Mailbox 之间存在一个不可消除的并发窗口。prepared 实例若在该窗口收到 Command 并 panic，Supervisor 必须先把它的 Ref 和 Generation 提升为已经执行过业务的失败代际，再应用窗口和恢复策略。迟到的 committed 结果随后返回 `ErrStaleRecovery`，Runner 条件撤销该 Ref 的绑定并停止实例；下一次恢复使用更高 Generation，不能复用已经对外运行过的代际。
 
 ## 生命周期错误边界
 
@@ -173,7 +176,7 @@ type Record struct {
 }
 ```
 
-`ServiceKey` 是跨实例稳定身份，`Generation` 是该 Key 在一个 Supervisor 注册生命周期中的已提交实例代际。初始注册要求非零 Generation；每次成功恢复只增加一代。准备或发布失败不消耗 Generation，但消耗本次故障的尝试预算。
+`ServiceKey` 是跨实例稳定身份，`Generation` 是该 Key 在一个 Supervisor 注册生命周期中的已提交实例代际。初始注册要求非零 Generation；每次成功恢复只增加一代。准备或发布失败不消耗 Generation，但消耗本次故障的尝试预算。已经通过名字接收并处理 Command 的 prepared 实例即使尚未收到 committed 确认，也必须消耗 Generation。
 
 第一版注册规则：
 
@@ -288,8 +291,10 @@ type Launcher interface {
 1. `Prepare` 加载最近一次已提交 Snapshot 或确定初始状态，构造带新 Generation Decorator 的 Service，并调用 `CreateService`。新实例此时不得通过长期名字接收业务流量。
 2. Runner 把 prepared `ServiceRef` Call 给 Supervisor。Supervisor 校验 Attempt 后先记录待发布的新 Ref 和 Generation。
 3. `Commit` 原子或幂等地发布长期名字。成功后 Runner 再通知 Supervisor 把新代际变为 `ServiceRunning`。
-4. Prepare 结果迟到、prepared 记录被拒绝、Commit 失败或 commit 结果迟到时，Runner 必须调用 `Abort`。
-5. `Abort` 必须幂等地撤销指向该 Ref 的绑定并停止新实例。Abort 失败时禁止继续创建更多实例，状态进入 `ServiceRecoveryFailed`。
+4. Prepare 返回 error 时通常不返回活动 Ref；自定义 Launcher 若返回非零部分结果，Runner 也必须先 Abort，再报告原失败分类。
+5. Prepare 结果迟到、prepared 记录被拒绝、Commit 失败或 commit 结果迟到时，Runner 必须调用 `Abort`。
+6. started、prepared 和 committed 确认必须对相同 Task/Ref 幂等，避免响应丢失后的重试误杀已提交实例。
+7. `Abort` 必须幂等地撤销指向该 Ref 的绑定并停止新实例。Abort 失败时禁止继续创建更多实例，状态进入 `ServiceRecoveryFailed`。
 
 提供的 Runtime launcher 使用以下窄 seam：
 
@@ -321,7 +326,7 @@ Factory 返回的 `ServiceSpec.Name` 必须为空；名字只能在 Commit 阶�
 4. Abort 失败时停止自动恢复，避免产生多个可能可达的孤立实例。
 5. `BindingPublisher.Publish` 返回 error 不代表调用方可以假设“什么都没发生”；`Withdraw(Key, Ref)` 必须按 Ref 做条件撤销，不能删除已经属于更新实例的绑定。
 
-Discovery adapter 使用 `RegisterName` 更新和带 Ref 的 `UnregisterName` 条件撤销。`Runtime.ResolveRemote` 仍只负责已知节点的本地查询，不承担 Supervisor 或全局名字发布职责。
+组合根提供 Discovery adapter 时，使用 `RegisterName` 更新和带 Ref 的 `UnregisterName` 条件撤销。Supervisor 包只依赖 `BindingPublisher`，不强制所有部署引入 Discovery。`Runtime.ResolveRemote` 仍只负责已知节点的本地查询，不承担 Supervisor 或全局名字发布职责。
 
 ## 失败通知投递裁决
 
@@ -338,7 +343,7 @@ Discovery adapter 使用 `RegisterName` 更新和带 Ref 的 `UnregisterName` �
 
 稳定错误至少包括：
 
-- `ErrInvalidConfig`、`ErrInvalidKey`、`ErrInvalidPolicy`、`ErrInvalidRegistration`。
+- `ErrInvalidConfig`、`ErrInvalidContext`、`ErrInvalidKey`、`ErrInvalidPolicy`、`ErrInvalidRegistration`。
 - `ErrAlreadyRegistered`、`ErrServiceNotRegistered`。
 - `ErrInvalidNotice`、`ErrDuplicateNotice`、`ErrStaleNotice`。
 - `ErrRestartSuppressed`、`ErrRecoveryQueueFull`、`ErrRunnerClosed`。
@@ -372,8 +377,13 @@ Phase 7E 必须覆盖：
 5. Runner 队列有界、关闭可取消退避、任务记录保留到真实返回。
 6. 从已提交 Snapshot 创建新实例，且 `ServiceRef` 变化、Generation 增加。
 7. prepared Ref 先登记、长期名字后发布；发布失败撤销绑定并停止新实例。
-8. Abort 失败停止后续自动恢复，迟到 prepared/commit 结果不能覆盖当前状态。
-9. 失败通知 Mailbox 满和 Supervisor 不可用时有指标与日志，不阻止 Core 清理。
-10. Supervisor 自身不能注册，也不会形成自我重启环。
-11. 无 Service goroutine、无 Core 对 Tooling 的反向依赖。
-12. `go test ./...`、`go vet ./...`、`go test -race ./...` 和关键并发重复测试通过。
+8. Publish 与 committed 之间再次 panic 时，已对外运行的 prepared Generation 被 fencing，迟到 commit 不会覆盖后续恢复。
+9. Abort 失败停止后续自动恢复，迟到 prepared/commit 结果不能覆盖当前状态。
+10. 失败通知 Mailbox 满和 Supervisor 不可用时有指标与日志，不阻止 Core 清理。
+11. Supervisor 自身不能注册，也不会形成自我重启环。
+12. 无 Service goroutine、无 Core 对 Tooling 的反向依赖。
+13. `go test ./...`、`go vet ./...`、`go test -race ./...` 和关键并发重复测试通过。
+
+## 实现状态
+
+Phase 7E 已实现 `tooling/supervisor` 的 Decorator、typed Client、Supervisor Service、有界 Runner、两阶段 RuntimeLauncher、精确指标和 Snapshot 恢复示例。端到端测试覆盖新 Ref/Generation、Snapshot 缺失、连续创建失败、发布歧义撤销、Publishing 窗口再次 panic、结果幂等、关闭真实返回和 Race Detector。

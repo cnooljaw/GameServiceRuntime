@@ -22,6 +22,9 @@ func NewClient(caller CommandCaller, target gsr.ServiceRef) (*Client, error) {
 
 // Register adds one initial committed Service generation before business traffic is published.
 func (c *Client) Register(ctx context.Context, registration Registration) error {
+	if isNil(ctx) {
+		return ErrInvalidContext
+	}
 	if err := validateRegistration(registration); err != nil {
 		return err
 	}
@@ -38,6 +41,9 @@ func (c *Client) Register(ctx context.Context, registration Registration) error 
 
 // Get returns an independent status record for key.
 func (c *Client) Get(ctx context.Context, key ServiceKey) (Record, error) {
+	if isNil(ctx) {
+		return Record{}, ErrInvalidContext
+	}
 	if err := validateServiceKey(key); err != nil {
 		return Record{}, err
 	}

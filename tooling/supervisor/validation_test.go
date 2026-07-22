@@ -72,6 +72,15 @@ func TestDecorateRejectsInvalidServiceAndConfig(t *testing.T) {
 	}
 }
 
+func TestNewServiceRejectsNilRecoveryExecutor(t *testing.T) {
+	var typedNil *recordingRecoveryExecutor
+	for _, executor := range []RecoveryExecutor{nil, typedNil} {
+		if _, err := NewService(executor); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("NewService(%T) error = %v, want ErrInvalidConfig", executor, err)
+		}
+	}
+}
+
 type noCommandsDecoratorService struct{}
 
 func (noCommandsDecoratorService) Init(gsr.ServiceContext) error                { return nil }

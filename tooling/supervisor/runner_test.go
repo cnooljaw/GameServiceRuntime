@@ -96,6 +96,27 @@ func TestRunnerReportsAbortFailureAsTerminalCategory(t *testing.T) {
 	}
 }
 
+func TestRunnerAbortsPartialPrepareResultBeforeReportingFailure(t *testing.T) {
+	events := &runnerEvents{}
+	caller := &runnerCaller{events: events, failed: make(chan struct{}, 1)}
+	launcher := &runnerLauncher{
+		events: events, ref: gsr.ServiceRef{Node: "node-a", ID: 8}, prepareErr: errors.New("partial prepare"),
+	}
+	runner := newTestRunner(t, caller, launcher, 1, 1)
+	if err := runner.Submit(testRecoveryTask()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-caller.failed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for failed result")
+	}
+	want := []string{"started", "prepare", "abort", "failed"}
+	if got := events.snapshot(); !equalStrings(got, want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+}
+
 func TestRunnerQueueIsBoundedAndSubmitDoesNotBlock(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -245,6 +266,9 @@ func TestRunnerRejectsInvalidConfigAndTask(t *testing.T) {
 	}
 	if err := runner.Submit(testRecoveryTask()); !errors.Is(err, ErrRunnerClosed) {
 		t.Fatalf("closed Submit error = %v, want ErrRunnerClosed", err)
+	}
+	if err := runner.Close(nil); !errors.Is(err, ErrInvalidContext) {
+		t.Fatalf("nil context Close error = %v, want ErrInvalidContext", err)
 	}
 }
 

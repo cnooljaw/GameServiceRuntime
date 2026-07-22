@@ -5,6 +5,8 @@ import "errors"
 var (
 	// ErrInvalidConfig indicates a nil dependency or malformed option.
 	ErrInvalidConfig = errors.New("supervisor: invalid config")
+	// ErrInvalidContext indicates that an operation has no usable context.
+	ErrInvalidContext = errors.New("supervisor: invalid context")
 	// ErrInvalidKey indicates a malformed stable ServiceKey.
 	ErrInvalidKey = errors.New("supervisor: invalid service key")
 	// ErrInvalidPolicy indicates an unknown or inconsistent RestartPolicy.

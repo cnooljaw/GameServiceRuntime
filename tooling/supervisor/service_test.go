@@ -173,6 +173,61 @@ func TestRestartWindowSuppressesRapidRepeatedFailures(t *testing.T) {
 	waitForCounter(t, fixture.runtime, metricRestartsSuppressed, 1)
 }
 
+func TestFailureDuringPublishingFencesGenerationBeforeNextRecovery(t *testing.T) {
+	fixture := newSupervisorFixture(t, RestartOnFailure)
+	if err := fixture.emit(fixture.notice()); err != nil {
+		t.Fatal(err)
+	}
+	first := fixture.executor.next(t)
+	replacement := fixture.createEmitter(t)
+	fixture.reportStarted(t, first)
+	fixture.reportPrepared(t, first, replacement)
+	earlyFailure := FailureNotice{
+		Key: fixture.registration.Key, FailedRef: replacement, Generation: 2,
+		OccurredAt: time.Now(), Kind: FailureHandlerPanic,
+	}
+	if err := fixture.emitFrom(replacement, earlyFailure); err != nil {
+		t.Fatal(err)
+	}
+	second := fixture.executor.next(t)
+	if second.Generation != 3 || second.FailedRef != replacement || second.Attempt != 2 {
+		t.Fatalf("next task = %#v, want generation 3 after prepared failure", second)
+	}
+	record, err := fixture.client.Get(context.Background(), fixture.registration.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Registration.Generation != 2 || record.Registration.Ref != replacement || record.RestartsInWindow != 1 {
+		t.Fatalf("record = %#v, want fenced generation 2", record)
+	}
+	value, err := fixture.runtime.Call(context.Background(), fixture.supervisor, recoveryCommittedCommand, recoveryCommittedRequest{Task: first, Ref: replacement})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := value.(operationResponse)
+	if err := errorFromResponse(response.Error); !errors.Is(err, ErrStaleRecovery) {
+		t.Fatalf("late commit error = %v, want ErrStaleRecovery", err)
+	}
+}
+
+func TestRecoveryResultAcknowledgementsAreIdempotent(t *testing.T) {
+	fixture := newSupervisorFixture(t, RestartOnFailure)
+	if err := fixture.emit(fixture.notice()); err != nil {
+		t.Fatal(err)
+	}
+	task := fixture.executor.next(t)
+	replacement := fixture.createEmitter(t)
+	fixture.reportStarted(t, task)
+	fixture.reportStarted(t, task)
+	fixture.reportPrepared(t, task, replacement)
+	fixture.reportPrepared(t, task, replacement)
+	fixture.reportCommitted(t, task, replacement)
+	fixture.reportCommitted(t, task, replacement)
+	if got := fixture.runtime.Inspect().Metrics.Counter(metricRestartsSucceeded); got != 1 {
+		t.Fatalf("restart success metric = %d, want 1", got)
+	}
+}
+
 func TestRecoveryQueueFailureIsTerminalAndObservable(t *testing.T) {
 	executor := &recordingRecoveryExecutor{submitErr: ErrRecoveryQueueFull}
 	fixture := newSupervisorFixtureWithExecutor(t, testRegistration(RestartOnFailure), executor)

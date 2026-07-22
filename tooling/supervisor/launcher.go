@@ -24,7 +24,10 @@ func NewRuntimeLauncher(runtime RuntimeControl, factory ServiceFactory, publishe
 
 // Prepare builds an unnamed decorated Service and creates its new Runtime instance.
 func (l *RuntimeLauncher) Prepare(ctx context.Context, request LaunchRequest) (gsr.ServiceRef, error) {
-	if isNil(ctx) || validateLaunchRequest(request) != nil {
+	if isNil(ctx) {
+		return gsr.ServiceRef{}, ErrInvalidContext
+	}
+	if validateLaunchRequest(request) != nil {
 		return gsr.ServiceRef{}, ErrInvalidConfig
 	}
 	spec, err := l.factory.Build(ctx, request.Key, request.Generation)
@@ -50,7 +53,10 @@ func (l *RuntimeLauncher) Prepare(ctx context.Context, request LaunchRequest) (g
 
 // Commit publishes the prepared Service's optional long-lived binding.
 func (l *RuntimeLauncher) Commit(ctx context.Context, request LaunchRequest, ref gsr.ServiceRef) error {
-	if isNil(ctx) || validateLaunchRequest(request) != nil || validateConcreteRef(ref) != nil || ref.Node != request.Supervisor.Node {
+	if isNil(ctx) {
+		return ErrInvalidContext
+	}
+	if validateLaunchRequest(request) != nil || validateConcreteRef(ref) != nil || ref.Node != request.Supervisor.Node {
 		return ErrInvalidConfig
 	}
 	if l.publisher == nil {
@@ -64,7 +70,10 @@ func (l *RuntimeLauncher) Commit(ctx context.Context, request LaunchRequest, ref
 
 // Abort conditionally withdraws a binding before stopping the prepared Service.
 func (l *RuntimeLauncher) Abort(ctx context.Context, request LaunchRequest, ref gsr.ServiceRef) error {
-	if isNil(ctx) || validateLaunchRequest(request) != nil || validateConcreteRef(ref) != nil || ref.Node != request.Supervisor.Node {
+	if isNil(ctx) {
+		return ErrInvalidContext
+	}
+	if validateLaunchRequest(request) != nil || validateConcreteRef(ref) != nil || ref.Node != request.Supervisor.Node {
 		return ErrInvalidConfig
 	}
 	var result error

@@ -155,17 +155,19 @@ func testLaunchRequest(supervisor gsr.ServiceRef) LaunchRequest {
 }
 
 type launcherControl struct {
-	mu        sync.Mutex
-	events    *runnerEvents
-	ref       gsr.ServiceRef
-	createErr error
-	stopErr   error
-	stopCalls int
+	mu          sync.Mutex
+	events      *runnerEvents
+	ref         gsr.ServiceRef
+	createErr   error
+	createCalls int
+	stopErr     error
+	stopCalls   int
 }
 
 func (c *launcherControl) CreateService(gsr.ServiceSpec) (gsr.ServiceRef, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.createCalls++
 	return c.ref, c.createErr
 }
 
@@ -175,6 +177,12 @@ func (c *launcherControl) Stop(context.Context, gsr.ServiceRef) error {
 	c.stopCalls++
 	c.events.add("stop")
 	return c.stopErr
+}
+
+func (c *launcherControl) created() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.createCalls
 }
 
 type launcherPublisher struct {

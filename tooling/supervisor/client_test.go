@@ -81,6 +81,17 @@ func TestClientRejectsInvalidDependenciesRequestsAndResponses(t *testing.T) {
 	if _, err := client.Get(context.Background(), ServiceKey{}); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("invalid Get error = %v, want ErrInvalidKey", err)
 	}
+	var nilContext context.Context
+	if err := client.Register(nilContext, testRegistration(RestartNever)); !errors.Is(err, ErrInvalidContext) {
+		t.Fatalf("nil context Register error = %v, want ErrInvalidContext", err)
+	}
+	if _, err := client.Get(nilContext, testServiceKey()); !errors.Is(err, ErrInvalidContext) {
+		t.Fatalf("nil context Get error = %v, want ErrInvalidContext", err)
+	}
+	caller.reply = recordResponse{Record: Record{Registration: testRegistration(RestartNever), Status: ServiceRunning, LastFailure: RecoveryFailure(99)}}
+	if _, err := client.Get(context.Background(), testServiceKey()); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("invalid failure category error = %v, want ErrInvalidResponse", err)
+	}
 }
 
 type supervisorFakeCaller struct {

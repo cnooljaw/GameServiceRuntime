@@ -67,7 +67,7 @@ func (r *Runner) Submit(task RecoveryTask) error {
 // Close cancels pending work and waits until all launcher calls have really returned.
 func (r *Runner) Close(ctx context.Context) error {
 	if isNil(ctx) {
-		return ErrInvalidConfig
+		return ErrInvalidContext
 	}
 	r.mu.Lock()
 	if !r.closed {
@@ -131,7 +131,14 @@ func (r *Runner) execute(task RecoveryTask) {
 		cancel()
 		if r.context.Err() == nil {
 			r.logLaunchFailure(task, "prepare", err)
-			r.reportFailure(task, classifyPrepareFailure(err))
+			failure := classifyPrepareFailure(err)
+			if validateConcreteRef(ref) == nil && ref.Node == task.Supervisor.Node {
+				if abortErr := r.abortLaunch(request, ref); abortErr != nil {
+					r.logLaunchFailure(task, "abort", abortErr)
+					failure = RecoveryFailureAbort
+				}
+			}
+			r.reportFailure(task, failure)
 		}
 		return
 	}
