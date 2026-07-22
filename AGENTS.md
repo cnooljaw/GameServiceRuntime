@@ -22,6 +22,7 @@
 - Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service，直接 `go` 语句由 AST 测试检查。Runtime 创建的执行任务必须追踪到真实返回。
 - Timer 只能投递 Command，不能执行业务回调。
 - `Session` 只关联 Call/Reply；业务幂等使用 `RequestID`。
+- `Runtime.Inspect()` 是 Core 唯一只读观测入口；Metrics 快照只通过 `Inspect().Metrics` 获取。
 
 ## Skills
 
@@ -30,6 +31,7 @@
 - 设计 Service、adapter、模块边界时使用 `deep-module-design`。
 - 实现计划前使用 `create-plan`；创建或修改项目 Skill 时使用 `skill-creator`。
 - 代码评审使用 `clean-coder-review` 或 `two-axis-code-review`。
+- 依赖或影响分析优先使用已初始化的 CodeGraph，并以源码和测试复核图查询结果。
 
 ## Git
 

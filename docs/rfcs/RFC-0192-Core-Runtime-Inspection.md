@@ -74,6 +74,8 @@ func (s MetricsSnapshot) Durations() map[string]time.Duration
 
 三个枚举方法每次返回新 map；修改返回值不能影响原快照、Runtime 或后续 Inspection。零值快照返回非 nil 空 map。
 
+`MetricsSnapshot` 不是独立观测入口。Tooling 只能通过 `runtime.Inspect().Metrics` 取得快照；Core 不增加 `Runtime.MetricsSnapshot()`、`Runtime.Metrics()` 或等价只读 getter。`ServiceContext.Metrics()` 是 Service 写入指标的能力，不替代 Inspection。
+
 ## 生命周期
 
 `Inspect` 可以在 Running、Closing 和 Closed 状态调用。它不返回 error，不启动后台任务，不阻止关闭，也不延长 Runtime 生命周期。

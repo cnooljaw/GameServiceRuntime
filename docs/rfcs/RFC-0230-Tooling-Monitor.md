@@ -64,6 +64,8 @@ func (s MetricsSnapshot) Durations() map[string]time.Duration
 
 这三个方法只暴露指标事实，不暴露 collector、锁或写入接口。
 
+快照获取边界以 [RFC-0192](RFC-0192-Core-Runtime-Inspection.md) 为准：Monitor 必须先调用 `Inspect()`，再读取 `inspection.Metrics`，不得要求 Core 增加独立 Metrics getter。
+
 ## 远程 Call 指标
 
 Core 固定记录：

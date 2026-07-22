@@ -78,6 +78,20 @@ Command 是 Service 能力入口。Send 和 Call 是投递方式。
 
 Cluster 是远程 Service Message Dispatch。
 
+### Cluster 是否强制依赖 Discovery
+
+裁决：不依赖。
+
+基础 Cluster 学习 Skynet，默认只需要静态节点配置和目标节点内名字解析：
+
+```text
+静态 NodeID -> Transport 地址
+  +
+Runtime.ResolveRemote(node, localName)
+```
+
+只有调用方不应知道服务所在节点，或者需要动态迁移、节点目录和控制面时才启用 Discovery。普通业务 Service 不得仅为跨节点调用而依赖 Discovery；具体启用条件见 [RFC-0200](RFC-0200-Tooling-Discovery.md)。
+
 ### Cluster 是否只包含 Transport
 
 裁决：不是。
@@ -115,6 +129,19 @@ Service
 - `Protocol` 属于 Transport 编码和链路细节。
 - `Command` 才是 Service 能力入口。
 - `PTYPE_RESPONSE` 对应的能力由 `Reply` 和 `PendingCall` 自动完成。
+
+### MetricsSnapshot 是否提供独立 Runtime 入口
+
+裁决：不提供。
+
+`Runtime.Inspect()` 是 Core 唯一只读观测入口。Tooling 只能通过：
+
+```go
+inspection := runtime.Inspect()
+metrics := inspection.Metrics
+```
+
+读取指标快照。`MetricsSnapshot` 可以提供单项读取和返回独立 map 的枚举方法，但不得新增 `Runtime.MetricsSnapshot()`、`Runtime.Metrics()` 或等价旁路。Service 使用的 `ServiceContext.Metrics()` 是指标写入能力，不是 Tooling 观测入口。
 
 ### Battle 是否进入 Core Runtime
 
