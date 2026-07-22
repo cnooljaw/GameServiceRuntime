@@ -49,13 +49,19 @@ func (m *Manager) Capture(ctx context.Context, target gsr.ServiceRef, key Key) (
 		return Snapshot{}, err
 	}
 
-	value, err := m.caller.Call(ctx, target, CaptureCommand, CaptureRequest{})
+	value, err := m.caller.Call(ctx, target, CaptureCommand, CaptureRequest{Key: key})
 	if err != nil {
 		return Snapshot{}, err
 	}
 	response, ok := value.(CaptureResponse)
 	if !ok {
 		return Snapshot{}, ErrInvalidResponse
+	}
+	if err := validateKey(response.Key); err != nil || response.Key != key {
+		return Snapshot{}, ErrInvalidResponse
+	}
+	if err := validateState(response.State, m.maxPayloadBytes); err != nil {
+		return Snapshot{}, err
 	}
 	result := Snapshot{
 		Key:        key,
@@ -66,10 +72,17 @@ func (m *Manager) Capture(ctx context.Context, target gsr.ServiceRef, key Key) (
 	if err := validateSnapshot(result, m.maxPayloadBytes); err != nil {
 		return Snapshot{}, err
 	}
-	if err := m.store.Save(ctx, cloneSnapshot(result)); err != nil {
+	canonical, err := m.store.Save(ctx, cloneSnapshot(result))
+	if err != nil {
 		return Snapshot{}, err
 	}
-	return cloneSnapshot(result), nil
+	if canonical.Key != key || !equalState(canonical.State, result.State) {
+		return Snapshot{}, ErrInvalidResponse
+	}
+	if err := validateSnapshot(canonical, m.maxPayloadBytes); err != nil {
+		return Snapshot{}, ErrInvalidResponse
+	}
+	return cloneSnapshot(canonical), nil
 }
 
 // Load validates and returns an independent Snapshot stored for key.

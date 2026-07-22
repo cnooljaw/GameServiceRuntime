@@ -13,7 +13,7 @@ import (
 func TestMemoryStoreReturnsIndependentCopies(t *testing.T) {
 	store := NewMemoryStore()
 	original := validSnapshot(2, []byte("state"))
-	if err := store.Save(context.Background(), original); err != nil {
+	if _, err := store.Save(context.Background(), original); err != nil {
 		t.Fatal(err)
 	}
 	original.State.Payload[0] = 'X'
@@ -39,20 +39,20 @@ func TestMemoryStoreReturnsIndependentCopies(t *testing.T) {
 func TestMemoryStoreOrdersRevisionsAndDetectsConflict(t *testing.T) {
 	store := NewMemoryStore()
 	current := validSnapshot(2, []byte("two"))
-	if err := store.Save(context.Background(), current); err != nil {
+	if _, err := store.Save(context.Background(), current); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(context.Background(), validSnapshot(1, []byte("one"))); !errors.Is(err, ErrStaleSnapshot) {
+	if _, err := store.Save(context.Background(), validSnapshot(1, []byte("one"))); !errors.Is(err, ErrStaleSnapshot) {
 		t.Fatalf("Save stale error = %v, want ErrStaleSnapshot", err)
 	}
-	if err := store.Save(context.Background(), validSnapshot(2, []byte("other"))); !errors.Is(err, ErrSnapshotConflict) {
+	if _, err := store.Save(context.Background(), validSnapshot(2, []byte("other"))); !errors.Is(err, ErrSnapshotConflict) {
 		t.Fatalf("Save conflict error = %v, want ErrSnapshotConflict", err)
 	}
-	if err := store.Save(context.Background(), current); err != nil {
+	if _, err := store.Save(context.Background(), current); err != nil {
 		t.Fatalf("idempotent Save error = %v", err)
 	}
 	newer := validSnapshot(3, []byte("three"))
-	if err := store.Save(context.Background(), newer); err != nil {
+	if _, err := store.Save(context.Background(), newer); err != nil {
 		t.Fatalf("newer Save error = %v", err)
 	}
 	loaded, err := store.Load(context.Background(), newer.Key)
@@ -61,6 +61,33 @@ func TestMemoryStoreOrdersRevisionsAndDetectsConflict(t *testing.T) {
 	}
 	if loaded.State.Revision != 3 || string(loaded.State.Payload) != "three" {
 		t.Fatalf("loaded = %#v, want revision 3", loaded)
+	}
+}
+
+func TestMemoryStoreIdempotentSaveReturnsExistingCanonicalSnapshot(t *testing.T) {
+	store := NewMemoryStore()
+	original := validSnapshot(2, []byte("state"))
+	if _, err := store.Save(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	retry := cloneSnapshotForTest(original)
+	retry.Source = gsr.ServiceRef{Node: "node-b", ID: 8}
+	retry.CapturedAt = original.CapturedAt.Add(time.Minute)
+
+	canonical, err := store.Save(context.Background(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Source != original.Source || !canonical.CapturedAt.Equal(original.CapturedAt) {
+		t.Fatalf("canonical = %#v, want original metadata", canonical)
+	}
+	canonical.State.Payload[0] = 'X'
+	loaded, err := store.Load(context.Background(), original.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded.State.Payload) != "state" {
+		t.Fatalf("stored payload = %q after canonical mutation, want state", loaded.State.Payload)
 	}
 }
 
@@ -73,12 +100,14 @@ func TestMemoryStoreValidatesSnapshot(t *testing.T) {
 	}{
 		{name: "empty namespace", change: func(snapshot *Snapshot) { snapshot.Key.Namespace = "" }, want: ErrInvalidKey},
 		{name: "untrimmed namespace", change: func(snapshot *Snapshot) { snapshot.Key.Namespace = " player" }, want: ErrInvalidKey},
+		{name: "invalid UTF-8 namespace", change: func(snapshot *Snapshot) { snapshot.Key.Namespace = string([]byte{0xff}) }, want: ErrInvalidKey},
 		{name: "empty id", change: func(snapshot *Snapshot) { snapshot.Key.ID = "" }, want: ErrInvalidKey},
 		{name: "long id", change: func(snapshot *Snapshot) { snapshot.Key.ID = string(make([]byte, 257)) }, want: ErrInvalidKey},
 		{name: "empty source node", change: func(snapshot *Snapshot) { snapshot.Source.Node = "" }, want: ErrInvalidTarget},
 		{name: "zero source id", change: func(snapshot *Snapshot) { snapshot.Source.ID = 0 }, want: ErrInvalidTarget},
 		{name: "empty schema", change: func(snapshot *Snapshot) { snapshot.State.Schema = "" }, want: ErrInvalidState},
 		{name: "untrimmed schema", change: func(snapshot *Snapshot) { snapshot.State.Schema = " player" }, want: ErrInvalidState},
+		{name: "invalid UTF-8 schema", change: func(snapshot *Snapshot) { snapshot.State.Schema = string([]byte{0xff}) }, want: ErrInvalidState},
 		{name: "zero version", change: func(snapshot *Snapshot) { snapshot.State.Version = 0 }, want: ErrInvalidState},
 		{name: "zero revision", change: func(snapshot *Snapshot) { snapshot.State.Revision = 0 }, want: ErrInvalidState},
 		{name: "nil payload", change: func(snapshot *Snapshot) { snapshot.State.Payload = nil }, want: ErrInvalidState},
@@ -89,7 +118,7 @@ func TestMemoryStoreValidatesSnapshot(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			candidate := cloneSnapshotForTest(valid)
 			test.change(&candidate)
-			if err := NewMemoryStore().Save(context.Background(), candidate); !errors.Is(err, test.want) {
+			if _, err := NewMemoryStore().Save(context.Background(), candidate); !errors.Is(err, test.want) {
 				t.Fatalf("Save error = %v, want %v", err, test.want)
 			}
 		})
@@ -98,7 +127,7 @@ func TestMemoryStoreValidatesSnapshot(t *testing.T) {
 
 func TestMemoryStoreRejectsInvalidContextAndMissingKey(t *testing.T) {
 	store := NewMemoryStore()
-	if err := store.Save(nil, validSnapshot(1, []byte("state"))); !errors.Is(err, ErrInvalidContext) {
+	if _, err := store.Save(nil, validSnapshot(1, []byte("state"))); !errors.Is(err, ErrInvalidContext) {
 		t.Fatalf("Save nil context error = %v, want ErrInvalidContext", err)
 	}
 	var typedNil *testContext
@@ -116,7 +145,7 @@ func TestMemoryStoreRejectsInvalidContextAndMissingKey(t *testing.T) {
 func TestMemoryStoreZeroValueIsUsableAndNilReceiverFails(t *testing.T) {
 	var store MemoryStore
 	want := validSnapshot(1, []byte("state"))
-	if err := store.Save(context.Background(), want); err != nil {
+	if _, err := store.Save(context.Background(), want); err != nil {
 		t.Fatalf("zero-value Save error = %v", err)
 	}
 	got, err := store.Load(context.Background(), want.Key)
@@ -128,7 +157,7 @@ func TestMemoryStoreZeroValueIsUsableAndNilReceiverFails(t *testing.T) {
 	}
 
 	var nilStore *MemoryStore
-	if err := nilStore.Save(context.Background(), want); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := nilStore.Save(context.Background(), want); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("nil receiver Save error = %v, want ErrInvalidConfig", err)
 	}
 	if _, err := nilStore.Load(context.Background(), want.Key); !errors.Is(err, ErrInvalidConfig) {
@@ -141,7 +170,7 @@ func TestMemoryStorePreservesCanceledContextCause(t *testing.T) {
 	want := errors.New("store canceled")
 	cancel(want)
 	store := NewMemoryStore()
-	if err := store.Save(ctx, validSnapshot(1, []byte("state"))); !errors.Is(err, want) {
+	if _, err := store.Save(ctx, validSnapshot(1, []byte("state"))); !errors.Is(err, want) {
 		t.Fatalf("Save error = %v, want %v", err, want)
 	}
 	if _, err := store.Load(ctx, testKey()); !errors.Is(err, want) {
@@ -159,7 +188,7 @@ func TestMemoryStoreConcurrentSaveLoadKeepsNewestRevision(t *testing.T) {
 		go func() {
 			defer group.Done()
 			candidate := validSnapshot(revision, []byte{byte(revision)})
-			err := store.Save(context.Background(), candidate)
+			_, err := store.Save(context.Background(), candidate)
 			if err != nil && !errors.Is(err, ErrStaleSnapshot) {
 				t.Errorf("Save revision %d error = %v", revision, err)
 			}

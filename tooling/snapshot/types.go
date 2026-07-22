@@ -35,17 +35,20 @@ type Snapshot struct {
 	State      State
 }
 
-// CaptureRequest is the payload for CaptureCommand.
-type CaptureRequest struct{}
+// CaptureRequest asks a Service to capture the state owned by Key.
+type CaptureRequest struct {
+	Key Key
+}
 
-// CaptureResponse is the successful reply to CaptureCommand.
+// CaptureResponse returns the owner Key and its captured State.
 type CaptureResponse struct {
+	Key   Key
 	State State
 }
 
 // Store persists Snapshots by stable business Key.
 type Store interface {
-	Save(context.Context, Snapshot) error
+	Save(context.Context, Snapshot) (Snapshot, error)
 	Load(context.Context, Key) (Snapshot, error)
 }
 

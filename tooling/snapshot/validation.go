@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -55,14 +56,14 @@ func validateSnapshot(snapshot Snapshot, maxPayloadBytes int) error {
 }
 
 func validTrimmedText(value string, maxBytes int) bool {
-	return value != "" && strings.TrimSpace(value) == value && len(value) <= maxBytes
+	return value != "" && utf8.ValidString(value) && strings.TrimSpace(value) == value && len(value) <= maxBytes
 }
 
 func cloneState(state State) State {
-	state.Payload = append([]byte(nil), state.Payload...)
 	if state.Payload == nil {
-		state.Payload = []byte{}
+		return state
 	}
+	state.Payload = append([]byte{}, state.Payload...)
 	return state
 }
 

@@ -88,7 +88,7 @@ git commit -m "docs(snapshot): 收紧快照身份与存储契约"
 - Modify: `tooling/snapshot/manager.go`
 - Modify: `tooling/snapshot/manager_test.go`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 至少增加以下行为：
 
@@ -128,13 +128,13 @@ func TestMemoryStoreIdempotentSaveReturnsExistingCanonicalSnapshot(t *testing.T)
 
 同时覆盖响应 Key 无效或不匹配、非法 UTF-8 Key/Schema，以及 Store 返回错误 canonical Key/State。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run: `go test ./tooling/snapshot -run '^Test(Manager|MemoryStore)' -count=1`
 
 Expected: Capture 协议仍无 Key、Save 仍只返回 error、nil Payload 仍被归一化，因此测试失败。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 复制函数保留 nil：
 
@@ -150,7 +150,7 @@ func cloneState(state State) State {
 
 文本验证增加 `utf8.ValidString(value)`。Manager 发送 `CaptureRequest{Key: key}`，先验证原始响应，再保存 candidate；Store 成功后验证 canonical Key、State 和结构，并返回其独立副本。
 
-- [ ] **Step 4: 运行重复测试与 Race Detector**
+- [x] **Step 4: 运行重复测试与 Race Detector**
 
 Run:
 
@@ -161,7 +161,7 @@ go test -race ./tooling/snapshot -run '^Test(Manager|MemoryStore)' -count=20
 
 Expected: PASS，Race Detector 无报告。
 
-- [ ] **Step 5: 提交模型与存储修复**
+- [x] **Step 5: 提交模型与存储修复**
 
 ```bash
 git add tooling/snapshot/types.go tooling/snapshot/validation.go tooling/snapshot/memory_store.go tooling/snapshot/memory_store_test.go tooling/snapshot/manager.go tooling/snapshot/manager_test.go

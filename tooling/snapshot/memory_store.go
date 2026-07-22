@@ -16,19 +16,19 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{snapshots: make(map[Key]Snapshot)}
 }
 
-// Save atomically stores a newer Snapshot revision.
-func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
+// Save atomically stores a newer Snapshot revision and returns the retained value.
+func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) (Snapshot, error) {
 	if s == nil {
-		return ErrInvalidConfig
+		return Snapshot{}, ErrInvalidConfig
 	}
 	if isNil(ctx) {
-		return ErrInvalidContext
+		return Snapshot{}, ErrInvalidContext
 	}
 	if err := context.Cause(ctx); err != nil {
-		return err
+		return Snapshot{}, err
 	}
 	if err := validateSnapshot(candidate, 0); err != nil {
-		return err
+		return Snapshot{}, err
 	}
 	candidate = cloneSnapshot(candidate)
 
@@ -41,13 +41,13 @@ func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
 	switch {
 	case !exists || candidate.State.Revision > current.State.Revision:
 		s.snapshots[candidate.Key] = candidate
-		return nil
+		return cloneSnapshot(candidate), nil
 	case candidate.State.Revision < current.State.Revision:
-		return ErrStaleSnapshot
+		return Snapshot{}, ErrStaleSnapshot
 	case equalState(candidate.State, current.State):
-		return nil
+		return cloneSnapshot(current), nil
 	default:
-		return ErrSnapshotConflict
+		return Snapshot{}, ErrSnapshotConflict
 	}
 }
 

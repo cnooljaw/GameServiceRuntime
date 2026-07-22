@@ -13,7 +13,7 @@ func TestManagerCaptureCallsServiceBeforeStore(t *testing.T) {
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
 	target := gsr.ServiceRef{Node: "node-a", ID: 7}
 	key := Key{Namespace: "player", ID: "42"}
-	caller := &fakeCaller{value: CaptureResponse{State: State{
+	caller := &fakeCaller{value: CaptureResponse{Key: key, State: State{
 		Schema: "player", Version: 1, Revision: 3, Payload: []byte("ok"),
 	}}}
 	store := &recordingStore{caller: caller}
@@ -29,8 +29,12 @@ func TestManagerCaptureCallsServiceBeforeStore(t *testing.T) {
 	if caller.command != CaptureCommand || caller.target != target {
 		t.Fatalf("call target=%v command=%v, want %v %v", caller.target, caller.command, target, CaptureCommand)
 	}
-	if _, ok := caller.payload.(CaptureRequest); !ok {
+	request, ok := caller.payload.(CaptureRequest)
+	if !ok {
 		t.Fatalf("payload = %T, want CaptureRequest", caller.payload)
+	}
+	if request.Key != key {
+		t.Fatalf("request Key = %#v, want %#v", request.Key, key)
 	}
 	if got.Key != key || got.Source != target || !got.CapturedAt.Equal(now) {
 		t.Fatalf("snapshot = %#v", got)
@@ -42,7 +46,7 @@ func TestManagerCaptureCallsServiceBeforeStore(t *testing.T) {
 
 func TestManagerCaptureCopiesCallerAndStoreValues(t *testing.T) {
 	responsePayload := []byte("state")
-	caller := &fakeCaller{value: CaptureResponse{State: State{
+	caller := &fakeCaller{value: CaptureResponse{Key: testKey(), State: State{
 		Schema: "player", Version: 1, Revision: 3, Payload: responsePayload,
 	}}}
 	store := &recordingStore{caller: caller, mutateSavedPayload: true}
@@ -55,6 +59,49 @@ func TestManagerCaptureCopiesCallerAndStoreValues(t *testing.T) {
 	responsePayload[0] = 'X'
 	if string(got.State.Payload) != "state" {
 		t.Fatalf("Capture payload = %q, want independent state", got.State.Payload)
+	}
+}
+
+func TestManagerRejectsNilPayloadBeforeCopy(t *testing.T) {
+	caller := &fakeCaller{value: CaptureResponse{Key: testKey(), State: State{
+		Schema: "player", Version: 1, Revision: 1, Payload: nil,
+	}}}
+	store := &recordingStore{}
+	manager := newTestManager(t, caller, store, Config{})
+
+	if _, err := manager.Capture(context.Background(), testTarget(), testKey()); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("Capture error = %v, want ErrInvalidState", err)
+	}
+	if store.saveCalled {
+		t.Fatal("Store.Save called for nil payload")
+	}
+}
+
+func TestManagerRejectsInvalidOrMismatchedResponseKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  Key
+	}{
+		{name: "empty", key: Key{}},
+		{name: "mismatched", key: Key{Namespace: "player", ID: "other"}},
+		{name: "invalid UTF-8", key: Key{Namespace: string([]byte{0xff}), ID: "42"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			caller := validFakeCaller()
+			response := caller.value.(CaptureResponse)
+			response.Key = test.key
+			caller.value = response
+			store := &recordingStore{}
+			manager := newTestManager(t, caller, store, Config{})
+
+			if _, err := manager.Capture(context.Background(), testTarget(), testKey()); !errors.Is(err, ErrInvalidResponse) {
+				t.Fatalf("Capture error = %v, want ErrInvalidResponse", err)
+			}
+			if store.saveCalled {
+				t.Fatal("Store.Save called for invalid response Key")
+			}
+		})
 	}
 }
 
@@ -102,6 +149,9 @@ func TestManagerCaptureValidatesInputs(t *testing.T) {
 	if _, err := manager.Capture(context.Background(), testTarget(), Key{}); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("invalid key error = %v, want ErrInvalidKey", err)
 	}
+	if _, err := manager.Capture(context.Background(), testTarget(), Key{Namespace: string([]byte{0xff}), ID: "42"}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("invalid UTF-8 key error = %v, want ErrInvalidKey", err)
+	}
 	canceled, cancel := context.WithCancelCause(context.Background())
 	want := errors.New("capture canceled")
 	cancel(want)
@@ -142,8 +192,9 @@ func TestManagerCaptureValidatesResponseAndPayloadLimit(t *testing.T) {
 		want   error
 	}{
 		{name: "wrong response", value: "state", want: ErrInvalidResponse},
-		{name: "invalid state", value: CaptureResponse{State: State{}}, want: ErrInvalidState},
-		{name: "payload too large", value: CaptureResponse{State: State{Schema: "player", Version: 1, Revision: 1, Payload: []byte("large")}}, config: Config{MaxPayloadBytes: 4}, want: ErrPayloadTooLarge},
+		{name: "invalid state", value: CaptureResponse{Key: testKey(), State: State{}}, want: ErrInvalidState},
+		{name: "invalid UTF-8 schema", value: CaptureResponse{Key: testKey(), State: State{Schema: string([]byte{0xff}), Version: 1, Revision: 1, Payload: []byte("state")}}, want: ErrInvalidState},
+		{name: "payload too large", value: CaptureResponse{Key: testKey(), State: State{Schema: "player", Version: 1, Revision: 1, Payload: []byte("large")}}, config: Config{MaxPayloadBytes: 4}, want: ErrPayloadTooLarge},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -162,18 +213,56 @@ func TestManagerCaptureValidatesResponseAndPayloadLimit(t *testing.T) {
 func TestManagerUsesOneMiBDefaultPayloadLimit(t *testing.T) {
 	const oneMiB = 1 << 20
 	store := &recordingStore{}
-	caller := &fakeCaller{value: CaptureResponse{State: State{
+	caller := &fakeCaller{value: CaptureResponse{Key: testKey(), State: State{
 		Schema: "player", Version: 1, Revision: 1, Payload: make([]byte, oneMiB),
 	}}}
 	manager := newTestManager(t, caller, store, Config{})
 	if _, err := manager.Capture(context.Background(), testTarget(), testKey()); err != nil {
 		t.Fatalf("Capture at default limit error = %v", err)
 	}
-	caller.value = CaptureResponse{State: State{
+	caller.value = CaptureResponse{Key: testKey(), State: State{
 		Schema: "player", Version: 1, Revision: 2, Payload: make([]byte, oneMiB+1),
 	}}
 	if _, err := manager.Capture(context.Background(), testTarget(), testKey()); !errors.Is(err, ErrPayloadTooLarge) {
 		t.Fatalf("Capture above default limit error = %v, want ErrPayloadTooLarge", err)
+	}
+}
+
+func TestManagerCaptureReturnsStoreCanonicalSnapshot(t *testing.T) {
+	caller := validFakeCaller()
+	canonical := validSnapshot(3, []byte("state"))
+	canonical.Source = gsr.ServiceRef{Node: "node-old", ID: 2}
+	canonical.CapturedAt = time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC)
+	store := &recordingStore{saveResult: &canonical}
+	manager := newTestManager(t, caller, store, Config{})
+
+	got, err := manager.Capture(context.Background(), testTarget(), testKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != canonical.Source || !got.CapturedAt.Equal(canonical.CapturedAt) {
+		t.Fatalf("Capture = %#v, want canonical %#v", got, canonical)
+	}
+}
+
+func TestManagerCaptureRejectsInvalidStoreCanonicalSnapshot(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*Snapshot)
+	}{
+		{name: "wrong key", change: func(snapshot *Snapshot) { snapshot.Key.ID = "other" }},
+		{name: "different state", change: func(snapshot *Snapshot) { snapshot.State.Revision++ }},
+		{name: "invalid source", change: func(snapshot *Snapshot) { snapshot.Source = gsr.ServiceRef{} }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			canonical := validSnapshot(3, []byte("state"))
+			test.change(&canonical)
+			manager := newTestManager(t, validFakeCaller(), &recordingStore{saveResult: &canonical}, Config{})
+			if got, err := manager.Capture(context.Background(), testTarget(), testKey()); !errors.Is(err, ErrInvalidResponse) || !zeroSnapshot(got) {
+				t.Fatalf("Capture = %#v, %v, want zero and ErrInvalidResponse", got, err)
+			}
+		})
 	}
 }
 
@@ -239,18 +328,26 @@ type recordingStore struct {
 	loadErr            error
 	saveCalled         bool
 	mutateSavedPayload bool
+	saveResult         *Snapshot
 }
 
-func (s *recordingStore) Save(_ context.Context, snapshot Snapshot) error {
+func (s *recordingStore) Save(_ context.Context, snapshot Snapshot) (Snapshot, error) {
 	s.saveCalled = true
 	if s.caller != nil && !s.caller.completed {
-		return errors.New("Store.Save ran before Call completed")
+		return Snapshot{}, errors.New("Store.Save ran before Call completed")
 	}
 	s.saved = cloneSnapshotForTest(snapshot)
+	result := cloneSnapshotForTest(snapshot)
+	if s.saveResult != nil {
+		result = cloneSnapshotForTest(*s.saveResult)
+	}
 	if s.mutateSavedPayload && len(snapshot.State.Payload) > 0 {
 		snapshot.State.Payload[0] = 'S'
 	}
-	return s.saveErr
+	if s.saveErr != nil {
+		return Snapshot{}, s.saveErr
+	}
+	return result, nil
 }
 
 func (s *recordingStore) Load(_ context.Context, _ Key) (Snapshot, error) {
@@ -258,7 +355,7 @@ func (s *recordingStore) Load(_ context.Context, _ Key) (Snapshot, error) {
 }
 
 func validFakeCaller() *fakeCaller {
-	return &fakeCaller{value: CaptureResponse{State: State{
+	return &fakeCaller{value: CaptureResponse{Key: testKey(), State: State{
 		Schema: "player", Version: 1, Revision: 3, Payload: []byte("state"),
 	}}}
 }
