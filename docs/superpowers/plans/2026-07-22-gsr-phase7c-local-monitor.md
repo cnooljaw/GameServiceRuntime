@@ -1,6 +1,6 @@
 # GSR Phase 7C 本地 Monitor 实施计划
 
-> 状态：执行中（2026-07-22）
+> 状态：已完成（2026-07-22）
 
 **目标：** 在不增加 HTTP、远程管理 Command 或后台任务的前提下，把 `Runtime.Inspect()` 转换为稳定、可序列化的本地 Monitor Report，并输出 Runtime 与业务 Metrics。
 
@@ -165,3 +165,11 @@ git diff --check
 - Report 和 JSON 字段稳定，空集合不为 null。
 - 无 HTTP、远程 Command、Monitor Service、goroutine 或第三方依赖。
 - 全量测试、vet、race、重复测试和示例通过。
+
+## 实施结果
+
+- `5878c2c` 开放 `MetricsSnapshot` 指标枚举副本。
+- `02eedb7` 在远程 Call 统一出口记录成功或失败指标。
+- `ea21fcb` 增加本地 Monitor Report 和状态转换。
+- `a487c0d` 增加稳定 JSON 输出和 writer 契约。
+- 示例、教程、RFC、路线图和发布记录在 Phase 7C 收口提交中同步。

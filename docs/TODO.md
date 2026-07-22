@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 已于 2026-07-22 完成审查修正。Phase 7C 本地 Monitor 正在实施，范围仅包含本地 Report、JSON 和 Metrics 输出；远程 NodeAgent 与管理面查询不进入本阶段。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery 和 Phase 7C 本地 Monitor 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。
 
 ## P1：Core API 冻结前完成
 
@@ -60,4 +60,5 @@ go test -race ./...
 go run ./examples/local-runtime
 go run ./examples/cluster-runtime
 go run ./examples/discovery-runtime
+go run ./examples/monitor-runtime
 ```

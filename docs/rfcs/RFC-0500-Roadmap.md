@@ -33,13 +33,13 @@ Layer 3: Business Layer
 
 ## 当前执行状态
 
-截至 2026-07-17，**Core Runtime** 首版已经完成。它覆盖 `RFC-0100` 至 `RFC-0192`、本路线图的 Phase 1 至 Phase 7A，包括错误模型、性能基线、生命周期与任务观测、本地和双节点端到端示例。
+截至 2026-07-22，**Core Runtime** 首版已经完成。它覆盖 `RFC-0100` 至 `RFC-0192`、本路线图的 Phase 1 至 Phase 7A，包括错误模型、性能基线、生命周期与任务观测、本地和双节点端到端示例。
 
 历史讨论中的“第一阶段”默认指 Cluster 之前的 Core Foundation，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 后续独立实施，并已完成。
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A 和 Core `v0.1.0` 发布门禁已完成，下一实施阶段是 Phase 7B 最小 Discovery。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery 和本地 Monitor 已完成；下一实施阶段是 Phase 7D Snapshot 与 Supervisor。
 
 ## Phase 0：文档和术语冻结
 
@@ -156,7 +156,7 @@ Phase 7 拆成五个可独立验收的子阶段，避免一次把所有外层能
 
 ### Phase 7C：本地 Monitor
 
-状态：执行中（2026-07-22）。
+状态：已完成（2026-07-22）。
 
 实现本地 Monitor Report、JSON 输出、Metrics 枚举副本和远程 Call 结果指标。远程 NodeAgent、HTTP/CLI、Prometheus exporter 与管理面查询留到 Phase 8 或独立 adapter。
 

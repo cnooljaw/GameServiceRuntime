@@ -1,6 +1,7 @@
 # RFC-0230：Monitor 与可观测性
 
-> 状态：草案  
+> 状态：已接受（2026-07-22）
+>
 > 范围：Runtime Tooling  
 > 依据：[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)
 
@@ -219,3 +220,14 @@ Prometheus/OpenMetrics exporter 作为独立 adapter 后续实现。它可以消
 - Running、Closing 和 Closed 状态均可 Capture。
 - Monitor 无 goroutine、无 HTTP、无远程 Command。
 - 全量测试、`go vet` 和 Race Detector。
+
+## 实现状态
+
+Phase 7C 已完成：
+
+- `MetricsSnapshot` 已提供三类指标的独立枚举副本。
+- Runtime 已在远程 Call 统一返回路径记录成功或失败结果。
+- `tooling/monitor` 已实现本地 Report、稳定状态字符串和 JSON writer。
+- `examples/monitor-runtime` 已提供可执行示例。
+
+远程 NodeAgent、HTTP/CLI、Prometheus exporter 和管理命令仍按本文边界留到后续阶段。

@@ -2,6 +2,35 @@
 
 本文记录 GSR 对外发布版本的行为变化。
 
+## v0.3.0 - 2026-07-22
+
+增加本地 Monitor Tooling，把 `Runtime.Inspect()` 转换为稳定报告和 JSON。Monitor 不进入 Core Runtime，不启动网络监听或后台任务。
+
+### Core Runtime
+
+- `MetricsSnapshot` 新增 `Counters()`、`Gauges()` 和 `Durations()`，每次返回可独立修改的完整指标 map。
+- 远程 Call 在统一返回路径记录 `remote_calls_succeeded_total` 或 `remote_calls_failed_total`；本地 Call 不计入。
+
+### Monitor
+
+- 新增独立 `tooling/monitor` 包，通过窄 `Inspector` 接口读取本地 Runtime Inspection。
+- `Capture()` 输出 Runtime、Service、Mailbox、Task、PendingCall、Timer 和 Metrics 报告。
+- Runtime、Service 和 Task 状态转换为稳定字符串，未知枚举输出 `unknown`。
+- `WriteJSON(io.Writer)` 使用稳定 `snake_case` 字段，空切片和 map 分别输出 `[]` 和 `{}`。
+- JSON writer 错误原样返回，Monitor 不关闭调用方 writer。
+- 新增本地 Monitor JSON 示例。
+
+### 限制
+
+- 当前只提供本地即时快照，不提供历史存储、聚合、告警或采样。
+- 不提供 HTTP、CLI、Prometheus/OpenMetrics exporter、远程 NodeAgent 或管理命令。
+- Inspection 保持最终一致语义，不承诺各子系统来自同一原子时刻。
+- Cluster 连接状态仍由后续 Transport 观测 adapter 提供。
+
+### 兼容性
+
+相对 `v0.2.0` 仅增加 Core 只读指标枚举方法和独立 Tooling API，没有修改既有 Service、Command、Cluster 或 Discovery 调用语义。
+
 ## v0.2.0 - 2026-07-22
 
 增加最小 Runtime Tooling Discovery，并补齐它依赖的通用 Core 调用来源和节点级启动入口。
