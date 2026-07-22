@@ -21,8 +21,8 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 可组合 Discovery Codec 和类型化远程领域错误。
 - 本地 Monitor Report、稳定 JSON 输出和完整 Metrics 快照枚举。
 - 远程 Call 成功、失败结果指标。
-- 通过 Capture Command 串行采集的版本化业务状态快照。
-- 带 Revision 冲突保护的内存 Store、可组合 Cluster Codec 和组合根受限恢复。
+- 通过 Capture Command 串行采集、由目标 Service 确认稳定 Key 的版本化业务状态快照。
+- 带 Revision 冲突保护和 canonical 返回值的内存 Store、可组合 Cluster Codec 和组合根受限恢复。
 
 Supervisor、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
@@ -77,6 +77,8 @@ go run ./examples/snapshot-runtime
 
 预期输出：`2`。
 
-示例先通过 `snapshot.CaptureCommand` 在目标 Service 的 Mailbox 中生成 State，再由 `Manager` 保存到 `MemoryStore`。停止旧实例后，组合根加载 Snapshot、构造新 Service 并获得新的 `ServiceRef`。
+示例中的 Service 拥有跨实例稳定的 `snapshot.Key`。`Manager` 通过 `snapshot.CaptureCommand` 把期望 Key 投递到目标 Mailbox，Service 校验后返回 owner Key 和 State；Manager 核对身份，再把状态保存到 `MemoryStore` 并返回 Store 真正保留的 canonical Snapshot。停止旧实例后，组合根加载 Snapshot、构造新 Service 并获得新的 `ServiceRef`。
+
+Key、Schema 和 Cluster JSON 必须是合法 UTF-8；nil Payload 会被拒绝，空状态使用非 nil 空切片。
 
 Snapshot 不给运行中 Service 增加 `Snapshot()` 或 `Restore()` 旁路，也不替代数据库持久化、Wallet 账本或 Command Record。当前只提供内存 Store；数据库、对象存储、加密、压缩和自动恢复不在 Phase 7D 范围。

@@ -1,7 +1,8 @@
 # RFC-0210：Snapshot 与受限恢复
 
-> 状态：待实现
+> 状态：已接受
 > 目标阶段：Phase 7D
+> 接受日期：2026-07-22
 > 范围：Runtime Tooling、Business Layer
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)
 
@@ -258,11 +259,12 @@ Phase 7D 不引入 Recorder 类型。Command Record/Replay 以 [RFC-0280](RFC-02
 
 ## 实现状态
 
-Phase 7D 的原始实现已完成；2026-07-22 独立 Review 重新打开以下验收项：
+Phase 7D 已完成。2026-07-22 独立 Review 发现并修复：
 
-- nil Payload 必须在复制前拒绝。
-- 稳定 Key 必须由状态 owner 返回并由 Manager 核对。
-- Store 必须返回真正保留的 canonical Snapshot。
-- Key、Schema 和 JSON wire 必须拒绝非法 UTF-8。
+- nil Payload 在复制前拒绝，非 nil 空 Payload 在本地和 Cluster 往返后保持有效。
+- 稳定 Key 由状态 owner 返回并由 Manager 核对，target/key 错配不会进入 Store。
+- Store 返回真正保留的独立 canonical Snapshot，Capture 结果与后续 Load 一致。
+- Key、Schema 和 JSON wire 拒绝非法 UTF-8。
+- RFC 状态、范围、依赖、接受日期和尾随空白由仓库测试约束。
 
-修复计划见 [GSR Phase 7D Snapshot Contract Fixes](../superpowers/plans/2026-07-22-gsr-phase7d-snapshot-contract-fixes.md)。Review 与完整门禁清零后才能恢复“已接受”状态。数据库 Store、自动恢复和 Supervisor 仍按本文非目标留在后续阶段。
+本地、双节点、恢复、Race Detector、100 次 Snapshot 重复测试和全部示例均已通过。修复记录见 [GSR Phase 7D Snapshot Contract Fixes](../superpowers/plans/2026-07-22-gsr-phase7d-snapshot-contract-fixes.md)。数据库 Store、自动恢复和 Supervisor 仍按本文非目标留在后续阶段。

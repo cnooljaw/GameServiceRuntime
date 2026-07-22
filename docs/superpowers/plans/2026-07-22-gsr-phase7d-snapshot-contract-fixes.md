@@ -283,15 +283,15 @@ git commit -m "test(rfc): 增加元数据一致性门禁"
 - Modify: `docs/rfcs/RFC-0210-Tooling-Snapshot.md`
 - Modify: `docs/superpowers/plans/2026-07-22-gsr-phase7d-snapshot-contract-fixes.md`
 
-- [ ] **Step 1: 同步最终语义**
+- [x] **Step 1: 同步最终语义**
 
 README、CHANGELOG 和 GSR Book 说明：Business Service 拥有 Key；Manager 验证 owner Key；`Store.Save` 返回 canonical Snapshot；nil 和非法 UTF-8 被拒绝。Review 清零后把 RFC-0210 恢复为 `已接受` 并记录独立接受日期。
 
-- [ ] **Step 2: 执行双轴 Review**
+- [x] **Step 2: 执行双轴 Review**
 
 Standards 轴检查模块深度、Core 依赖、owner、复制、并发和错误；Spec 轴逐条对照 RFC-0210 的 Key、State、Store、Codec、恢复和验收行为。发现问题先修复，再记录结果。
 
-- [ ] **Step 3: 执行完整质量门禁**
+- [x] **Step 3: 执行完整质量门禁**
 
 Run:
 
@@ -310,7 +310,7 @@ git diff --check 5d2a236..HEAD
 
 Expected: 全部成功；示例依次包含 `hello`、`hello cluster`、`.config -> node-b/2`、一行 Monitor JSON、`2`；差异检查无输出。
 
-- [ ] **Step 4: 检查占位符和公开类型一致性**
+- [x] **Step 4: 检查占位符和公开类型一致性**
 
 Run:
 
@@ -321,7 +321,7 @@ rg -n 'CaptureRequest|CaptureResponse|Save\(context.Context, Snapshot\)' docs/rf
 
 Expected: 第一条无命中；第二条 RFC 与代码签名一致。
 
-- [ ] **Step 5: 提交验收文档**
+- [x] **Step 5: 提交验收文档**
 
 ```bash
 git add README.md CHANGELOG.md docs/GSR-Book/04-第四篇-基础设施/01-Snapshot.md docs/rfcs/RFC-0210-Tooling-Snapshot.md docs/superpowers/plans/2026-07-22-gsr-phase7d-snapshot-contract-fixes.md
@@ -337,3 +337,15 @@ git commit -m "docs(snapshot): 完成契约修复验收"
 - RFC 状态、接受日期、范围、依赖和尾随空白由自动测试约束。
 - Core Runtime 不导入 Snapshot 类型，不新增 Service 接口或旁路。
 - 全量测试、vet、Race Detector、重复测试、示例和文档检查全部通过。
+
+## 实施结果
+
+- RFC 裁决提交：`67ea1c3`。
+- State、Store 与 Manager 修复提交：`9459115`。
+- Cluster Codec、Service owner 与恢复示例修复提交：`8c400e1`。
+- RFC 元数据门禁提交：`51e67e4`。
+- 双轴复审额外发现远程非 nil 空 Payload 被重新变成 nil；已补失败测试并修复。
+- Standards 轴 0 个遗留，Spec 轴 0 个遗留。
+- `go test ./... -count=1`、`go vet ./...`、`go test -race ./... -count=1` 通过。
+- `go test ./tooling/snapshot -count=100` 通过。
+- local、cluster、discovery、monitor 和 snapshot 示例全部通过；Snapshot 输出 `2`。

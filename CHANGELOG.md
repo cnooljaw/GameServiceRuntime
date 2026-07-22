@@ -7,10 +7,11 @@
 ### Snapshot
 
 - 新增 `tooling/snapshot`，通过稳定 `CaptureCommand` 在目标 Service 的串行 Handler 中生成版本化 State。
-- `Manager` 使用窄 `CommandCaller` 和 `Store` 接口；Call 完成后才执行 Store IO。
-- Snapshot 使用稳定业务 Key、Schema、Version 和单调 Revision；默认 payload 上限为 1 MiB。
-- `MemoryStore` 返回独立副本，原子拒绝旧 Revision 和同 Revision 的不同内容；零值可直接使用。
-- 新增可组合 JSON Cluster Codec，使用稳定 `snake_case` 字段、允许未知字段并拒绝尾随 JSON。
+- `Manager` 使用窄 `CommandCaller` 和 `Store` 接口；Call 完成后才执行 Store IO，并核对目标 Service 返回的 owner Key。
+- Snapshot 使用由状态 owner 持有的稳定业务 Key、Schema、Version 和单调 Revision；Key、Schema 必须是合法 UTF-8，默认 payload 上限为 1 MiB。
+- `MemoryStore.Save` 返回原子操作后真正保留的独立 canonical Snapshot；它拒绝旧 Revision 和同 Revision 的不同内容，零值可直接使用。
+- nil Payload 被稳定拒绝；空状态必须使用非 nil 空切片。
+- 新增可组合 JSON Cluster Codec，请求和响应都携带稳定 Key，使用稳定 `snake_case` 字段、允许未知字段，并拒绝非法 UTF-8、缺失字段和尾随 JSON。
 - 新增本地恢复和双节点 Capture 测试，以及组合根受限恢复示例。
 
 ### 限制

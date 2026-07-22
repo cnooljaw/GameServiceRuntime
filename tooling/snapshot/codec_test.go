@@ -64,6 +64,24 @@ func TestCodecRoundTripsCapturePayloads(t *testing.T) {
 	}
 }
 
+func TestCodecRoundTripsNonNilEmptyPayload(t *testing.T) {
+	codec := NewCodec(nil)
+	wire, err := codec.Encode(CaptureCommand, true, CaptureResponse{Key: testKey(), State: State{
+		Schema: "player", Version: 1, Revision: 1, Payload: []byte{},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := codec.Decode(CaptureCommand, true, wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := decoded.(CaptureResponse)
+	if response.State.Payload == nil || len(response.State.Payload) != 0 {
+		t.Fatalf("Payload = %#v, want non-nil empty slice", response.State.Payload)
+	}
+}
+
 func TestCodecAllowsUnknownFieldsAndRejectsTrailingJSON(t *testing.T) {
 	codec := NewCodec(nil)
 	if _, err := codec.Decode(CaptureCommand, false, []byte(`{"key":{"namespace":"player","id":"42"},"future":true}`)); err != nil {

@@ -106,8 +106,9 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 		Schema:   responsePayload.State.Schema,
 		Version:  responsePayload.State.Version,
 		Revision: responsePayload.State.Revision,
-		Payload:  append([]byte(nil), responsePayload.State.Payload...),
+		Payload:  responsePayload.State.Payload,
 	}}
+	result.State = cloneState(result.State)
 	if err := validateKey(result.Key); err != nil {
 		return nil, fmt.Errorf("%w: response key: %v", ErrInvalidResponse, err)
 	}

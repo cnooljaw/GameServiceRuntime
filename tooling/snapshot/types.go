@@ -8,12 +8,12 @@ import (
 )
 
 const (
-	// CaptureCommand asks a Service to return one serial, in-memory State.
+	// CaptureCommand asks a Service to return one in-memory State through its Mailbox.
 	CaptureCommand         gsr.CommandID = 0x02000201
 	defaultMaxPayloadBytes               = 1 << 20
 )
 
-// Key identifies one logical business state across Service instance changes.
+// Key identifies business state owned across Service instance changes.
 type Key struct {
 	Namespace string
 	ID        string
@@ -46,7 +46,7 @@ type CaptureResponse struct {
 	State State
 }
 
-// Store persists Snapshots by stable business Key.
+// Store persists Snapshots by stable business Key and returns the retained canonical value.
 type Store interface {
 	Save(context.Context, Snapshot) (Snapshot, error)
 	Load(context.Context, Key) (Snapshot, error)

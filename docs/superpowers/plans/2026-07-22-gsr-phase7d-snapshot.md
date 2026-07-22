@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> 历史说明：本文记录 Phase 7D 首轮实现过程，其中的旧 API 代码片段不再是当前契约。公开 API 以 [RFC-0210](../../rfcs/RFC-0210-Tooling-Snapshot.md) 为准，后续修复见 [Snapshot Contract Fixes](2026-07-22-gsr-phase7d-snapshot-contract-fixes.md)。
+
 **Goal:** 在不修改 Core Service 接口的前提下，实现通过 Command 采集、由外部 Store 保存、在组合根加载并构造新 Service 的版本化 Snapshot Tooling。
 
 **Architecture:** 目标 Service 在 `CaptureCommand` Handler 中串行生成有版本和修订号的内存 State；`Manager` 校验并复制响应，再在 Handler 外调用 `Store.Save`。`MemoryStore` 用每个稳定业务 Key 的 Revision 保证旧快照不会覆盖新快照；恢复只返回独立 Snapshot，由组合根构造新 Service 和新 `ServiceRef`。

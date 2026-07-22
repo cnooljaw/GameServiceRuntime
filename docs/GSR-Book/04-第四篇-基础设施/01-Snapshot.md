@@ -35,14 +35,14 @@ Phase 7D 使用现有消息管道：
 
 ```text
 Manager.Capture
-  -> Call CaptureCommand
+  -> Call CaptureCommand(Key)
   -> target Service Handle
-  -> CaptureResponse(State)
-  -> validate and copy
-  -> Store.Save
+  -> CaptureResponse(owner Key, State)
+  -> validate owner Key and State before copy
+  -> Store.Save -> canonical Snapshot
 ```
 
-目标 Service 只在 Handler 中序列化内存状态。Store IO 发生在 Call 返回之后，不占用目标 Service 的 Handler。
+目标 Service 拥有稳定 Key，只在 Handler 中验证请求 Key 并序列化内存状态。Store IO 发生在 Call 返回之后，不占用目标 Service 的 Handler。
 
 ## 数据模型
 
@@ -60,12 +60,27 @@ type Snapshot struct {
     CapturedAt time.Time
     State      State
 }
+
+type CaptureRequest struct {
+    Key Key
+}
+
+type CaptureResponse struct {
+    Key   Key
+    State State
+}
+
+type Store interface {
+    Save(context.Context, Snapshot) (Snapshot, error)
+    Load(context.Context, Key) (Snapshot, error)
+}
 ```
 
-- `Key` 是跨实例稳定的业务身份，不使用会变化的 `ServiceRef`。
+- `Key` 是跨实例稳定的业务身份，由目标 Service 持有，不使用会变化的 `ServiceRef`。
+- Manager 发送期望 Key，并拒绝 Service 返回的无效或不匹配 owner Key，避免把一个 Service 的状态保存到另一个业务实体名下。
 - `Version` 描述 payload Schema。
 - `Revision` 由状态 owner 在每次可见状态变化后单调递增。
-- `Payload` 默认不超过 1 MiB，并由具体业务定义内容。
+- Key 和 Schema 必须是合法 UTF-8。`Payload` 默认不超过 1 MiB；nil 无效，空状态使用非 nil 空切片。
 
 ## MemoryStore
 
@@ -73,10 +88,10 @@ type Snapshot struct {
 
 - 更高 Revision 替换旧值。
 - 更低 Revision 返回 `ErrStaleSnapshot`。
-- 同 Revision、同 State 幂等成功。
+- 同 Revision、同 State 幂等成功，保留并返回已有 canonical Snapshot；新的 Source 和 CapturedAt 不覆盖旧 metadata。
 - 同 Revision、不同 State 返回 `ErrSnapshotConflict`。
 
-Save 和 Load 都返回独立副本。调用方修改 Payload 不会影响 Store 或后续读取。
+Save 和 Load 都返回独立副本。Manager 返回 Store 真正保留的 canonical Snapshot，因此 Capture 成功结果与后续 Load 一致。调用方修改 Payload 不会影响 Store 或后续读取。
 
 ## 受限恢复
 
@@ -100,7 +115,7 @@ go run ./examples/snapshot-runtime
 
 ## Cluster
 
-`snapshot.NewCodec(fallback)` 处理 `CaptureCommand` 的请求和响应，其它 Command 委托 fallback。JSON 字段使用稳定 `snake_case`；Decoder 允许新增未知字段，但拒绝格式错误和尾随第二个 JSON 值。
+`snapshot.NewCodec(fallback)` 处理 `CaptureCommand` 的请求和响应，其它 Command 委托 fallback。请求和响应都携带稳定 Key。JSON 字段使用稳定 `snake_case`；Codec 允许新增未知字段，但拒绝非法 UTF-8、缺失必填字段、格式错误和尾随第二个 JSON 值。
 
 ## 当前限制
 
