@@ -31,6 +31,7 @@ type ServiceContext interface {
 // CommandContext describes the Service currently handling a Command.
 type CommandContext interface {
 	Self() ServiceRef
+	Source() ServiceRef
 	Reply(any) error
 }
 
@@ -102,7 +103,8 @@ type commandContext struct {
 	replied atomic.Bool
 }
 
-func (c *commandContext) Self() ServiceRef { return c.self }
+func (c *commandContext) Self() ServiceRef   { return c.self }
+func (c *commandContext) Source() ServiceRef { return c.source }
 func (c *commandContext) Reply(value any) error {
 	if c.session == 0 {
 		return ErrReplyUnavailable

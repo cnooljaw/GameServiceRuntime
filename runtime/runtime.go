@@ -157,7 +157,12 @@ func (r *Runtime) Resolve(name ServiceName) (ServiceRef, error) { return r.regis
 
 // Send asynchronously delivers a Command to a Service.
 func (r *Runtime) Send(target ServiceRef, id CommandID, payload any) error {
-	return r.sendFrom(ServiceRef{}, target, id, payload)
+	return r.sendEnvelope(Envelope{
+		Source:  ServiceRef{Node: r.node},
+		Target:  target,
+		Command: id,
+		Payload: payload,
+	})
 }
 func (r *Runtime) sendFrom(source, target ServiceRef, id CommandID, payload any) error {
 	if source != (ServiceRef{}) {
