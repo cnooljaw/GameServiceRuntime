@@ -19,6 +19,18 @@ func TestNewRejectsNilInspector(t *testing.T) {
 	}
 }
 
+func TestNewRejectsTypedNilInspector(t *testing.T) {
+	var inspector *stubInspector
+
+	monitor, err := New(inspector)
+	if !errors.Is(err, ErrInvalidInspector) {
+		t.Fatalf("New error = %v, want ErrInvalidInspector", err)
+	}
+	if monitor != nil {
+		t.Fatal("New returned a Monitor for typed-nil Inspector")
+	}
+}
+
 func TestCaptureConvertsRuntimeInspection(t *testing.T) {
 	capturedAt := time.Date(2026, 7, 22, 10, 30, 0, 0, time.UTC)
 	startedAt := capturedAt.Add(-time.Minute)

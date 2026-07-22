@@ -83,6 +83,22 @@ func TestWriteJSONRejectsNilWriter(t *testing.T) {
 	}
 }
 
+func TestWriteJSONRejectsTypedNilWriter(t *testing.T) {
+	inspector := &stubInspector{}
+	monitor, err := New(inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writer *bytes.Buffer
+
+	if err := monitor.WriteJSON(writer); !errors.Is(err, ErrInvalidWriter) {
+		t.Fatalf("WriteJSON error = %v, want ErrInvalidWriter", err)
+	}
+	if inspector.calls != 0 {
+		t.Fatalf("Inspect calls = %d, want 0", inspector.calls)
+	}
+}
+
 func TestWriteJSONReturnsWriterError(t *testing.T) {
 	wantErr := errors.New("write failed")
 	monitor, err := New(&stubInspector{})

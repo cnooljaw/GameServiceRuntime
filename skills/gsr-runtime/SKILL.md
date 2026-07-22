@@ -39,6 +39,5 @@ description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler�
 - 同时对照 RFC 和代码，不把未来 Cluster、Tooling 或业务能力误判为当前 Core 缺陷。
 - 重点检查接受边界、串行保证、超时后残留任务、PendingCall 唤醒、资源清理和错误可观测性。
 - 覆盖正常、重复、迟到、取消、超时、panic、关闭竞争和 Runtime 并发创建场景。
-- 对返回稳定参数错误的 interface API，明确并测试 literal nil 与 typed nil 的语义，不能让校验成功后在内部延迟 panic。
 - 检查 Tooling 是否只消费公开副本，以及 Core 是否出现为单一 adapter 增加的 getter、网络协议或领域类型。
 - 性能优化先建立完整 Send/Call/Timer 基准；没有数据时不引入 Ring Buffer、对象池或 Timer Wheel。

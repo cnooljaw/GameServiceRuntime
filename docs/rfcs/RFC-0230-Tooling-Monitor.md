@@ -105,6 +105,8 @@ ErrInvalidInspector
 ErrInvalidWriter
 ```
 
+nil 参数包括 nil interface 和动态类型为 nil 的 interface。`New` 对两者都返回 `ErrInvalidInspector`；`WriteJSON` 对两者都返回 `ErrInvalidWriter`，不得延迟到 `Capture` 或 writer 调用时 panic。
+
 `Monitor` 不创建 goroutine，不安排 Timer，不缓存 Runtime 指针之外的可变状态。`Capture` 每次调用一次 `Inspector.Inspect()` 并生成独立报告。`WriteJSON` 只编码一次新的报告，不启动网络监听。
 
 ## 报告模型

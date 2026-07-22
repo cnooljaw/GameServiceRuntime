@@ -48,7 +48,6 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | CF-009 | 已完成 | 向 Monitor 提供只读运行任务快照 | 通过 `Runtime.Inspect` 暴露任务类型、owner、开始时间和超时标记；不公开可变 task registry，不把 Monitor API 放入 Core Service 接口。 |
 | CF-010 | 已完成 | 同步教程和 RFC 状态 | 以实现为准回填 `docs/GSR-Book` 的 Core Runtime 章节；完成 API 冻结评审后，把 `RFC-0100` 至 `RFC-0192` 从“草案”更新为明确的已接受状态。 |
 | CF-011 | 已完成 | 发布首个 Core 版本 | P1、P2 清零后整理变更说明，执行全量质量命令并建立首个版本标签；标签前不承诺公开 API 稳定性。 |
-| MON-001 | 待处理 | 收紧 Monitor typed-nil 参数语义 | 裁决 `New(Inspector)` 和 `WriteJSON(io.Writer)` 是否把 typed nil 视为无效参数；若返回稳定错误，则补充 typed-nil 测试并避免校验后延迟 panic。 |
 
 ## 验收命令
 

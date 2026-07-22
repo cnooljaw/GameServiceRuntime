@@ -3,6 +3,7 @@ package monitor
 import (
 	"encoding/json"
 	"io"
+	"reflect"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -19,7 +20,7 @@ type Monitor struct {
 
 // New creates a local Monitor for inspector.
 func New(inspector Inspector) (*Monitor, error) {
-	if inspector == nil {
+	if isNil(inspector) {
 		return nil, ErrInvalidInspector
 	}
 	return &Monitor{inspector: inspector}, nil
@@ -73,10 +74,23 @@ func (m *Monitor) Capture() Report {
 // WriteJSON writes one newly captured report and a trailing newline to writer.
 // It does not close writer.
 func (m *Monitor) WriteJSON(writer io.Writer) error {
-	if writer == nil {
+	if isNil(writer) {
 		return ErrInvalidWriter
 	}
 	return json.NewEncoder(writer).Encode(m.Capture())
+}
+
+func isNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func reportRef(ref gsr.ServiceRef) Ref {
