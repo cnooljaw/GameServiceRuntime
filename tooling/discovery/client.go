@@ -42,6 +42,9 @@ func (c *Client) RegisterNode(ctx context.Context, node gsr.NodeID, address stri
 	if err := errorFromCode(response.Error); err != nil {
 		return NodeLease{}, err
 	}
+	if !validLeaseResponse(response.Lease) || response.Lease.Node != node {
+		return NodeLease{}, ErrInvalidResponse
+	}
 	return response.Lease, nil
 }
 
@@ -60,6 +63,9 @@ func (c *Client) Heartbeat(ctx context.Context, lease NodeLease) (NodeLease, err
 	}
 	if err := errorFromCode(response.Error); err != nil {
 		return NodeLease{}, err
+	}
+	if !validLeaseResponse(response.Lease) || !sameLeaseIdentity(response.Lease, lease) {
+		return NodeLease{}, ErrInvalidResponse
 	}
 	return response.Lease, nil
 }
@@ -96,6 +102,9 @@ func (c *Client) GetNode(ctx context.Context, node gsr.NodeID) (NodeRecord, erro
 	if err := errorFromCode(response.Error); err != nil {
 		return NodeRecord{}, err
 	}
+	if !validNodeRecord(response.Node) || response.Node.ID != node {
+		return NodeRecord{}, ErrInvalidResponse
+	}
 	return response.Node, nil
 }
 
@@ -111,6 +120,9 @@ func (c *Client) ListNodes(ctx context.Context) ([]NodeRecord, error) {
 	}
 	if err := errorFromCode(response.Error); err != nil {
 		return nil, err
+	}
+	if !validNodeRecords(response.Nodes) {
+		return nil, ErrInvalidResponse
 	}
 	return append([]NodeRecord(nil), response.Nodes...), nil
 }
@@ -163,7 +175,11 @@ func (c *Client) ResolveName(ctx context.Context, name gsr.ServiceName) (gsr.Ser
 	if err := errorFromCode(response.Error); err != nil {
 		return gsr.ServiceRef{}, err
 	}
-	return response.Ref.serviceRef(), nil
+	ref := response.Ref.serviceRef()
+	if ref.Node == "" || ref.ID == 0 {
+		return gsr.ServiceRef{}, ErrInvalidResponse
+	}
+	return ref, nil
 }
 
 func validLease(lease NodeLease) bool {
@@ -172,4 +188,28 @@ func validLease(lease NodeLease) bool {
 
 func validNameBinding(lease NodeLease, name gsr.ServiceName, ref gsr.ServiceRef) bool {
 	return strings.TrimSpace(string(name)) != "" && ref.Node == lease.Node && ref.ID != 0
+}
+
+func validLeaseResponse(lease NodeLease) bool {
+	return validLease(lease) && !lease.ExpiresAt.IsZero()
+}
+
+func sameLeaseIdentity(left, right NodeLease) bool {
+	return left.Node == right.Node && left.AuthorityEpoch == right.AuthorityEpoch && left.Generation == right.Generation
+}
+
+func validNodeRecord(record NodeRecord) bool {
+	return record.ID != "" && strings.TrimSpace(record.Address) != "" && record.AuthorityEpoch != 0 && record.Generation != 0 && !record.LastSeen.IsZero() && record.ExpiresAt.After(record.LastSeen)
+}
+
+func validNodeRecords(records []NodeRecord) bool {
+	for index, record := range records {
+		if !validNodeRecord(record) {
+			return false
+		}
+		if index > 0 && records[index-1].ID >= record.ID {
+			return false
+		}
+	}
+	return true
 }

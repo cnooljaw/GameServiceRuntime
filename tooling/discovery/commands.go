@@ -1,6 +1,10 @@
 package discovery
 
-import gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+import (
+	"errors"
+
+	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+)
 
 const (
 	commandRegisterNode   gsr.CommandID = 0x02000101
@@ -18,7 +22,6 @@ type errorCode string
 
 const (
 	errorNone               errorCode = ""
-	errorUnknown            errorCode = "unknown"
 	errorInvalidNode        errorCode = "invalid_node"
 	errorNodeNotFound       errorCode = "node_not_found"
 	errorLeaseExpired       errorCode = "lease_expired"
@@ -123,25 +126,25 @@ func errorFromCode(code errorCode) error {
 	}
 }
 
-func codeFromError(err error) errorCode {
-	switch err {
-	case nil:
-		return errorNone
-	case ErrInvalidNode:
-		return errorInvalidNode
-	case ErrNodeNotFound:
-		return errorNodeNotFound
-	case ErrLeaseExpired:
-		return errorLeaseExpired
-	case ErrLeaseOwnerMismatch:
-		return errorLeaseOwnerMismatch
-	case ErrInvalidName:
-		return errorInvalidName
-	case ErrNameNotFound:
-		return errorNameNotFound
-	case ErrNameConflict:
-		return errorNameConflict
+func codeFromError(err error) (errorCode, bool) {
+	switch {
+	case err == nil:
+		return errorNone, true
+	case errors.Is(err, ErrInvalidNode):
+		return errorInvalidNode, true
+	case errors.Is(err, ErrNodeNotFound):
+		return errorNodeNotFound, true
+	case errors.Is(err, ErrLeaseExpired):
+		return errorLeaseExpired, true
+	case errors.Is(err, ErrLeaseOwnerMismatch):
+		return errorLeaseOwnerMismatch, true
+	case errors.Is(err, ErrInvalidName):
+		return errorInvalidName, true
+	case errors.Is(err, ErrNameNotFound):
+		return errorNameNotFound, true
+	case errors.Is(err, ErrNameConflict):
+		return errorNameConflict, true
 	default:
-		return errorUnknown
+		return errorNone, false
 	}
 }

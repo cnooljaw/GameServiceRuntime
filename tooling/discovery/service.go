@@ -97,28 +97,28 @@ func (s *service) Handle(context gsr.CommandContext, command gsr.Command) error 
 			return invalidPayload(command.ID)
 		}
 		lease, err := s.registerNode(now, context.Source(), request)
-		return context.Reply(leaseResponse{Lease: lease, Error: codeFromError(err)})
+		return replyLease(context, lease, err)
 	case commandHeartbeat:
 		request, ok := command.Payload.(heartbeatRequest)
 		if !ok {
 			return invalidPayload(command.ID)
 		}
 		lease, err := s.heartbeat(now, context.Source(), request.Lease)
-		return context.Reply(leaseResponse{Lease: lease, Error: codeFromError(err)})
+		return replyLease(context, lease, err)
 	case commandUnregisterNode:
 		request, ok := command.Payload.(unregisterNodeRequest)
 		if !ok {
 			return invalidPayload(command.ID)
 		}
 		err := s.unregisterNode(context.Source(), request.Lease)
-		return context.Reply(emptyResponse{Error: codeFromError(err)})
+		return replyEmpty(context, err)
 	case commandGetNode:
 		request, ok := command.Payload.(getNodeRequest)
 		if !ok {
 			return invalidPayload(command.ID)
 		}
 		node, err := s.getNode(request.Node)
-		return context.Reply(nodeResponse{Node: node, Error: codeFromError(err)})
+		return replyNode(context, node, err)
 	case commandListNodes:
 		if _, ok := command.Payload.(listNodesRequest); !ok {
 			return invalidPayload(command.ID)
@@ -130,21 +130,21 @@ func (s *service) Handle(context gsr.CommandContext, command gsr.Command) error 
 			return invalidPayload(command.ID)
 		}
 		err := s.registerName(context.Source(), request)
-		return context.Reply(emptyResponse{Error: codeFromError(err)})
+		return replyEmpty(context, err)
 	case commandUnregisterName:
 		request, ok := command.Payload.(unregisterNameRequest)
 		if !ok {
 			return invalidPayload(command.ID)
 		}
 		err := s.unregisterName(context.Source(), request)
-		return context.Reply(emptyResponse{Error: codeFromError(err)})
+		return replyEmpty(context, err)
 	case commandResolveName:
 		request, ok := command.Payload.(resolveNameRequest)
 		if !ok {
 			return invalidPayload(command.ID)
 		}
 		ref, err := s.resolveName(request.Name)
-		return context.Reply(refResponse{Ref: newWireServiceRef(ref), Error: codeFromError(err)})
+		return replyRef(context, ref, err)
 	case commandSweepExpired:
 		s.sweepScheduled = false
 		if len(s.nodes) > 0 {
@@ -364,6 +364,38 @@ func sameLease(record NodeRecord, lease NodeLease) bool {
 
 func leaseFromRecord(record NodeRecord) NodeLease {
 	return NodeLease{Node: record.ID, AuthorityEpoch: record.AuthorityEpoch, Generation: record.Generation, ExpiresAt: record.ExpiresAt}
+}
+
+func replyLease(context gsr.CommandContext, lease NodeLease, err error) error {
+	code, domain := codeFromError(err)
+	if !domain {
+		return err
+	}
+	return context.Reply(leaseResponse{Lease: lease, Error: code})
+}
+
+func replyNode(context gsr.CommandContext, node NodeRecord, err error) error {
+	code, domain := codeFromError(err)
+	if !domain {
+		return err
+	}
+	return context.Reply(nodeResponse{Node: node, Error: code})
+}
+
+func replyRef(context gsr.CommandContext, ref gsr.ServiceRef, err error) error {
+	code, domain := codeFromError(err)
+	if !domain {
+		return err
+	}
+	return context.Reply(refResponse{Ref: newWireServiceRef(ref), Error: code})
+}
+
+func replyEmpty(context gsr.CommandContext, err error) error {
+	code, domain := codeFromError(err)
+	if !domain {
+		return err
+	}
+	return context.Reply(emptyResponse{Error: code})
 }
 
 func invalidPayload(command gsr.CommandID) error {
