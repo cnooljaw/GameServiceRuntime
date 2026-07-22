@@ -46,13 +46,14 @@
 | Cluster Data Plane | 集群数据面，负责业务 `Envelope` 的跨节点投递。 |
 | Cluster Control Plane | 集群控制面，负责节点管理、健康检查、观测查询和受控运维命令。 |
 | Transport Protocol | 传输层编码和链路协议，例如 protobuf、TCP、WebSocket、QUIC。它不参与业务分发。 |
-| Login Adapter | 登录连接适配器，负责监听连接、challenge、密钥协商、HMAC 校验和登录帧读写。它不拥有玩家业务状态。 |
-| LoginService | 客户端登录状态 Service，负责认证结果、重复登录策略、`SecretRef` 和登录票据编排。它不监听 socket，不持有连接 goroutine。 |
-| SessionRegistry | 登录会话注册表，保存 `LoginTicket`、连接绑定和受控密钥引用。它属于 Runtime Tooling。 |
-| LoginTicket | LoginService 签发给客户端进入 Gateway 的短期凭证，通常包含 uid、subid、server、过期时间和密钥引用。 |
-| SecretRef | 登录密钥引用，不是明文密钥。明文 `secret` 不进入普通业务 Command、日志、快照和录制回放。 |
-| SessionIdentity | 已认证连接的身份上下文，例如 uid、subid、playerID、server。 |
-| Gateway Adapter | 客户端入口适配器，负责连接、登录证明验证、协议解包、限流和转发。它属于 Runtime Tooling 或外层 adapter，不属于 Core Runtime。 |
+| Login Adapter | 登录连接适配器，负责连接握手、外部认证调用、受控 secret 存储和 ticket 响应写回。它不拥有玩家业务状态。 |
+| LoginService | 客户端登录状态 Service，负责重复登录策略、Generation、`SecretRef` 和登录票据编排。它不监听 socket、不调用可能阻塞的认证方，也不持有连接 goroutine。 |
+| SessionRegistry | 登录会话注册表，原子保存 `LoginTicket`、受控密钥引用、proof 序号和连接绑定。它属于 Runtime Tooling，不是 Core Service。 |
+| LoginTicket | LoginService 签发给客户端进入 Gateway 的短期凭证，包含 uid、subid、server、Generation、过期时间和密钥引用。 |
+| SecretRef | 不可预测的登录密钥引用，不是明文密钥。明文 `secret` 不进入普通业务 Command、日志、快照和录制回放。 |
+| SessionIdentity | 已认证连接的身份上下文，包含 uid、subid、playerID、server 和登录 Generation；它不复用 Core `SessionID`。 |
+| Gateway Adapter | 客户端入口适配器，负责连接、proof 验证、协议解包、限流、连接绑定和转发。它属于 Runtime Tooling 或外层 adapter，不属于 Core Runtime。 |
+| Proof Sequence | 同一 LoginTicket 内严格递增的 Gateway proof 序号。Registry 只在成功绑定时原子接受更大的值，用于拒绝重放。 |
 | AuthProvider | 业务提供的账号认证适配器，负责验证平台 token、账号密码或渠道登录结果。它属于 Business Layer 或业务 adapter。 |
 | ProtocolMapper | 业务协议映射器，把客户端包、HTTP 请求或外部事件转换成 GSR `Command`。它属于 Business Layer。 |
 | DiscoveryService | 系统服务，负责节点发现和长期服务名解析。 |

@@ -40,7 +40,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot 和 Supervisor 已完成；下一阶段先冻结 Phase 7F 客户端入口的会话代际和 proof 线格式。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot 和 Supervisor 已完成。Phase 7F 已冻结会话代际、proof 线格式和 Adapter 失败交接，进入实现。
 
 ## 后续 RFC 审核结果
 
@@ -50,7 +50,7 @@ Layer 3: Business Layer
 |---|---|---|---|
 | RFC-0210 Snapshot | 7D | 已接受 | 已实现 Capture Command、外部 Store、Revision 冲突保护、Cluster Codec 和组合根恢复。 |
 | RFC-0220 Supervisor | 7E | 已接受 | 已实现 panic Decorator、Source/Generation fencing、有界 Runner、恢复预算、两阶段发布和 Snapshot 纵向切片。 |
-| RFC-0290 客户端入口 | 7F | 草案 | 已拆分 Login Adapter 的连接 IO 与 LoginService 的 Command 状态；会话代际和 proof 线格式仍需补齐。 |
+| RFC-0290 客户端入口 | 7F | 待实现 | 已冻结 Login Adapter 的连接 IO、LoginService 的 Command 状态、SessionRegistry 原子绑定、会话 Generation、proof 线格式和失败交接。 |
 | RFC-0250 Control Plane | 8 | 草案 | NodeAgent 只消费本地 Monitor 和独立观测 adapter；认证、授权和审计格式仍需补齐。 |
 | RFC-0260 ServiceGroup | 9 | 草案 | ServiceGroup 不进入现有 Discovery；需要独立 DirectoryService，Watch 使用 ServiceRef + Command。 |
 | RFC-0270 Drain | 10 | 草案 | Visitor 状态改由 Service + Command 持有；需要租约、代际和失败回滚契约。 |

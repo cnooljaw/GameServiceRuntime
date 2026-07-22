@@ -1,132 +1,68 @@
-# RFC-0290：LoginService 与 Gateway 入口
+# RFC-0290：客户端登录与 Gateway 入口
 
-> 状态：草案
+> 状态：待实现
 > 目标阶段：Phase 7F
 > 范围：Runtime Tooling、客户端入口
-> 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)
+> 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0120](RFC-0120-Core-Command.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0140](RFC-0140-Core-Session-PendingCall.md)
 > 依据：Skynet `examples/login/client.lua`、`examples/login/logind.lua`、`examples/login/gated.lua`、`lualib/snax/loginserver.lua`
 
 ## 目的
 
-本文定义 GSR 客户端登录入口的标准分工。
+本文定义 GSR 的最小客户端入口。它让客户端在登录端完成认证和会话材料建立，再在 Gateway 端证明自己持有同一份密钥，最后把已认证业务包映射为 GSR `Command`。
+
+本文冻结 Phase 7F 的边界、代际、proof 线格式和失败交接。它不定义账号体系、TLS 终止、具体密钥协商算法、业务协议或玩家状态。
+
+```text
+Login Adapter
+  -> SessionRegistry
+  -> LoginService
+  -> LoginTicket
+  -> Gateway Adapter
+  -> ProtocolMapper
+  -> Send / Call
+  -> Business Service
+```
 
 结论：
 
-```text
-Login Adapter 负责登录连接、challenge 和 secret 交换。
-LoginService 负责认证状态与票据编排。
-Gateway Adapter 负责游戏连接验证、绑定、收发包。
-ProtocolMapper 负责把已认证业务包映射为 Command。
-Core Runtime 不知道登录、socket、token、secret。
-```
+- Login Adapter 和 Gateway Adapter 是连接 IO owner；它们可以使用受管 goroutine，但不是 GSR Service。
+- LoginService 是只经 Mailbox 写入状态的 Runtime Tooling Service；它不监听 socket、不做阻塞认证、不保存明文密钥。
+- SessionRegistry 是受控内存中的会话材料与 proof/连接绑定 owner；它向 Adapter 提供原子操作，不是 Core Runtime，也不是业务 Service。
+- ProtocolMapper 属于 Business Layer。它只看到已认证 `SessionIdentity` 和客户端包。
+- Core Runtime 不知道 token、socket、TLS、secret、proof、ticket、uid、subid 或客户端协议号。
 
-## Skynet 的参考标准
+## 与 Skynet 的取舍
 
-Skynet `examples/login` 的关键分工是：
+Skynet `examples/login` 把登录密钥交换、账号认证、Gateway proof 校验和已认证业务处理分开。GSR 保留该职责边界，但不复制 `PTYPE_*`、`msgserver` 或 Agent 进程模型。
 
-```text
-Client
-  ↓ 连接登录端口
-snax.loginserver / logind
-  ↓ 完成 challenge、DH secret、HMAC、token 校验
-  ↓ 调用 login_handler(server, uid, secret)
-gated / msgserver
-  ↓ 注册 uid、subid、secret
-Client
-  ↓ 连接游戏端口，使用 secret 计算 HMAC
-gated / msgserver
-  ↓ 验证登录证明并绑定连接
-msgagent
-  ↓ 处理已认证玩家请求
-```
+GSR 进一步明确：连接级握手是可替换的 Adapter seam；登录状态、重复登录策略和票据只在 LoginService 的 Mailbox 内变化；业务包只在 Gateway 认证成功后才进入 `ProtocolMapper`。
 
-这个例子的重点不是具体加密算法，而是职责切分：
-
-- `LoginService` 完成密钥交换和账号认证。
-- `Gateway` 不重新交换 `secret`，只验证客户端持有同一个 `secret`。
-- `Agent` 处理已认证会话，不负责登录握手。
-
-GSR 保留“登录入口、游戏网关、已认证业务处理”三段职责，并进一步把连接 IO 留在 adapter：Login Adapter 承担 Skynet 登录服务里的网络握手部分，LoginService 只承担可由 Command 驱动的认证状态和票据编排。
-
-如果业务仍然引入 `Agent` 或 `PlayerSessionService`，它只能处理已认证会话和玩家请求，不能承接登录握手、账号认证或 `secret` 交换。
-
-## GSR 分层
+## 分层与 owner
 
 ```text
 Business Layer
-  ├── AuthProvider
-  ├── ProtocolMapper
-  └── PlayerService / RoomService / BattleService
+  AuthProvider              认证业务规则或平台 SDK
+  ProtocolMapper            已认证包 -> target + Command
+  PlayerService 等          权威业务状态
 
 Runtime Tooling
-  ├── Login Adapter
-  ├── LoginService
-  ├── Gateway Adapter
-  └── SessionRegistry
+  Login Adapter             登录连接、握手、认证调用和响应写回
+  SessionRegistry           secret、ticket、proof 序号、连接绑定
+  LoginService              登录策略和票据签发状态
+  Gateway Adapter           Gateway 连接、proof、绑定、收发包
 
 Core Runtime
-  ├── Service
-  ├── Command
-  ├── Envelope
-  └── Send / Call
+  Service / ServiceRef / Command / Send / Call
 ```
 
-`LoginService` 属于 Runtime Tooling。它提供通用登录状态和票据编排，但不监听 socket、不创建 goroutine，也不写死账号库、平台 SDK、渠道规则。登录连接和密钥协商由 Login Adapter 持有；adapter 把已验证的握手结果映射为 LoginService Command。
-
-账号校验由业务提供 `AuthProvider`：
-
-```go
-type AuthProvider interface {
-    VerifyLoginToken(ctx context.Context, token LoginToken) (AuthIdentity, error)
-}
-```
-
-`AuthProvider` 属于 Business Layer 或业务 adapter。可能阻塞的远程认证不得直接占用 LoginService Handler；应由独立 AuthService 通过 Call 承担，或在进入 Runtime 前由 Login Adapter 完成后再投递认证结果 Command。
-
-## 登录流程
-
-第一版推荐流程：
-
-```text
-Client
-  ↓ 1. connect Login Adapter
-Login Adapter
-  ↓ 2. challenge
-Client
-  ↓ 3. client key
-Login Adapter
-  ↓ 4. server key
-Client / Login Adapter
-  ↓ 5. derive secret
-Client
-  ↓ 6. HMAC(challenge, secret)
-Client
-  ↓ 7. encrypted login token
-Login Adapter
-  ↓ 8. AuthProvider/AuthService verifies token and SessionRegistry stores secret
-LoginService
-  ↓ 9. apply login policy and issue LoginTicket(uid, subid, SecretRef, expiresAt)
-Client
-  ↓ 10. connect Gateway with uid/subid/proof
-Gateway Adapter
-  ↓ 11. verify proof through SessionRegistry/LoginService
-Gateway Adapter
-  ↓ 12. bind connection to SessionIdentity
-ProtocolMapper
-  ↓ 13. map packet to Command
-Runtime
-  ↓ 14. Send / Call target Service
-```
-
-`secret` 的交换只发生在第 1 到第 8 步。第 9 步以后只传递 `SecretRef`，第 10 步以后只验证客户端知道对应 `secret`。
+`AuthProvider` 可能阻塞，必须在 Login Adapter 的受管连接工作流或独立 AuthService 中执行；LoginService Handler 不得直接调用它。`ProtocolMapper` 不做登录握手，不保存连接，不接收明文密钥。
 
 ## 核心对象
 
+公开类型至少具有下列语义；具体 Go 字段以本 RFC 为准。
+
 ```go
-type LoginToken struct {
-    Server string
-    Raw    []byte
-}
+type SecretRef string
 
 type AuthIdentity struct {
     AccountID string
@@ -135,158 +71,151 @@ type AuthIdentity struct {
 }
 
 type LoginTicket struct {
-    UID       string
-    SubID     string
-    SecretRef SecretRef
-    ExpiresAt time.Time
+    UID        string
+    SubID      string
+    Server     string
+    SecretRef  SecretRef
+    Generation uint64
+    ExpiresAt  time.Time
 }
 
 type SessionIdentity struct {
-    UID      string
-    SubID    string
-    PlayerID string
-    Server   string
+    UID        string
+    SubID      string
+    PlayerID   string
+    Server     string
+    Generation uint64
 }
 ```
 
-`SecretRef` 是密钥引用，不是明文密钥。明文 `secret` 只能存在于 Login Adapter、SessionRegistry 或 Gateway Adapter 的受控内存中。
+`SecretRef` 只是不可预测的受控引用，不能由 `UID`、`SubID`、递增整数或明文密钥推导。明文 `secret` 仅在握手实现、Login Adapter 的短暂局部变量、SessionRegistry 和 Gateway proof 计算中出现。它不能进入普通业务 `Command`、日志、错误、Snapshot 或 Record/Replay。
 
-## Login Adapter 责任
+`Generation` 是 LoginService 为同一逻辑会话签发的单调非零代际。重复登录、显式撤销和新票据覆盖都会使旧代际无效；旧 Gateway 连接不能凭旧 ticket 或旧 proof 重新获得绑定。它与 Core `SessionID` 完全无关。
 
-Login Adapter 负责：
+## 会话状态与原子操作
 
-- 监听登录连接并维护连接级超时。
-- 生成 challenge，完成密钥协商和 HMAC 校验。
-- 解密或解析登录 token。
-- 调用 Runtime 外的 `AuthProvider`，或通过 Runtime Call 调用独立 AuthService。
-- 把明文 `secret` 存入受控 SessionRegistry，并只把 `SecretRef` 和认证身份投递给 LoginService。
-- 把 LoginService 签发的票据写回客户端。
-
-Login Adapter 不持有玩家、房间、对局或钱包权威状态，也不把明文 `secret` 放进普通业务 Command。
-
-## LoginService 责任
-
-`LoginService` 负责：
-
-- 接收 Login Adapter 已完成握手和账号校验的认证 Command。
-- 编排 token 校验结果、重复登录策略和票据状态。
-- 处理单点登录、多端登录或顶号策略。
-- 签发 `LoginTicket`。
-- 关联 Login Adapter 提供的 `SecretRef` 与票据。
-- 返回 `subid` 或等价登录凭证给客户端。
-
-`LoginService` 不负责：
-
-- 监听连接、读写 socket 或维护网络 goroutine。
-- 生成网络 challenge、执行连接级密钥协商或解析帧。
-- 解析游戏业务包。
-- 分发 `CmdJoinRoom`、`CmdMatch`、`CmdSettlement`。
-- 持有玩家权威状态。
-- 直接操作 Room、Battle、Wallet 的内部状态。
-
-## Gateway Adapter 责任
-
-`Gateway Adapter` 负责：
-
-- 维护长连接。
-- 解析包头、长度、序号和基础帧格式。
-- 校验客户端登录证明。
-- 绑定连接与 `SessionIdentity`。
-- 处理断线、重连、踢下线。
-- 限流、超时和基础安全检查。
-- 将已认证包交给 `ProtocolMapper`。
-- 将 Service 返回结果写回客户端。
-
-`Gateway Adapter` 不负责：
-
-- 交换 `secret`。
-- 校验账号密码或平台 token。
-- 理解业务命令语义。
-- 持有玩家金币、房间、对局等权威状态。
-
-## ProtocolMapper 责任
-
-`ProtocolMapper` 只接收已认证上下文：
+SessionRegistry 必须把下列状态作为一个受锁保护的记录维护：ticket、受控 secret、最近成功 proof 序号和当前连接绑定。它至少提供以下原子操作：
 
 ```text
-SessionIdentity + ClientPacket
-  ↓
-CommandID + Payload
+StoreSecret(identity, secret, expiresAt) -> SecretRef
+Issue(ticket, identity) -> error
+VerifyAndBind(proof, connectionID, now) -> SessionIdentity
+Unbind(connectionID, generation) -> void
+Revoke(uid, server, generation) -> void
 ```
 
-它可以知道客户端协议号和业务命令之间的映射，例如：
+`Issue` 只接受先前由 `StoreSecret` 返回的 `SecretRef`，并将 ticket 与 identity 绑定。`VerifyAndBind` 必须在同一临界区内完成：查找当前 ticket、检查未过期和未撤销、检查 `UID`/`SubID`/`Server`/`Generation`、校验 HMAC、要求 `Sequence` 严格大于已接受序号、记录新序号，并建立或替换该代际的连接绑定。它不得分成“先验证、后绑定”的两个可竞争调用。
+
+同一 ticket 的新连接绑定会替换旧绑定；Gateway 通过由 Registry 返回的被替换 connection ID 主动关闭旧连接。`Unbind` 必须同时匹配 connection ID 与 Generation，迟到断线不能删除新绑定。票据过期、撤销或被新代际覆盖时必须删除 secret、proof 序号和绑定。Registry 清理也必须受 TTL 和最大活动会话数限制；容量满时拒绝新登录，不能驱逐仍有效的任意会话。
+
+## LoginService
+
+LoginService 只接受已经完成握手和认证的 `IssueLoginTicket` Command。它在自己的 Mailbox 中处理：
+
+1. 验证 identity、`SecretRef`、过期时间和策略输入。
+2. 根据 `SingleSession`、`AllowMultiple` 或业务自定义策略决定是否允许登录。
+3. 为允许的逻辑会话分配新的非零 Generation、不可预测 `UID` 和 `SubID`。
+4. 将旧 Generation 标记为撤销，并通过 SessionRegistry 原子写入新 ticket。
+5. Reply 一个不含明文 secret 的 `LoginTicket`。
+
+LoginService 对 Registry 写入失败返回稳定错误且不 Reply 成功 ticket。Login Adapter 仅在收到成功 Reply 后才向客户端写入 ticket；连接中断、认证失败、Registry 满、Call 超时或 LoginService 关闭都不得产生半签发 ticket。若 LoginService 成功 Reply 但 Adapter 写回客户端失败，ticket 保留到过期；客户端可用该 ticket 进入 Gateway，调用方不得猜测它未签发。
+
+第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket 并要求 Gateway 关闭旧绑定。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
+
+## 登录握手 seam
+
+登录协议和账号体系随产品变化，不能写进 Tooling 公共状态机。Login Adapter 依赖窄 `Handshake` seam：
+
+```go
+type Handshake interface {
+    Accept(context.Context, net.Conn) (VerifiedLogin, error)
+}
+
+type VerifiedLogin struct {
+    Identity AuthIdentity
+    Secret   []byte
+    ExpiresAt time.Time
+}
+```
+
+`Handshake.Accept` 拥有 challenge、密钥协商、HMAC、token 解密和 `AuthProvider` 调用。它返回时必须已经认证 identity，并提供不少于 32 字节、密码学随机或经安全协商得到的 secret。生产实现必须运行在 TLS 或提供等价的认证密钥交换；本 RFC 的测试握手仅用于验证分层，不能作为公网安全协议。
+
+Login Adapter 在成功返回后复制 secret 至 Registry，并尽力清零自己的局部副本。它不得把 `VerifiedLogin` 或 secret 作为 LoginService Command payload。
+
+## Gateway proof 线格式
+
+Phase 7F 固定首版 Gateway 为带长度限制的 UTF-8 单行入口；WebSocket、protobuf 或二进制入口以后可以复用相同 proof message，但不得复用不同的字段语义。
+
+客户端的第一行必须是：
 
 ```text
-1001 -> CmdJoinRoom
-1002 -> CmdLeaveRoom
-2001 -> CmdPlayerAction
+AUTH <uid> <subid> <server> <generation> <sequence> <proof>\n
 ```
 
-但它不做登录握手，也不保存连接。
+其中：
 
-## 安全规则
+- `uid`、`subid`、`server`、`proof` 使用无填充 `base64.RawURLEncoding`；解码后的 `uid`、`subid`、`server` 必须是非空合法 UTF-8。
+- `generation` 和 `sequence` 是十进制无前导零的非零 `uint64`。
+- `proof` 是 32 字节 HMAC-SHA-256 输出的 base64url 编码。
+- 整行（含换行）最大 4096 字节；多余字段、空格字段、CR、无换行、非法 UTF-8、超限整数和无效编码全部拒绝。
 
-1. 明文 `secret` 不进入普通业务 `Command`。
-2. 明文 `secret` 不写入日志、快照、录制回放和错误返回。
-3. `LoginTicket` 必须有过期时间。
-4. Gateway 绑定连接时必须校验 `uid`、`subid`、`server` 和 proof。
-5. 重连必须带递增序号或 nonce，避免旧 proof 被重复使用。
-6. 顶号、禁止多端、多端共存属于 LoginService 策略，不属于 Core Runtime。
-7. 断线清理由 Gateway 触发，但玩家权威状态由 `PlayerService`、`RoomService` 或 `BattleService` 决定。
-8. Login Adapter 和 Gateway Adapter 拥有连接 IO；任何 Runtime Service 都不得直接创建网络 goroutine。
-
-## 错误模型
-
-第一版使用稳定错误码：
-
-| 错误 | 含义 |
-|-|-|
-| `ErrUnauthorized` | token 无效、账号校验失败。 |
-| `ErrForbidden` | 登录成功前置校验通过，但业务拒绝进入目标 server。 |
-| `ErrDuplicateLogin` | 当前策略不允许重复登录。 |
-| `ErrInvalidProof` | Gateway 登录证明校验失败。 |
-| `ErrTicketExpired` | 登录票据过期。 |
-
-错误码可以映射到客户端协议，但 Core Runtime 不知道这些错误。
-
-## 与 Skynet 的取舍
-
-保留：
-
-- 登录服务和游戏网关分离。
-- `secret` 在登录阶段交换，游戏连接阶段只验证。
-- 登录服务处理重复登录策略。
-- Gateway 只绑定连接和转发已认证请求。
-
-不照搬：
-
-- 不暴露 `PTYPE_CLIENT`。
-- 不要求 Agent 使用 Skynet `msgserver` 模型。
-- 不把 `secret` 作为普通业务参数到处传递。
-- 不把登录协议写进 Core Runtime。
-
-## 实现建议
-
-第一版可以先实现接口和内存版本：
+proof 的输入是下列 UTF-8 字节，字段值使用同一行中的 base64url 文本，结尾必须有一个 `\n`：
 
 ```text
-InMemorySessionRegistry
-LoginAdapter
-SimpleLoginService
-TCPGatewayAdapter 或 WebSocketGatewayAdapter
-ProtocolMapper
+GSR-Gateway-Proof-v1\n
+uid=<uid>\n
+subid=<subid>\n
+server=<server>\n
+generation=<generation>\n
+sequence=<sequence>\n
 ```
 
-验收目标：
+Gateway 以 Registry 中对应 ticket 的明文 secret 计算 `HMAC-SHA-256(secret, proof-input)`，并用常量时间比较。版本前缀、字段顺序和换行不可变；它们阻止不同协议版本或字段拼接规则产生同一签名输入。
 
-```text
-Client 登录成功
-  ↓
-Gateway 验证 proof
-  ↓
-ProtocolMapper 生成 Command
-  ↓
-PlayerService 收到带 SessionIdentity 的 Command
+`Sequence` 由客户端在同一 ticket 生命周期内严格递增；成功绑定才消耗序号。网络失败后的重试必须使用更大的序号，不能重放旧行。Gateway 仅在 `VerifyAndBind` 成功后才把连接交给 ProtocolMapper。认证失败时写稳定错误并关闭连接，不向 Runtime 发送任何业务 Command。
+
+## Gateway 与 ProtocolMapper
+
+Gateway Adapter 在认证成功后持有连接、读写循环、帧大小、空闲超时、基础限流和断线清理。它不能解释游戏 Command，也不能持有玩家、房间、对局或钱包的权威状态。
+
+ProtocolMapper 是 Business Layer 的窄接口：
+
+```go
+type ProtocolMapper interface {
+    Map(SessionIdentity, ClientPacket) (Route, error)
+}
+
+type Route struct {
+    Target gsr.ServiceRef
+    Command gsr.CommandID
+    Payload any
+    Call bool
+}
 ```
 
-加密算法可以先采用标准库或成熟第三方库，不要求复刻 Skynet 的 DH/DES 细节。职责边界必须与本文一致。
+Gateway 验证 `Route.Target` 与 `Route.Command` 的基本形状后，用 `Runtime.Send` 或 `Runtime.Call` 投递。它不为业务重试制造 `RequestID`；mapper/业务协议必须显式携带业务幂等键。Call 结果由 Gateway 映射为客户端响应；业务 handler 的错误不泄漏 secret 或内部对象。
+
+## 错误与可观测性
+
+Tooling 对外返回稳定分类：`ErrUnauthorized`、`ErrTicketExpired`、`ErrInvalidProof`、`ErrProofReplay`、`ErrDuplicateLogin`、`ErrSessionCapacity` 和 `ErrSessionRevoked`。具体认证、解析、HMAC 或 Registry 内部错误可以保留为 wrapped cause，但客户端响应不得包含 cause。
+
+Adapter 至少记录：登录成功/失败、ticket 签发失败、proof 成功/失败/重放、连接替换、过期清理与 ProtocolMapper 拒绝。记录中不得包含 token、secret、完整 proof 或未脱敏的身份材料。Core Metrics 与 `Runtime.Inspect()` 不因入口适配器新增专用 getter。
+
+## 验收
+
+Phase 7F 必须覆盖以下可重复行为：
+
+1. 成功登录后，Gateway 用正确 proof 绑定连接，ProtocolMapper 生成 Command，目标 Service 收到带 `SessionIdentity` 的 payload。
+2. proof 的任一字段、格式、HMAC 或 ticket 过期失败时，Gateway 不投递业务 Command。
+3. 同一或更小 Sequence 被拒绝；更大 Sequence 可以重连；迟到 `Unbind` 不能删掉新连接。
+4. 新的 SingleSession 登录撤销旧代际，旧 proof 和旧 Gateway 连接不能重新成为当前绑定。
+5. Handshake、Registry 或 LoginService 任一步失败时不向客户端签发成功 ticket，且 secret 不进入 Command、日志或测试错误文本。
+6. LoginService 不创建 goroutine；Login/Gateway Adapter 的连接任务由 Adapter 生命周期 owner 等待真实返回。
+7. TCP 示例和全量 `go test ./...`、`go vet ./...`、`go test -race ./...` 通过。
+
+## 非目标
+
+- 不定义账号密码、平台 SDK、OAuth、TLS 证书或生产密钥协商算法。
+- 不在 Core Runtime 增加 socket、token、ticket、SessionIdentity 或客户端协议 API。
+- 不实现 WebSocket、HTTP、跨节点 SessionRegistry、持久化会话、全局踢人路由或多端策略。
+- 不让 Gateway 直接持有业务 Service 指针或业务权威状态。

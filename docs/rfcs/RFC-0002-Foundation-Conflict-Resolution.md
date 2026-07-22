@@ -241,9 +241,10 @@ Login Adapter -> LoginService -> Gateway Adapter -> ProtocolMapper -> Command ->
 因此：
 
 - Login Adapter 和 `LoginService` 属于 Runtime Tooling。
-- Login Adapter 负责 challenge、密钥协商、HMAC 和登录连接；`LoginService` 不创建 goroutine。
-- `LoginService` 只接收认证结果和 `SecretRef`，负责重复登录策略与票据。
-- `Gateway Adapter` 不重新交换 `secret`。
+- Login Adapter 通过可替换 Handshake 完成 challenge、密钥协商、HMAC 和登录连接；`LoginService` 不创建 goroutine。
+- `LoginService` 只接收认证结果的 identity、`SecretRef` 和过期时间，负责 SingleSession、Generation 与票据。
+- `SessionRegistry` 原子校验 ticket、Generation、HMAC proof 和严格递增的 proof Sequence，再建立连接绑定。
+- `Gateway Adapter` 不重新交换 `secret`，只验证 RFC-0290 固定的 `GSR-Gateway-Proof-v1` 线格式。
 - `ProtocolMapper` 不做登录握手。
 - Core Runtime 不知道 token、fd、subid、secret。
 - 明文 `secret` 不进入普通业务 `Command`、日志、Snapshot 或 Record。
@@ -287,4 +288,3 @@ Service 在挂起期间仍保持 busy，不消费自己的后续 Command。Runti
 4. 管理面认证授权的第一版实现方式。
 5. ServiceGroup 路由策略的默认组合。
 6. Record 文件格式和脱敏策略。
-7. LoginService 第一版使用 TCP 还是 WebSocket 入口。
