@@ -35,10 +35,11 @@ func TestLoginServiceIssuesTicketAndRevokesPriorGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StoreSecret(first) error = %v", err)
 	}
-	first, err := client.IssueTicket(context.Background(), IssueTicket{Identity: identity, SecretRef: firstRef, ExpiresAt: now.Add(time.Minute)})
+	firstIssue, err := client.IssueTicket(context.Background(), IssueTicket{Identity: identity, SecretRef: firstRef, ExpiresAt: now.Add(time.Minute)})
 	if err != nil {
 		t.Fatalf("IssueTicket(first) error = %v", err)
 	}
+	first := firstIssue.Ticket
 	if first.Generation != 1 || first.SecretRef != firstRef {
 		t.Fatalf("first ticket = %#v, want generation 1 with original SecretRef", first)
 	}
@@ -51,9 +52,13 @@ func TestLoginServiceIssuesTicketAndRevokesPriorGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StoreSecret(second) error = %v", err)
 	}
-	second, err := client.IssueTicket(context.Background(), IssueTicket{Identity: identity, SecretRef: secondRef, ExpiresAt: now.Add(time.Minute)})
+	secondIssue, err := client.IssueTicket(context.Background(), IssueTicket{Identity: identity, SecretRef: secondRef, ExpiresAt: now.Add(time.Minute)})
 	if err != nil {
 		t.Fatalf("IssueTicket(second) error = %v", err)
+	}
+	second := secondIssue.Ticket
+	if secondIssue.ReplacedConnectionID != "connection-1" {
+		t.Fatalf("replaced connection = %q, want connection-1", secondIssue.ReplacedConnectionID)
 	}
 	if second.Generation != 2 || second.UID == first.UID || second.SubID == first.SubID {
 		t.Fatalf("second ticket = %#v, want a distinct generation-2 ticket", second)

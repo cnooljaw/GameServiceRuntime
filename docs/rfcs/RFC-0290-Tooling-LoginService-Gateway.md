@@ -116,11 +116,11 @@ LoginService 只接受已经完成握手和认证的 `IssueLoginTicket` Command�
 2. 根据 `SingleSession`、`AllowMultiple` 或业务自定义策略决定是否允许登录。
 3. 为允许的逻辑会话分配新的非零 Generation、不可预测 `UID` 和 `SubID`。
 4. 将旧 Generation 标记为撤销，并通过 SessionRegistry 原子写入新 ticket。
-5. Reply 一个不含明文 secret 的 `LoginTicket`。
+5. Reply 一个不含明文 secret 的 `TicketIssue`；其中包含 `LoginTicket` 和被 SingleSession 撤销的旧 Gateway `ConnectionID`。
 
 LoginService 对 Registry 写入失败返回稳定错误且不 Reply 成功 ticket。Login Adapter 仅在收到成功 Reply 后才向客户端写入 ticket；连接中断、认证失败、Registry 满、Call 超时或 LoginService 关闭都不得产生半签发 ticket。若 LoginService 成功 Reply 但 Adapter 写回客户端失败，ticket 保留到过期；客户端可用该 ticket 进入 Gateway，调用方不得猜测它未签发。
 
-第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket 并要求 Gateway 关闭旧绑定。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
+第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket，并在 `TicketIssue` 中返回旧绑定的 `ConnectionID`，由组合根注入的 Gateway connection closer 关闭旧连接。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
 
 ## 登录握手 seam
 
@@ -141,6 +141,14 @@ type VerifiedLogin struct {
 `Handshake.Accept` 拥有 challenge、密钥协商、HMAC、token 解密和 `AuthProvider` 调用。它返回时必须已经认证 identity，并提供不少于 32 字节、密码学随机或经安全协商得到的 secret。生产实现必须运行在 TLS 或提供等价的认证密钥交换；本 RFC 的测试握手仅用于验证分层，不能作为公网安全协议。
 
 Login Adapter 在成功返回后复制 secret 至 Registry，并尽力清零自己的局部副本。它不得把 `VerifiedLogin` 或 secret 作为 LoginService Command payload。
+
+首版 TCP Login Adapter 成功后写入下列单行响应；其中 `uid`、`subid`、`server` 为无填充 base64url，`generation` 为非零十进制 `uint64`，`expires_unix_ms` 为过期时间的十进制 Unix 毫秒：
+
+```text
+TICKET <uid> <subid> <server> <generation> <expires_unix_ms>\n
+```
+
+该响应不包含 `SecretRef` 或 secret。失败时只写稳定 `ERR <code>\n`，不写认证或 Registry 的内部 cause。
 
 ## Gateway proof 线格式
 
@@ -193,7 +201,7 @@ type Route struct {
 }
 ```
 
-Gateway 验证 `Route.Target` 与 `Route.Command` 的基本形状后，用 `Runtime.Send` 或 `Runtime.Call` 投递。它不为业务重试制造 `RequestID`；mapper/业务协议必须显式携带业务幂等键。Call 结果由 Gateway 映射为客户端响应；业务 handler 的错误不泄漏 secret 或内部对象。
+Gateway 验证 `Route.Target` 与 `Route.Command` 的基本形状后，用 `Runtime.Send` 或 `Runtime.Call` 投递。它不为业务重试制造 `RequestID`；mapper/业务协议必须显式携带业务幂等键。`Call` 路由的 mapper 必须额外实现 `CallResponseMapper.EncodeCallResult`，由它把 result 编码成一个不含换行的 `ClientPacket`；Gateway 追加 `\n` 后写回客户端。业务 handler 的错误不泄漏 secret 或内部对象。
 
 ## 错误与可观测性
 

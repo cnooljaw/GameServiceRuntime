@@ -25,24 +25,24 @@ func NewLoginClient(caller CommandCaller, target gsr.ServiceRef) (*LoginClient, 
 	return &LoginClient{caller: caller, target: target}, nil
 }
 
-// IssueTicket submits verified, secret-free login material and returns an issued short-lived ticket.
-func (c *LoginClient) IssueTicket(ctx context.Context, issue IssueTicket) (LoginTicket, error) {
+// IssueTicket submits verified, secret-free login material and returns the ticket plus any revoked Gateway connection.
+func (c *LoginClient) IssueTicket(ctx context.Context, issue IssueTicket) (TicketIssue, error) {
 	if ctx == nil || !validIdentity(issue.Identity) || issue.SecretRef == "" || issue.ExpiresAt.IsZero() {
-		return LoginTicket{}, ErrInvalidTicket
+		return TicketIssue{}, ErrInvalidTicket
 	}
 	value, err := c.caller.Call(ctx, c.target, issueTicketCommand, issueTicketRequest{Issue: issue})
 	if err != nil {
-		return LoginTicket{}, err
+		return TicketIssue{}, err
 	}
 	response, ok := value.(ticketResponse)
 	if !ok {
-		return LoginTicket{}, ErrUnauthorized
+		return TicketIssue{}, ErrUnauthorized
 	}
 	if err := errorFromResponse(response.Error); err != nil {
-		return LoginTicket{}, err
+		return TicketIssue{}, err
 	}
-	if !validTicket(response.Ticket) || response.Ticket.Server != issue.Identity.Server || response.Ticket.SecretRef != issue.SecretRef || !response.Ticket.ExpiresAt.Equal(issue.ExpiresAt) {
-		return LoginTicket{}, ErrUnauthorized
+	if !validTicket(response.Issue.Ticket) || response.Issue.Ticket.Server != issue.Identity.Server || response.Issue.Ticket.SecretRef != issue.SecretRef || !response.Issue.Ticket.ExpiresAt.Equal(issue.ExpiresAt) {
+		return TicketIssue{}, ErrUnauthorized
 	}
-	return response.Ticket, nil
+	return response.Issue, nil
 }

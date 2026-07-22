@@ -11,8 +11,8 @@ const issueTicketCommand gsr.CommandID = 0x02000401
 type issueTicketRequest struct{ Issue IssueTicket }
 
 type ticketResponse struct {
-	Ticket LoginTicket
-	Error  responseError
+	Issue TicketIssue
+	Error responseError
 }
 
 type responseError uint8

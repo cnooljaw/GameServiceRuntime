@@ -64,8 +64,8 @@ func (s *loginService) Handle(context gsr.CommandContext, command gsr.Command) e
 	if !ok {
 		return context.Reply(ticketResponse{Error: responseInvalidTicket})
 	}
-	ticket, err := s.issue(request.Issue)
-	return context.Reply(ticketResponse{Ticket: ticket, Error: responseFromError(err)})
+	issue, err := s.issue(request.Issue)
+	return context.Reply(ticketResponse{Issue: issue, Error: responseFromError(err)})
 }
 
 func (*loginService) Stop(context.Context) error { return nil }
@@ -76,12 +76,12 @@ func (s *loginService) Close() error {
 	return nil
 }
 
-func (s *loginService) issue(request IssueTicket) (LoginTicket, error) {
+func (s *loginService) issue(request IssueTicket) (TicketIssue, error) {
 	if !validIdentity(request.Identity) || request.SecretRef == "" || request.ExpiresAt.IsZero() {
-		return LoginTicket{}, ErrInvalidTicket
+		return TicketIssue{}, ErrInvalidTicket
 	}
 	if !request.ExpiresAt.After(s.context.Now()) {
-		return LoginTicket{}, ErrTicketExpired
+		return TicketIssue{}, ErrTicketExpired
 	}
 	key := accountServerKey{account: request.Identity.AccountID, server: request.Identity.Server}
 	previous, hasPrevious := s.current[key]
@@ -94,22 +94,23 @@ func (s *loginService) issue(request IssueTicket) (LoginTicket, error) {
 	}
 	uid, err := newOpaqueID()
 	if err != nil {
-		return LoginTicket{}, err
+		return TicketIssue{}, err
 	}
 	subID, err := newOpaqueID()
 	if err != nil {
-		return LoginTicket{}, err
+		return TicketIssue{}, err
 	}
 	ticket := LoginTicket{UID: uid, SubID: subID, Server: request.Identity.Server, SecretRef: request.SecretRef, Generation: generation, ExpiresAt: request.ExpiresAt}
 	var previousPtr *LoginTicket
 	if hasPrevious {
 		previousPtr = &previous
 	}
-	if _, err := s.registry.Replace(ticket, request.Identity, previousPtr); err != nil {
-		return LoginTicket{}, err
+	replaced, err := s.registry.Replace(ticket, request.Identity, previousPtr)
+	if err != nil {
+		return TicketIssue{}, err
 	}
 	s.current[key] = ticket
-	return ticket, nil
+	return TicketIssue{Ticket: ticket, ReplacedConnectionID: replaced}, nil
 }
 
 func newOpaqueID() (string, error) {

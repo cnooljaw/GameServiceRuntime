@@ -25,6 +25,12 @@ type LoginTicket struct {
 	ExpiresAt  time.Time
 }
 
+// TicketIssue is a newly issued ticket and the Gateway connection revoked by SingleSession policy.
+type TicketIssue struct {
+	Ticket               LoginTicket
+	ReplacedConnectionID ConnectionID
+}
+
 // SessionIdentity is the identity available after Gateway proof verification.
 type SessionIdentity struct {
 	UID        string
