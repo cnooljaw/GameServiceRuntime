@@ -18,6 +18,9 @@ func NewMemoryStore() *MemoryStore {
 
 // Save atomically stores a newer Snapshot revision.
 func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
+	if s == nil {
+		return ErrInvalidConfig
+	}
 	if isNil(ctx) {
 		return ErrInvalidContext
 	}
@@ -31,6 +34,9 @@ func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.snapshots == nil {
+		s.snapshots = make(map[Key]Snapshot)
+	}
 	current, exists := s.snapshots[candidate.Key]
 	switch {
 	case !exists || candidate.State.Revision > current.State.Revision:
@@ -47,6 +53,9 @@ func (s *MemoryStore) Save(ctx context.Context, candidate Snapshot) error {
 
 // Load returns an independent copy of the Snapshot stored for key.
 func (s *MemoryStore) Load(ctx context.Context, key Key) (Snapshot, error) {
+	if s == nil {
+		return Snapshot{}, ErrInvalidConfig
+	}
 	if isNil(ctx) {
 		return Snapshot{}, ErrInvalidContext
 	}

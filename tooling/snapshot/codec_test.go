@@ -76,6 +76,9 @@ func TestCodecAllowsUnknownFieldsAndRejectsTrailingJSON(t *testing.T) {
 	if _, err := codec.Decode(CaptureCommand, true, []byte(`{"state":`)); !errors.Is(err, ErrInvalidResponse) {
 		t.Fatalf("Decode malformed JSON error = %v, want ErrInvalidResponse", err)
 	}
+	if _, err := codec.Decode(CaptureCommand, false, []byte(`null`)); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode null error = %v, want ErrInvalidResponse", err)
+	}
 }
 
 func TestCodecRejectsWrongGoTypes(t *testing.T) {

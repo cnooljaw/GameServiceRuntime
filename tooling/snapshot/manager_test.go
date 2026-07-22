@@ -159,6 +159,24 @@ func TestManagerCaptureValidatesResponseAndPayloadLimit(t *testing.T) {
 	}
 }
 
+func TestManagerUsesOneMiBDefaultPayloadLimit(t *testing.T) {
+	const oneMiB = 1 << 20
+	store := &recordingStore{}
+	caller := &fakeCaller{value: CaptureResponse{State: State{
+		Schema: "player", Version: 1, Revision: 1, Payload: make([]byte, oneMiB),
+	}}}
+	manager := newTestManager(t, caller, store, Config{})
+	if _, err := manager.Capture(context.Background(), testTarget(), testKey()); err != nil {
+		t.Fatalf("Capture at default limit error = %v", err)
+	}
+	caller.value = CaptureResponse{State: State{
+		Schema: "player", Version: 1, Revision: 2, Payload: make([]byte, oneMiB+1),
+	}}
+	if _, err := manager.Capture(context.Background(), testTarget(), testKey()); !errors.Is(err, ErrPayloadTooLarge) {
+		t.Fatalf("Capture above default limit error = %v, want ErrPayloadTooLarge", err)
+	}
+}
+
 func TestManagerLoadValidatesAndCopiesStoreResult(t *testing.T) {
 	stored := validSnapshot(4, []byte("loaded"))
 	store := &recordingStore{loaded: stored}

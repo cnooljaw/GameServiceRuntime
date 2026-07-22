@@ -113,6 +113,42 @@ func TestMemoryStoreRejectsInvalidContextAndMissingKey(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreZeroValueIsUsableAndNilReceiverFails(t *testing.T) {
+	var store MemoryStore
+	want := validSnapshot(1, []byte("state"))
+	if err := store.Save(context.Background(), want); err != nil {
+		t.Fatalf("zero-value Save error = %v", err)
+	}
+	got, err := store.Load(context.Background(), want.Key)
+	if err != nil {
+		t.Fatalf("zero-value Load error = %v", err)
+	}
+	if string(got.State.Payload) != "state" {
+		t.Fatalf("zero-value Load payload = %q", got.State.Payload)
+	}
+
+	var nilStore *MemoryStore
+	if err := nilStore.Save(context.Background(), want); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("nil receiver Save error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := nilStore.Load(context.Background(), want.Key); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("nil receiver Load error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestMemoryStorePreservesCanceledContextCause(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	want := errors.New("store canceled")
+	cancel(want)
+	store := NewMemoryStore()
+	if err := store.Save(ctx, validSnapshot(1, []byte("state"))); !errors.Is(err, want) {
+		t.Fatalf("Save error = %v, want %v", err, want)
+	}
+	if _, err := store.Load(ctx, testKey()); !errors.Is(err, want) {
+		t.Fatalf("Load error = %v, want %v", err, want)
+	}
+}
+
 func TestMemoryStoreConcurrentSaveLoadKeepsNewestRevision(t *testing.T) {
 	store := NewMemoryStore()
 	const revisions = 64
