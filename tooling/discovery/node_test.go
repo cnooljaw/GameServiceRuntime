@@ -18,7 +18,7 @@ func TestRegisterNodeReturnsLeaseAndRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lease.Node != "node-b" || lease.Generation == 0 {
+	if lease.Node != "node-b" || lease.AuthorityEpoch == 0 || lease.Generation == 0 {
 		t.Fatalf("lease = %#v", lease)
 	}
 	if want := fixture.clock.Now().Add(time.Minute); !lease.ExpiresAt.Equal(want) {
@@ -29,7 +29,7 @@ func TestRegisterNodeReturnsLeaseAndRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.ID != lease.Node || record.Address != "127.0.0.1:9002" || record.Generation != lease.Generation {
+	if record.ID != lease.Node || record.Address != "127.0.0.1:9002" || record.AuthorityEpoch != lease.AuthorityEpoch || record.Generation != lease.Generation {
 		t.Fatalf("record = %#v, lease = %#v", record, lease)
 	}
 	if !record.LastSeen.Equal(fixture.clock.Now()) || !record.ExpiresAt.Equal(lease.ExpiresAt) {
@@ -40,7 +40,7 @@ func TestRegisterNodeReturnsLeaseAndRecord(t *testing.T) {
 func TestDiscoveryServiceUsesDefaultLeaseTTL(t *testing.T) {
 	started := time.Date(2026, 7, 21, 13, 0, 0, 0, time.UTC)
 	clock := &testClock{now: started}
-	runtime := gsr.NewRuntime(gsr.Config{NodeID: "discovery-node", Now: clock.Now})
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Now: clock.Now})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	service, err := discovery.NewService(discovery.Config{})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestHeartbeatRenewsMatchingLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Node != first.Node || second.Generation != first.Generation {
+	if second.Node != first.Node || second.AuthorityEpoch != first.AuthorityEpoch || second.Generation != first.Generation {
 		t.Fatalf("renewed lease = %#v, first = %#v", second, first)
 	}
 	if !second.ExpiresAt.Equal(fixture.clock.Now().Add(time.Minute)) {
@@ -112,28 +112,29 @@ func TestRegisterNodeInvalidatesPreviousGeneration(t *testing.T) {
 }
 
 func TestListNodesReturnsSortedCopies(t *testing.T) {
-	fixture := newDiscoveryFixture(t, discovery.Config{})
-	for _, node := range []gsr.NodeID{"node-c", "node-a", "node-b"} {
-		if _, err := fixture.client.RegisterNode(context.Background(), node, string(node)+":9000"); err != nil {
-			t.Fatal(err)
-		}
+	fixture := newRemoteDiscoveryFixture(t)
+	if _, err := fixture.local.RegisterNode(context.Background(), "node-b", "node-b:9000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.remote.RegisterNode(context.Background(), "node-a", "node-a:9000"); err != nil {
+		t.Fatal(err)
 	}
 
-	first, err := fixture.client.ListNodes(context.Background())
+	first, err := fixture.remote.ListNodes(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 3 || first[0].ID != "node-a" || first[1].ID != "node-b" || first[2].ID != "node-c" {
+	if len(first) != 2 || first[0].ID != "node-a" || first[1].ID != "node-b" {
 		t.Fatalf("nodes = %#v", first)
 	}
 	first[0].Address = "changed"
 	first = append(first, discovery.NodeRecord{})
 
-	second, err := fixture.client.ListNodes(context.Background())
+	second, err := fixture.local.ListNodes(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second) != 3 || second[0].Address != "node-a:9000" {
+	if len(second) != 2 || second[0].Address != "node-a:9000" {
 		t.Fatalf("second nodes changed through first result: %#v", second)
 	}
 }
@@ -176,6 +177,49 @@ func TestUnregisterNodeRequiresCurrentLease(t *testing.T) {
 	}
 	if _, err := fixture.client.GetNode(context.Background(), "node-b"); !errors.Is(err, discovery.ErrNodeNotFound) {
 		t.Fatalf("GetNode error = %v, want ErrNodeNotFound", err)
+	}
+}
+
+func TestLeaseFromPreviousAuthorityEpochIsExpired(t *testing.T) {
+	firstAuthority := newDiscoveryFixture(t, discovery.Config{})
+	oldLease := registerNode(t, firstAuthority.client, "node-b")
+	secondAuthority := newDiscoveryFixture(t, discovery.Config{})
+	currentLease := registerNode(t, secondAuthority.client, "node-b")
+
+	if oldLease.AuthorityEpoch == currentLease.AuthorityEpoch {
+		t.Fatalf("authority epoch was reused: %d", oldLease.AuthorityEpoch)
+	}
+	if oldLease.Generation != currentLease.Generation {
+		t.Fatalf("test requires equal generations, got %d and %d", oldLease.Generation, currentLease.Generation)
+	}
+	if _, err := secondAuthority.client.Heartbeat(context.Background(), oldLease); !errors.Is(err, discovery.ErrLeaseExpired) {
+		t.Fatalf("old authority Heartbeat error = %v, want ErrLeaseExpired", err)
+	}
+}
+
+func TestLeaseMutationRequiresExactCommandSource(t *testing.T) {
+	fixture := newDiscoveryFixture(t, discovery.Config{})
+	lease := registerNode(t, fixture.client, "node-b")
+	probe := &leaseOwnerProbeService{target: fixture.service}
+	probeRef, err := fixture.runtime.CreateService(gsr.ServiceSpec{Service: probe})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.runtime.Call(context.Background(), probeRef, 1, lease); !errors.Is(err, discovery.ErrLeaseOwnerMismatch) {
+		t.Fatalf("Heartbeat from another Service error = %v, want ErrLeaseOwnerMismatch", err)
+	}
+	nameRequest := leaseOwnerNameRequest{lease: lease, name: ".config", ref: gsr.ServiceRef{Node: "node-b", ID: 100}}
+	if _, err := fixture.runtime.Call(context.Background(), probeRef, 2, nameRequest); !errors.Is(err, discovery.ErrLeaseOwnerMismatch) {
+		t.Fatalf("RegisterName from another Service error = %v, want ErrLeaseOwnerMismatch", err)
+	}
+}
+
+func TestRegisterNodeRequiresMatchingSourceNode(t *testing.T) {
+	fixture := newRemoteDiscoveryFixture(t)
+	_, err := fixture.remote.RegisterNode(context.Background(), "node-b", "node-b:9000")
+	if !errors.Is(err, discovery.ErrLeaseOwnerMismatch) {
+		t.Fatalf("RegisterNode error = %v, want ErrLeaseOwnerMismatch", err)
 	}
 }
 
@@ -256,7 +300,7 @@ func newDiscoveryFixture(t *testing.T, config discovery.Config) discoveryFixture
 	}
 	started := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	clock := &testClock{now: started}
-	runtime := gsr.NewRuntime(gsr.Config{NodeID: "discovery-node", Now: clock.Now})
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-b", Now: clock.Now})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	service, err := discovery.NewService(config)
 	if err != nil {
@@ -283,6 +327,37 @@ type invalidResponseCaller struct{}
 func (invalidResponseCaller) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
 	return "invalid", nil
 }
+
+type leaseOwnerProbeService struct {
+	client *discovery.Client
+	target gsr.ServiceRef
+}
+
+type leaseOwnerNameRequest struct {
+	lease discovery.NodeLease
+	name  gsr.ServiceName
+	ref   gsr.ServiceRef
+}
+
+func (*leaseOwnerProbeService) Commands() []gsr.CommandID { return []gsr.CommandID{1, 2} }
+func (s *leaseOwnerProbeService) Init(serviceContext gsr.ServiceContext) error {
+	client, err := discovery.NewClient(serviceContext, s.target)
+	if err != nil {
+		return err
+	}
+	s.client = client
+	return nil
+}
+func (s *leaseOwnerProbeService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID == 1 {
+		_, err := s.client.Heartbeat(context.Background(), command.Payload.(discovery.NodeLease))
+		return err
+	}
+	request := command.Payload.(leaseOwnerNameRequest)
+	return s.client.RegisterName(context.Background(), request.lease, request.name, request.ref)
+}
+func (*leaseOwnerProbeService) Stop(context.Context) error { return nil }
+func (*leaseOwnerProbeService) Close() error               { return nil }
 
 func (c *testClock) Now() time.Time {
 	c.mu.Lock()

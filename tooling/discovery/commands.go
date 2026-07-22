@@ -17,14 +17,15 @@ const (
 type errorCode string
 
 const (
-	errorNone         errorCode = ""
-	errorUnknown      errorCode = "unknown"
-	errorInvalidNode  errorCode = "invalid_node"
-	errorNodeNotFound errorCode = "node_not_found"
-	errorLeaseExpired errorCode = "lease_expired"
-	errorInvalidName  errorCode = "invalid_name"
-	errorNameNotFound errorCode = "name_not_found"
-	errorNameConflict errorCode = "name_conflict"
+	errorNone               errorCode = ""
+	errorUnknown            errorCode = "unknown"
+	errorInvalidNode        errorCode = "invalid_node"
+	errorNodeNotFound       errorCode = "node_not_found"
+	errorLeaseExpired       errorCode = "lease_expired"
+	errorLeaseOwnerMismatch errorCode = "lease_owner_mismatch"
+	errorInvalidName        errorCode = "invalid_name"
+	errorNameNotFound       errorCode = "name_not_found"
+	errorNameConflict       errorCode = "name_conflict"
 )
 
 type registerNodeRequest struct {
@@ -109,6 +110,8 @@ func errorFromCode(code errorCode) error {
 		return ErrNodeNotFound
 	case errorLeaseExpired:
 		return ErrLeaseExpired
+	case errorLeaseOwnerMismatch:
+		return ErrLeaseOwnerMismatch
 	case errorInvalidName:
 		return ErrInvalidName
 	case errorNameNotFound:
@@ -130,6 +133,8 @@ func codeFromError(err error) errorCode {
 		return errorNodeNotFound
 	case ErrLeaseExpired:
 		return errorLeaseExpired
+	case ErrLeaseOwnerMismatch:
+		return errorLeaseOwnerMismatch
 	case ErrInvalidName:
 		return errorInvalidName
 	case ErrNameNotFound:

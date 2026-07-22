@@ -11,8 +11,8 @@ import (
 
 func TestCodecRoundTripsDiscoveryRequestsAndReplies(t *testing.T) {
 	now := time.Date(2026, 7, 21, 15, 0, 0, 0, time.UTC)
-	lease := NodeLease{Node: "node-a", Generation: 7, ExpiresAt: now.Add(time.Minute)}
-	node := NodeRecord{ID: "node-a", Address: "127.0.0.1:9001", Generation: 7, LastSeen: now, ExpiresAt: now.Add(time.Minute)}
+	lease := NodeLease{Node: "node-a", AuthorityEpoch: 11, Generation: 7, ExpiresAt: now.Add(time.Minute)}
+	node := NodeRecord{ID: "node-a", Address: "127.0.0.1:9001", AuthorityEpoch: 11, Generation: 7, LastSeen: now, ExpiresAt: now.Add(time.Minute)}
 	ref := gsr.ServiceRef{Node: "node-a", ID: 10}
 	tests := []struct {
 		name     string
@@ -71,6 +71,13 @@ func TestCodecUsesStableWireFieldNames(t *testing.T) {
 	}
 	if got, want := string(payload), `{"ref":{"node":"node-a","id":10},"error":""}`; got != want {
 		t.Fatalf("resolve name JSON = %s, want %s", got, want)
+	}
+	payload, err = codec.Encode(commandHeartbeat, false, heartbeatRequest{Lease: NodeLease{Node: "node-a", AuthorityEpoch: 11, Generation: 7}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(payload), `{"lease":{"node":"node-a","authority_epoch":11,"generation":7,"expires_at":"0001-01-01T00:00:00Z"}}`; got != want {
+		t.Fatalf("heartbeat JSON = %s, want %s", got, want)
 	}
 }
 

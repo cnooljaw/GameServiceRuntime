@@ -167,7 +167,7 @@ func (c *Client) ResolveName(ctx context.Context, name gsr.ServiceName) (gsr.Ser
 }
 
 func validLease(lease NodeLease) bool {
-	return lease.Node != "" && lease.Generation != 0
+	return lease.Node != "" && lease.AuthorityEpoch != 0 && lease.Generation != 0
 }
 
 func validNameBinding(lease NodeLease, name gsr.ServiceName, ref gsr.ServiceRef) bool {

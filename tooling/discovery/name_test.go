@@ -48,17 +48,17 @@ func TestSameLeaseCanReplaceNameRef(t *testing.T) {
 }
 
 func TestOtherLeaseCannotReplaceName(t *testing.T) {
-	fixture := newDiscoveryFixture(t, discovery.Config{})
-	owner := registerNode(t, fixture.client, "node-a")
-	other := registerNode(t, fixture.client, "node-b")
-	want := gsr.ServiceRef{Node: "node-a", ID: 100}
-	if err := fixture.client.RegisterName(context.Background(), owner, ".config", want); err != nil {
+	fixture := newRemoteDiscoveryFixture(t)
+	owner := registerNode(t, fixture.local, "node-b")
+	other := registerNode(t, fixture.remote, "node-a")
+	want := gsr.ServiceRef{Node: "node-b", ID: 100}
+	if err := fixture.local.RegisterName(context.Background(), owner, ".config", want); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.client.RegisterName(context.Background(), other, ".config", gsr.ServiceRef{Node: "node-b", ID: 200}); !errors.Is(err, discovery.ErrNameConflict) {
+	if err := fixture.remote.RegisterName(context.Background(), other, ".config", gsr.ServiceRef{Node: "node-a", ID: 200}); !errors.Is(err, discovery.ErrNameConflict) {
 		t.Fatalf("RegisterName error = %v, want ErrNameConflict", err)
 	}
-	got, err := fixture.client.ResolveName(context.Background(), ".config")
+	got, err := fixture.remote.ResolveName(context.Background(), ".config")
 	if err != nil {
 		t.Fatal(err)
 	}

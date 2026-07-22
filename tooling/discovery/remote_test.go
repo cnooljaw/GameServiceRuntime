@@ -13,20 +13,24 @@ import (
 
 func TestRemoteDiscoveryRegisterHeartbeatAndResolveName(t *testing.T) {
 	fixture := newRemoteDiscoveryFixture(t)
-	lease, err := fixture.local.RegisterNode(context.Background(), "node-b", fixture.transportB.Address())
+	leaseB, err := fixture.local.RegisterNode(context.Background(), "node-b", fixture.transportB.Address())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.local.RegisterName(context.Background(), lease, ".config", fixture.configRef); err != nil {
+	if err := fixture.local.RegisterName(context.Background(), leaseB, ".config", fixture.configRef); err != nil {
+		t.Fatal(err)
+	}
+	leaseA, err := fixture.remote.RegisterNode(context.Background(), "node-a", fixture.transportA.Address())
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	renewed, err := fixture.remote.Heartbeat(context.Background(), lease)
+	renewed, err := fixture.remote.Heartbeat(context.Background(), leaseA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if renewed.Node != lease.Node || renewed.Generation != lease.Generation {
-		t.Fatalf("renewed lease = %#v, want generation %#v", renewed, lease)
+	if renewed.Node != leaseA.Node || renewed.AuthorityEpoch != leaseA.AuthorityEpoch || renewed.Generation != leaseA.Generation {
+		t.Fatalf("renewed lease = %#v, want identity %#v", renewed, leaseA)
 	}
 	resolved, err := fixture.remote.ResolveName(context.Background(), ".config")
 	if err != nil {

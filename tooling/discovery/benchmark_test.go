@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkResolveName(b *testing.B) {
-	runtime := gsr.NewRuntime(gsr.Config{NodeID: "discovery-node", Workers: 2})
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Workers: 2})
 	b.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	service, err := NewService(Config{LeaseTTL: time.Hour, SweepInterval: time.Hour})
 	if err != nil {
@@ -43,12 +43,15 @@ func BenchmarkResolveName(b *testing.B) {
 
 func BenchmarkPruneExpiredTenThousandNames(b *testing.B) {
 	now := time.Date(2026, 7, 21, 16, 0, 0, 0, time.UTC)
-	owner := leaseKey{node: "node-a", generation: 1}
+	owner := leaseKey{node: "node-a", authorityEpoch: 1, generation: 1}
 	b.ReportAllocs()
 	for iteration := 0; iteration < b.N; iteration++ {
 		b.StopTimer()
 		service := &service{
-			nodes:        map[gsr.NodeID]NodeRecord{"node-a": {ID: "node-a", Generation: 1, ExpiresAt: now.Add(-time.Second)}},
+			authorityEpoch: 1,
+			nodes: map[gsr.NodeID]nodeRegistration{
+				"node-a": {record: NodeRecord{ID: "node-a", AuthorityEpoch: 1, Generation: 1, ExpiresAt: now.Add(-time.Second)}, owner: gsr.ServiceRef{Node: "node-a"}},
+			},
 			names:        make(map[gsr.ServiceName]nameBinding, 10_000),
 			namesByLease: map[leaseKey]map[gsr.ServiceName]struct{}{owner: make(map[gsr.ServiceName]struct{}, 10_000)},
 		}

@@ -11,6 +11,8 @@ var (
 	ErrNodeNotFound = errors.New("discovery: node not found")
 	// ErrLeaseExpired indicates that a node lease is absent, expired, or superseded.
 	ErrLeaseExpired = errors.New("discovery: lease expired")
+	// ErrLeaseOwnerMismatch indicates that a Command source does not own the lease.
+	ErrLeaseOwnerMismatch = errors.New("discovery: lease owner mismatch")
 	// ErrInvalidName indicates an invalid long-lived ServiceName binding.
 	ErrInvalidName = errors.New("discovery: invalid service name")
 	// ErrNameNotFound indicates that no active long-lived ServiceName binding exists.
