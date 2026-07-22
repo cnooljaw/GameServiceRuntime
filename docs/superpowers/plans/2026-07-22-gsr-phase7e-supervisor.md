@@ -71,7 +71,7 @@ git commit -m "docs(supervisor): 冻结故障恢复契约"
 - Create: `tooling/supervisor/decorator_test.go`
 - Create: `tooling/supervisor/validation_test.go`
 
-- [ ] **Step 1: 写 Decorator 失败测试**
+- [x] **Step 1: 写 Decorator 失败测试**
 
 至少覆盖：
 
@@ -84,17 +84,17 @@ func TestDecoratorRejectsInvalidConfigAndSupervisorSelfReference(t *testing.T)
 
 使用真实 Runtime 验证通知 Envelope Source 等于失败 Service 自身；使用捕获 `ServiceContext` 或小型 fake 验证发送失败指标与日志。正常 `Handle` error 和 Reply 不得转成 FailureNotice。
 
-- [ ] **Step 2: 写模型与策略失败测试**
+- [x] **Step 2: 写模型与策略失败测试**
 
 验证空白/非法 UTF-8 Key、零 Ref、未知策略、非恢复策略携带限制、`MaxBackoff < MinBackoff`、nil/dynamic-nil Service。
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `go test ./tooling/supervisor -run '^Test(Decorator|Validate)' -count=1`
 
 Expected: package 或符号尚不存在，测试失败。
 
-- [ ] **Step 4: 写最小实现**
+- [x] **Step 4: 写最小实现**
 
 Decorator 的核心 defer：
 
@@ -119,7 +119,7 @@ defer func() {
 
 `Commands()` 返回独立副本；`Init` 拒绝 `Self()==Supervisor` 后再委托；`Stop` 和 `Close` 只委托，不产生通知。
 
-- [ ] **Step 5: 重复测试并提交**
+- [x] **Step 5: 重复测试并提交**
 
 Run:
 
