@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7D Snapshot，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor 和 Snapshot Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7E Supervisor，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot 和 Supervisor Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -23,8 +23,10 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 远程 Call 成功、失败结果指标。
 - 通过 Capture Command 串行采集、由目标 Service 确认稳定 Key 的版本化业务状态快照。
 - 带 Revision 冲突保护和 canonical 返回值的内存 Store、可组合 Cluster Codec 和组合根受限恢复。
+- Handler panic 的不可变失败通知、稳定 Key/Generation fencing 和 typed Supervisor 状态查询。
+- 有界恢复 Runner、尝试/窗口/退避策略，以及 Prepare/Commit/Abort 两阶段新实例发布。
 
-Supervisor、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+客户端入口、远程 NodeAgent、Login/Gateway、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -81,4 +83,14 @@ go run ./examples/snapshot-runtime
 
 Key、Schema 和 Cluster JSON 必须是合法 UTF-8；nil Payload 会被拒绝，空状态使用非 nil 空切片。
 
-Snapshot 不给运行中 Service 增加 `Snapshot()` 或 `Restore()` 旁路，也不替代数据库持久化、Wallet 账本或 Command Record。当前只提供内存 Store；数据库、对象存储、加密、压缩和自动恢复不在 Phase 7D 范围。
+Snapshot 不给运行中 Service 增加 `Snapshot()` 或 `Restore()` 旁路，也不替代数据库持久化、Wallet 账本或 Command Record。当前只提供内存 Store；数据库、对象存储、加密和压缩不在 Phase 7D 范围。Snapshot 包本身不触发恢复，Phase 7E Supervisor 只把已提交 Snapshot 作为可选的新实例构造输入。
+
+## Supervisor 示例
+
+```bash
+go run ./examples/supervisor-runtime
+```
+
+示例先提交 revision 2 的 Snapshot，再让旧实例 Handler panic。Decorator 发送失败事实并重新 panic；Core 清理旧实例，Runner 在 Service 外加载 Snapshot，Prepare 新实例，Supervisor 登记 Generation 2 后再发布绑定。预期输出类似：`old=2 new=3 generation=1->2 revision=2 value=2`。
+
+Supervisor 不恢复旧对象，不在 panic 后抓取状态。失败通知投递是 panic 路径中的单次非阻塞 Send；Mailbox 满或 Supervisor 不可用时记录指标和日志，Core 仍隔离旧实例，但自动恢复不保证发生。Runner、Snapshot Factory 和名字 Publisher 都由组合根持有，普通业务 Service 不获取 Runtime 指针、不访问 Store、不创建 goroutine。

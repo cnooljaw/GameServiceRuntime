@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Supervisor
+
+- 新增 `tooling/supervisor`，Decorator 在 Handler panic 时发送不含 panic value、堆栈或业务状态的不可变失败通知，并重新 panic 交给 Core 隔离。
+- Supervisor Service 通过 Command Source、稳定 `ServiceKey`、`ServiceRef` 和 Generation 校验通知；重复或迟到通知不会触发第二次决策。
+- 新增 `RestartNever`、`DestroyOnFailure` 和 `RestartOnFailure`，分别限制单次故障尝试、窗口内成功重启和指数退避。
+- 新增组合根持有的有界 Runner；固定 worker 执行退避、Snapshot/Store I/O、创建和结果重试，Service Handler 不阻塞也不创建 goroutine。
+- 新增两阶段 RuntimeLauncher：Prepare 未发布实例，Supervisor 登记新 Ref/Generation 后 Commit 长期绑定；失败、迟到或部分 Prepare 结果统一 Abort。
+- Publish 与 committed 之间再次 panic 时会 fencing 已对外运行的 Generation，迟到结果不能覆盖后续恢复。
+- 新增 typed Client、八类 Core Metrics、Snapshot 端到端恢复示例，以及 Snapshot 缺失、连续创建失败、发布歧义、Abort 和关闭真实返回测试。
+
 ### Snapshot
 
 - 新增 `tooling/snapshot`，通过稳定 `CaptureCommand` 在目标 Service 的串行 Handler 中生成版本化 State。
@@ -17,8 +27,10 @@
 ### 限制
 
 - 不修改 Core `Service` 接口，不支持对运行中实例原地 Restore。
-- 当前只提供内存 Store，不提供数据库、对象存储、压缩、加密、增量快照或自动恢复。
-- Supervisor 已拆为独立 Phase 7E；失败通知、launcher 和退避任务 owner 尚未裁决。
+- 当前只提供内存 Snapshot Store，不提供数据库、对象存储、压缩、加密或增量快照。
+- Supervisor 只处理同节点 Handler panic，不提供跨进程恢复、持久故障队列、完整 Supervisor Tree 或远程 Codec。
+- 失败通知投递是单次非阻塞 Send；投递失败有指标和日志，但不保证自动恢复。
+- 长期名字通过调用方提供的 `BindingPublisher` 发布；Supervisor 不强制依赖 Discovery。
 
 ## v0.3.0 - 2026-07-22
 

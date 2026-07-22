@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor 和 Phase 7D Snapshot 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。Supervisor 独立为 Phase 7E，下一步先裁决失败通知、launcher、退避任务 owner 和长期名字发布失败。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot 和 Phase 7E Supervisor 已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。下一阶段是 Phase 7F 客户端入口，实施前先冻结会话代际、proof 线格式以及 Login Adapter 与 LoginService 的失败交接。
 
 ## P1：Core API 冻结前完成
 
@@ -62,4 +62,5 @@ go run ./examples/cluster-runtime
 go run ./examples/discovery-runtime
 go run ./examples/monitor-runtime
 go run ./examples/snapshot-runtime
+go run ./examples/supervisor-runtime
 ```
