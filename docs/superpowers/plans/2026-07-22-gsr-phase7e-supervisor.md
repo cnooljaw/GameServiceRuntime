@@ -205,7 +205,7 @@ git commit -m "feat(supervisor): 实现有界恢复决策"
 - Create: `tooling/supervisor/runner_test.go`
 - Create: `tooling/supervisor/launcher_test.go`
 
-- [ ] **Step 1: 写 Runner 失败测试**
+- [x] **Step 1: 写 Runner 失败测试**
 
 覆盖：固定 worker、非阻塞有界 Submit、队列满、退避取消、AttemptTimeout、prepared/commit 次序、Mailbox full 结果重试、迟到 prepared/commit 自动 Abort、Close 等待真实返回、重复 Close 和 dynamic-nil seam。
 
@@ -219,27 +219,27 @@ func TestRunnerQueueIsBoundedAndSubmitDoesNotBlock(t *testing.T)
 func TestRunnerCloseTimeoutKeepsWaitingForRealLauncherReturn(t *testing.T)
 ```
 
-- [ ] **Step 2: 写 Runtime launcher 失败测试**
+- [x] **Step 2: 写 Runtime launcher 失败测试**
 
 覆盖 Factory error、Snapshot-not-found 分类、Factory 返回命名 ServiceSpec、Decorator 装配、CreateService error、Publish/Withdraw/Stop 次序、Abort 幂等和错误汇总。
 
-- [ ] **Step 3: 运行并确认失败**
+- [x] **Step 3: 运行并确认失败**
 
 Run: `go test ./tooling/supervisor -run '^Test(Runner|RuntimeLauncher)' -count=1`
 
 Expected: Runner 和 launcher 尚不存在，测试失败。
 
-- [ ] **Step 4: 实现 Runner**
+- [x] **Step 4: 实现 Runner**
 
 `NewRunner` 启动固定 worker；`Submit` 使用带 default 的 channel send；worker 用可取消 Timer 等待 Delay。每次 launcher 调用使用 `AttemptTimeout`，prepared/committed/failed 通过 Call 获取业务确认。只有 `ErrMailboxFull` 可按配置重试；Target/Runtime 关闭立即停止。
 
 `Close(ctx)` 第一次只触发 cancel，不关闭任务 channel，避免并发 Submit 的 send-on-closed；所有调用等待同一个 `done`。ctx 到期返回 cause，worker 真实退出后关闭 `done`，后续调用取得最终结果。
 
-- [ ] **Step 5: 实现 Runtime launcher**
+- [x] **Step 5: 实现 Runtime launcher**
 
 Prepare：Factory Build → 拒绝非空 Name → Decorate → `CreateService`。Commit：可选 Publisher.Publish。Abort：可选 Publisher.Withdraw 后 `Runtime.Stop`；`ErrServiceClosed` 和 `ErrServiceNotFound` 作为已停止收敛处理，其它错误汇总为 `ErrAbortFailed`。
 
-- [ ] **Step 6: 重复、Race 和泄漏测试**
+- [x] **Step 6: 重复、Race 和泄漏测试**
 
 Run:
 
@@ -250,7 +250,7 @@ go test -race ./tooling/supervisor -run '^Test(Runner|RuntimeLauncher)' -count=2
 
 Expected: PASS；队列、worker、Timer 和阻塞 launcher 测试无 Race、无 goroutine 数持续增长。
 
-- [ ] **Step 7: 提交执行层**
+- [x] **Step 7: 提交执行层**
 
 ```bash
 git add tooling/supervisor/runner.go tooling/supervisor/launcher.go tooling/supervisor/runner_test.go tooling/supervisor/launcher_test.go

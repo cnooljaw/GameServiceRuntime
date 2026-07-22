@@ -179,6 +179,11 @@ func (s *service) handleFailure(source gsr.ServiceRef, notice FailureNotice) err
 }
 
 func (s *service) recoveryStarted(source gsr.ServiceRef, task RecoveryTask) error {
+	if source == runtimeRoot(s.context.Self().Node) {
+		if entry := s.entries[task.Key]; entry != nil && entry.activeTask == task && entry.status == ServicePreparing {
+			return nil
+		}
+	}
 	entry, err := s.activeEntry(source, task, ServiceBackoff)
 	if err != nil {
 		return err
@@ -188,6 +193,11 @@ func (s *service) recoveryStarted(source gsr.ServiceRef, task RecoveryTask) erro
 }
 
 func (s *service) recoveryPrepared(source gsr.ServiceRef, request recoveryPreparedRequest) error {
+	if source == runtimeRoot(s.context.Self().Node) {
+		if entry := s.entries[request.Task.Key]; entry != nil && entry.activeTask == request.Task && entry.status == ServicePublishing && entry.preparedRef == request.Ref {
+			return nil
+		}
+	}
 	entry, err := s.activeEntry(source, request.Task, ServicePreparing)
 	if err != nil {
 		return err
@@ -201,6 +211,11 @@ func (s *service) recoveryPrepared(source gsr.ServiceRef, request recoveryPrepar
 }
 
 func (s *service) recoveryCommitted(source gsr.ServiceRef, request recoveryCommittedRequest) error {
+	if source == runtimeRoot(s.context.Self().Node) {
+		if entry := s.entries[request.Task.Key]; entry != nil && entry.activeTask == request.Task && entry.status == ServiceRunning && entry.registration.Generation == request.Task.Generation && entry.registration.Ref == request.Ref {
+			return nil
+		}
+	}
 	entry, err := s.activeEntry(source, request.Task, ServicePublishing)
 	if err != nil || entry.preparedRef != request.Ref {
 		return ErrStaleRecovery

@@ -8,6 +8,27 @@ import (
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
+func validateRunnerConfig(config RunnerConfig) error {
+	if config.Workers < 1 || config.QueueSize < 1 || config.AttemptTimeout <= 0 || config.ResultTimeout <= 0 || config.ResultRetryInterval <= 0 || (config.Logger != nil && isNil(config.Logger)) {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateRecoveryTask(task RecoveryTask) error {
+	if validateConcreteRef(task.Supervisor) != nil || validateServiceKey(task.Key) != nil || validateConcreteRef(task.FailedRef) != nil || task.FailedRef.Node != task.Supervisor.Node || task.Generation == 0 || task.Attempt == 0 || task.Delay < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateLaunchRequest(request LaunchRequest) error {
+	if validateConcreteRef(request.Supervisor) != nil || validateServiceKey(request.Key) != nil || validateConcreteRef(request.FailedRef) != nil || request.FailedRef.Node != request.Supervisor.Node || request.Generation == 0 || request.Attempt == 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
 func validateRegistration(registration Registration) error {
 	if err := validateServiceKey(registration.Key); err != nil {
 		return err
