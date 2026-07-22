@@ -452,7 +452,7 @@ git commit -m "feat(snapshot): 增加组合根受限恢复示例"
 - 失败轴：Call、Codec、Store、过期 Revision、冲突和旧 Ref 都有稳定结果。
 - 热路径轴：Core Send/Call/Timer 无修改；Store IO 不在目标 Handler。
 
-Review 结果：0 个 P1；发现 3 个 P2 并全部修复。P2 分别是公开 `MemoryStore` 零值写入 nil map、默认 1 MiB 上限缺少边界测试、RFC 对 Key/Schema 首尾空白的表述不够精确。修复后 Standards 轴和 Spec 轴均无遗留发现。
+当时 Review 结果：0 个 P1；发现 3 个 P2 并全部修复。P2 分别是公开 `MemoryStore` 零值写入 nil map、默认 1 MiB 上限缺少边界测试、RFC 对 Key/Schema 首尾空白的表述不够精确。2026-07-22 的后续独立 Review 又发现 Key owner、canonical Save、nil Payload、UTF-8 和 RFC 元数据问题，修复工作见 [Snapshot Contract Fixes](2026-07-22-gsr-phase7d-snapshot-contract-fixes.md)。
 
 - [x] **Step 4: 执行完整质量门禁**
 
@@ -511,4 +511,4 @@ git commit -m "docs(snapshot): 完成 Phase 7D 验收"
 - `go test ./... -count=1`、`go vet ./...`、`go test -race ./... -count=1` 通过。
 - `go test ./tooling/snapshot -count=100` 通过。
 - local、cluster、discovery、monitor 和 snapshot 示例全部通过；Snapshot 输出 `2`。
-- 双轴 Review 最终为 0 个 Standards 遗留、0 个 Spec 遗留。
+- 首轮双轴 Review 当时记录为 0 个 Standards 遗留、0 个 Spec 遗留；后续独立 Review 已重新打开验收，不能把该记录视为当前结论。
