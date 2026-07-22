@@ -102,12 +102,22 @@ func TestRemoteCallRecordsOneResultMetric(t *testing.T) {
 	if _, err := nodeA.Call(context.Background(), gsr.ServiceRef{Node: "missing-node", ID: 1}, 1, nil); !errors.Is(err, gsr.ErrRemoteUnavailable) {
 		t.Fatalf("unavailable remote Call error = %v, want ErrRemoteUnavailable", err)
 	}
+	blocking := &clusterBlockingReplyService{started: make(chan struct{}), release: make(chan struct{})}
+	blockingRef := createClusterService(t, nodeB, blocking)
+	timeoutContext, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	if _, err := nodeA.Call(timeoutContext, blockingRef, 1, nil); !errors.Is(err, gsr.ErrTimeout) {
+		cancel()
+		close(blocking.release)
+		t.Fatalf("timed out remote Call error = %v, want ErrTimeout", err)
+	}
+	cancel()
+	close(blocking.release)
 	metrics = nodeA.Inspect().Metrics
 	if got := metrics.Counter("remote_calls_succeeded_total"); got != 1 {
 		t.Fatalf("remote_calls_succeeded_total after failures = %d, want 1", got)
 	}
-	if got := metrics.Counter("remote_calls_failed_total"); got != 2 {
-		t.Fatalf("remote_calls_failed_total = %d, want 2", got)
+	if got := metrics.Counter("remote_calls_failed_total"); got != 3 {
+		t.Fatalf("remote_calls_failed_total = %d, want 3", got)
 	}
 }
 

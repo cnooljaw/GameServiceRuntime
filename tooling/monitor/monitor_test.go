@@ -75,6 +75,15 @@ func TestCaptureConvertsRuntimeInspection(t *testing.T) {
 	if report.Metrics.Counters == nil || report.Metrics.Gauges == nil || report.Metrics.DurationsNanos == nil {
 		t.Fatal("Capture returned nil metric maps")
 	}
+	report.Services[0].Name = "changed"
+	report.Tasks[0].Kind = "changed"
+	second := monitor.Capture()
+	if second.Services[0].Name != "lobby" || second.Tasks[0].Kind != "dispatch" {
+		t.Fatalf("second report reused mutable slices: %#v", second)
+	}
+	if inspector.calls != 2 {
+		t.Fatalf("Inspect calls after second Capture = %d, want 2", inspector.calls)
+	}
 }
 
 func TestCaptureUsesStableStatusStrings(t *testing.T) {

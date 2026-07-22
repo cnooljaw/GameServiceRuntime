@@ -34,6 +34,44 @@ func TestWriteJSONUsesStableFieldsAndNonNilEmptyCollections(t *testing.T) {
 	}
 }
 
+func TestWriteJSONUsesStableNestedFields(t *testing.T) {
+	capturedAt := time.Date(2026, 7, 22, 10, 30, 0, 0, time.UTC)
+	inspector := &stubInspector{inspection: gsr.RuntimeInspection{
+		CapturedAt: capturedAt,
+		Node:       "node-a",
+		Status:     gsr.RuntimeClosing,
+		Services: []gsr.ServiceInspection{{
+			Ref:          gsr.ServiceRef{Node: "node-a", ID: 7},
+			Name:         "lobby",
+			Status:       gsr.ServiceStopping,
+			MailboxDepth: 3,
+		}},
+		Tasks: []gsr.RuntimeTaskInspection{{
+			ID:        11,
+			Owner:     gsr.ServiceRef{Node: "node-a", ID: 7},
+			Kind:      gsr.RuntimeTaskStop,
+			StartedAt: capturedAt.Add(-time.Minute),
+			TimedOut:  true,
+		}},
+		PendingCalls: 2,
+		Timers:       5,
+	}}
+	monitor, err := New(inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+
+	if err := monitor.WriteJSON(&output); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "{\"captured_at\":\"2026-07-22T10:30:00Z\",\"node\":\"node-a\",\"status\":\"closing\",\"service_count\":1,\"services\":[{\"ref\":{\"node\":\"node-a\",\"id\":7},\"name\":\"lobby\",\"status\":\"stopping\",\"mailbox_depth\":3}],\"task_count\":1,\"tasks\":[{\"id\":11,\"owner\":{\"node\":\"node-a\",\"id\":7},\"kind\":\"stop\",\"started_at\":\"2026-07-22T10:29:00Z\",\"timed_out\":true}],\"pending_calls\":2,\"timers\":5,\"metrics\":{\"counters\":{},\"gauges\":{},\"durations_ns\":{}}}\n"
+	if got := output.String(); got != want {
+		t.Fatalf("JSON = %s, want %s", got, want)
+	}
+}
+
 func TestWriteJSONRejectsNilWriter(t *testing.T) {
 	monitor, err := New(&stubInspector{})
 	if err != nil {
