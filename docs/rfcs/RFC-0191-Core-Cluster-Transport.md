@@ -71,6 +71,8 @@ type ClusterCodec interface {
 
 Runtime 可以从多个调用方和 Transport 读循环并发调用同一个 Codec，`ClusterCodec` 实现必须支持并发调用。Codec panic 视为实现错误；生产实现应返回 error，不能依赖 panic 表达普通解码失败。
 
+节点级 Core bootstrap Command 不属于业务 payload。Runtime 使用私有、受限的二进制格式编码名字查询和 ServiceID 响应，不调用 `ClusterCodec`；Transport 仍然只搬运 `WireEnvelope`。
+
 ## Transport 与 Protocol 的边界
 
 GSR 不引入 Skynet 风格的 `PTYPE_LUA`、`PTYPE_SOCKET`、`PTYPE_HARBOR`。

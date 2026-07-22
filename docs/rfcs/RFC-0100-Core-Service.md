@@ -42,6 +42,22 @@ type CommandDeclarer interface {
 }
 ```
 
+## CommandContext
+
+`CommandContext` 暴露当前 Command 的目标、来源和 Reply 能力：
+
+```go
+type CommandContext interface {
+    Self() ServiceRef
+    Source() ServiceRef
+    Reply(any) error
+}
+```
+
+`Source` 是消息来源地址，不是认证凭据。Service 用它维护调用归属、租约 owner、审计和错误状态约束。Skynet dispatch 同样把 `source` 交给 Service handler。
+
+Runtime 外部调用者统一表示为 `{Node: localNode, ID: 0}`。本地 Send、Call 与跨节点 Send、Call 必须使用相同表示；Service 发起的消息使用该 Service 自己的 `ServiceRef`。
+
 后续可选能力：
 
 ```go
@@ -105,6 +121,7 @@ type ServiceInstance struct {
 5. `Init`、`Handle`、`Stop`、`Close` 中的 panic 都必须由 Runtime 捕获；第一版标记 `Failed` 并隔离实例，后续交给 Supervisor 决定恢复策略。
 6. Service 必须通过 `CommandDeclarer` 声明可接收的 CommandID。
 7. Service 不得同步 Call 自己，Runtime 返回 `ErrCallCycle`。
+8. Runtime 必须向 Handler 提供准确的 Command Source，本地与远程不能使用不同的零值约定。
 
 ## 反模式
 

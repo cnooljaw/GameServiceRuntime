@@ -8,7 +8,7 @@
 
 本文定义 GSR 的活动节点发现和长期 `ServiceName` 解析。
 
-Discovery 是 Runtime Tooling，不进入 Core Runtime。Core 仍然只理解 `NodeID`、`ServiceRef`、`Command` 和本地 `Runtime.Resolve`。
+Discovery 是 Runtime Tooling，不进入 Core Runtime。Core 只提供通用的 `NodeID`、`ServiceRef`、`Command`、本地 `Runtime.Resolve` 和节点级 `Runtime.ResolveRemote`；Core 不理解租约或 Discovery 名字表。
 
 ## 第一版范围
 
@@ -56,9 +56,24 @@ Business / Tooling caller
 远程调用方必须从部署配置获得：
 
 - Discovery 所在 `NodeID` 和 TCP 地址。
-- Discovery 的 `ServiceRef`。
+- Discovery 的稳定本地名字 `.discovery`。
 
-Discovery 不能反过来发现自己。`DefaultServiceName = ".discovery"` 只用于所在 Runtime 的本地 `Resolve`，不能替代远程启动配置。
+调用方先建立到已知节点的 Cluster 连接，再调用：
+
+```go
+discoveryRef, err := runtime.ResolveRemote(ctx, discoveryNode, discovery.DefaultServiceName)
+```
+
+`ResolveRemote` 只查询已知节点的本地 Registry，对应 Skynet `cluster.query(node, name)` 的启动职责。取得 `ServiceRef` 后，节点和全局名字发现全部通过 `discovery.Client` 完成。部署配置不得依赖 Runtime 动态分配的 ServiceID。
+
+## 信任与状态边界
+
+GSR 当前信任集群节点，但不信任错误的程序状态：
+
+- 不增加 TLS、mTLS、签名租约、ACL 或零信任授权。
+- Transport 继续在可信网络内绑定 Envelope Source.Node 与握手 peer。
+- Discovery 使用 `CommandContext.Source()` 约束注册来源和租约 owner，防止节点代码误操作其它节点状态。
+- `NodeLease` 是状态 fencing，不是认证或安全令牌。
 
 Discovery Command 不提供节点身份认证或授权，只允许运行在 `RFC-0191` 定义的可信集群网络。管理面认证留到 Phase 8。
 
@@ -66,30 +81,35 @@ Discovery Command 不提供节点身份认证或授权，只允许运行在 `RFC
 
 ```go
 type NodeLease struct {
-    Node       NodeID
-    Generation uint64
-    ExpiresAt  time.Time
+    Node           NodeID
+    AuthorityEpoch uint64
+    Generation     uint64
+    ExpiresAt      time.Time
 }
 
 type NodeRecord struct {
-    ID         NodeID
-    Address    string
-    Generation uint64
-    LastSeen   time.Time
-    ExpiresAt  time.Time
+    ID             NodeID
+    Address        string
+    AuthorityEpoch uint64
+    Generation     uint64
+    LastSeen       time.Time
+    ExpiresAt      time.Time
 }
 ```
 
 租约规则：
 
-1. `RegisterNode` 为该 `NodeID` 创建非零新 Generation。
-2. 同一 `NodeID` 再注册时，旧 Generation 立即失效，其拥有的长期名字一并删除。
-3. `Heartbeat` 只有在 NodeID 和 Generation 都匹配时才能续期。
-4. `NodeLease` 的身份由 NodeID 和 Generation 决定；`ExpiresAt` 只用于调用方观测。
-5. `NodeLease` 用于阻止旧进程覆盖新注册，不是认证或安全令牌。
-6. 查询只返回未过期节点。
-7. `ListNodes` 按 `NodeID` 排序并返回独立副本。
-8. 节点注销、过期或被新 Generation 替换时，删除它拥有的全部名字。
+1. `DiscoveryService` 启动时生成非零 `AuthorityEpoch`；它用于 authority incarnation 唯一性，不是密钥。
+2. `RegisterNode` 要求 `CommandContext.Source().Node == NodeID`，并把完整 Source 记录为私有 `LeaseOwner`。
+3. `RegisterNode` 为该 `NodeID` 创建非零新 Generation；Generation 只在当前 AuthorityEpoch 内递增。
+4. 同一 `NodeID` 再注册时，旧租约立即失效，其拥有的长期名字一并删除。
+5. `Heartbeat`、`UnregisterNode` 和名字写操作必须同时匹配 NodeID、AuthorityEpoch、Generation 和 LeaseOwner。
+6. owner 不匹配返回 `ErrLeaseOwnerMismatch`；代际或 epoch 不匹配返回 `ErrLeaseExpired`。
+7. `ExpiresAt` 只用于调用方观测，不参与租约身份比较。
+8. authority 重启后 Epoch 改变，重启前的全部租约确定性失效。
+9. 查询只返回未过期节点。
+10. `ListNodes` 按 `NodeID` 排序并返回独立副本。
+11. 节点注销、过期或被新租约替换时，删除它拥有的全部名字。
 
 Phase 7B 由部署编排代码调用 `RegisterNode` 和 `Heartbeat`。自动续租的 NodeAgent 留到 Phase 8；不能用 Service 裸 goroutine 维持租约。
 
@@ -112,11 +132,12 @@ Battle、单局 Room 等临时 Service 不进入 Discovery，仍然直接传递 
 
 1. 注册必须携带当前有效 `NodeLease`。
 2. `ServiceRef.Node` 必须等于租约节点。
-3. 同一租约可以把名字更新到同节点的新 `ServiceRef`。
-4. 其它活动租约注册同名 Service 返回 `ErrNameConflict`。
-5. 注销必须同时匹配租约、名称和当前 `ServiceRef`，避免迟到注销删除新实例。
-6. 解析只返回仍由有效租约拥有的 `ServiceRef`。
-7. `Runtime.Resolve` 继续只解析本地 `ServiceSpec.Name`；全局解析使用 `discovery.Client.ResolveName`。
+3. Command Source 必须匹配租约的私有 LeaseOwner。
+4. 同一租约可以把名字更新到同节点的新 `ServiceRef`。
+5. 其它活动租约注册同名 Service 返回 `ErrNameConflict`。
+6. 注销必须同时匹配租约、owner、名称和当前 `ServiceRef`，避免迟到注销删除新实例。
+7. 解析只返回仍由有效租约拥有的 `ServiceRef`。
+8. `Runtime.Resolve` 和 `Runtime.ResolveRemote` 只解析目标节点本地名字；全局解析使用 `discovery.Client.ResolveName`。
 
 ## 公开 API
 
@@ -159,6 +180,7 @@ ErrInvalidConfig
 ErrInvalidNode
 ErrNodeNotFound
 ErrLeaseExpired
+ErrLeaseOwnerMismatch
 ErrInvalidName
 ErrNameNotFound
 ErrNameConflict
@@ -167,6 +189,10 @@ ErrUnsupportedCommand
 ```
 
 Discovery 领域错误通过类型化 Reply 返回，由 `Client` 还原为包内稳定错误。Core Runtime 不得导入或注册 Tooling 错误。
+
+只有明确的 Discovery 领域错误可以写入 Reply。Timer、Runtime、生命周期和其它基础设施错误必须直接从 Handler 返回，由 Core 保留本地或远程错误语义，不能转换为 `ErrInvalidResponse`。
+
+Client 在 `Error` 为空后必须校验成功数据：Lease、NodeRecord、ServiceRef 和节点列表元素都要满足非零身份及结构不变量。类型正确但数据无效的响应返回 `ErrInvalidResponse`。
 
 ## CommandID
 
@@ -197,6 +223,7 @@ Discovery CommandID 固定为：
 - 无 fallback 时遇到其它 Command 返回 `ErrUnsupportedCommand`。
 - 内部 `SweepExpired` 不允许远程编解码。
 - 线格式字段使用固定的 `snake_case` 名称，不直接依赖 Go 结构体字段名。
+- Lease 和 NodeRecord 线格式包含非零 `authority_epoch`。
 - 解码忽略未知字段，以允许只增加字段的滚动升级；格式错误或尾随第二个 JSON 值仍返回 `ErrInvalidResponse`。
 - Codec 只处理 payload，不接触 TCP、连接或 `WireEnvelope`。
 
@@ -231,16 +258,23 @@ ServiceGroup 保存多个同职责 Service 的版本化集合，属于独立扩�
 8. Timer 只能投递 `SweepExpired` Command。
 9. 返回的节点列表必须排序并与内部状态隔离。
 10. 节点失效时必须清理其拥有的所有名字。
+11. 租约写操作必须匹配 Command Source 和私有 LeaseOwner。
+12. authority 重启必须使旧 Epoch 的租约失效。
+13. Discovery bootstrap 不依赖动态 ServiceID。
+14. 基础设施错误不得降级为 Discovery 响应格式错误。
 
 ## 验收
 
 必须覆盖：
 
 - 节点注册、续租、过期、注销和同 NodeID 新 Generation 替换。
+- Command Source、LeaseOwner 不匹配拒绝和 authority 重启后的旧租约拒绝。
 - 节点列表稳定排序和副本语义。
 - 长期名字注册、同租约替换、冲突、精确注销和随租约清理。
 - 本地与双节点 TCP 调用。
 - Discovery Codec 的类型保持、fallback 和内部 Command 拒绝。
 - 领域错误经过远程调用后仍可用 `errors.Is` 判断。
+- 仅凭目标 NodeID、静态 peer 地址和 `.discovery` 完成远程 bootstrap。
+- 基础设施错误保持 Core 错误，成功响应拒绝无效零值。
 - Service 无 goroutine，Sweep 只通过 Timer Command 运行。
 - 全量测试、`go vet` 和 Race Detector。

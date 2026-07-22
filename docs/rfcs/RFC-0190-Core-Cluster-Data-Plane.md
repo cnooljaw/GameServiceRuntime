@@ -103,7 +103,26 @@ if ref.Node == localNode {
 }
 ```
 
-`ServiceID(0)` 保留为节点内 Runtime caller。进程外部直接调用 `Runtime.Call` 时，远程 Envelope 的 Source 使用 `{Node: localNode, ID: 0}`；Service 发起调用时仍使用该 Service 自己的 `ServiceRef`。
+`ServiceID(0)` 保留为节点内 Runtime caller 和节点级 Core endpoint。进程外部直接调用 `Runtime.Send` 或 `Runtime.Call` 时，Envelope 的 Source 使用 `{Node: localNode, ID: 0}`；Service 发起调用时仍使用该 Service 自己的 `ServiceRef`。
+
+## 节点级名字查询
+
+部署配置先提供目标 `NodeID` 和 Transport 地址，再通过稳定本地名字取得动态 ServiceRef：
+
+```go
+ref, err := runtime.ResolveRemote(ctx, node, ".discovery")
+```
+
+这对应 Skynet `cluster.query(node, name)` 的启动职责。实现规则：
+
+1. 请求和响应继续使用 `WireEnvelope`、Session、PendingCall 和 Call 错误语义。
+2. Target 和 responder 使用 `{Node, ID: 0}`。
+3. 只允许一个 Core 私有 Resolve Command，且必须是 `Session > 0` 的 Call。
+4. Core 自己编码名字请求和 ServiceID 响应，不交给业务 `ClusterCodec`。
+5. 目标节点只查询自己的 `LocalRegistry`；返回的 `ServiceRef.Node` 必须等于目标节点。
+6. 其它发往 ServiceID 0 的 Command 或 Send 均视为 `ErrInvalidClusterEnvelope`。
+
+该能力只解决已知节点上的启动名字，不实现全局 Discovery、负载均衡或动态 peer 更新。
 
 ## 构造边界
 
@@ -218,3 +237,4 @@ Node + Service Address + Command
 9. 入站 Source.Node 必须绑定握手声明的节点身份，Reply 必须校验 caller、responder、Command 和 Session。
 10. Cluster 启动失败必须通过可失败构造函数返回，不能让半启动 Runtime 对业务可见。
 11. Cluster 启动失败后的 Transport 和 Runtime 清理错误必须与启动错误一起返回，不能静默丢弃。
+12. 节点级名字查询必须绕过业务 Codec，但仍遵守 Envelope 校验和 PendingCall responder 校验。

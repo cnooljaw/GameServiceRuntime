@@ -95,6 +95,14 @@ NameRegistry
 
 第一版由 `ServiceSpec.Name` 完成注册，通过 `Runtime.Resolve(name)` 解析。重复名称返回 `ErrServiceNameConflict`；Service 退出时名称必须同步注销。
 
+已知目标节点时，可使用节点级查询解析该节点的本地名字：
+
+```go
+ref, err := runtime.ResolveRemote(ctx, node, name)
+```
+
+`ResolveRemote` 是 Cluster bootstrap 能力，不是全局 Discovery。它只查询指定节点的 `NameRegistry`，用于从稳定名字取得动态 `ServiceRef`。全局名字、租约和节点发现仍由 Runtime Tooling Discovery 负责。
+
 关闭后的 `ServiceRef` 可以在短期 tombstone 窗口内返回 `ErrServiceClosed`。tombstone 必须同时受 TTL 和数量上限约束，不能随短生命周期 Service 数量永久增长；窗口过期后返回 `ErrServiceNotFound`。
 
 ## Cluster 下的地址
@@ -109,6 +117,8 @@ NodeID + ServiceID
 
 Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 
+`ServiceID(0)` 保留为节点级 Runtime endpoint 和 Runtime caller。业务 Service 不会获得 ID 0；Cluster 只允许该 endpoint 处理 Core 私有的名字查询 Call。
+
 ## 规则
 
 1. `CreateService` 返回 `ServiceRef`。
@@ -118,6 +128,7 @@ Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 5. `ServiceRef` 失效时，Call 返回 `ErrServiceNotFound` 或 `ErrServiceClosed`。
 6. ServiceName 在单个 Registry 中唯一，实例退出时自动注销。
 7. 关闭地址记录必须有 TTL 和容量上限。
+8. 远程启动配置只保存节点地址和稳定 `ServiceName`，不得依赖动态分配的 ServiceID。
 
 ## 为什么不用对象指针
 

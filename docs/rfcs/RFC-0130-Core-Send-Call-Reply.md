@@ -67,6 +67,8 @@ Reply 只允许在 `Call` 进入的 Command 中使用。
 
 ```go
 type CommandContext interface {
+    Self() ServiceRef
+    Source() ServiceRef
     Reply(value any) error
 }
 ```
@@ -79,6 +81,8 @@ type CommandContext interface {
 4. Reply 按 `caller + responder + Command + Session` 路由；caller 必须等于原请求的 Source，responder 必须等于原请求的 Target，Command 必须等于原请求的 Command，任一字段不匹配都不得完成 PendingCall。
 5. Send 场景 Reply 返回 `ErrReplyUnavailable`，重复 Reply 返回 `ErrReplyTwice`；本地超时后的 Reply 返回 `ErrReplyExpired`。
 6. Handler 返回 error 且尚未 Reply 时，Runtime 用同一个 Session 结束 PendingCall。
+7. `Source()` 返回 Envelope Source。Runtime 外部调用者固定为 `{Node: localNode, ID: 0}`，Service 调用者返回其 `ServiceRef`。
+8. `Source()` 用于状态归属和诊断，不替代 Transport 身份认证。
 
 ## 与 Skynet PTYPE_RESPONSE 的关系
 
@@ -133,3 +137,4 @@ var (
 - Handler error 返回给 Call 方。
 - Call 链出现同步环时立即失败。
 - 错误 caller 或 responder 不能完成 PendingCall。
+- 本地与远程的 Runtime caller、Service caller Source 语义一致。
