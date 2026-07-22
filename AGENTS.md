@@ -30,7 +30,7 @@
 - 修改 RFC 或 README 时使用 `technical-writing`。
 - 设计 Service、adapter、模块边界时使用 `deep-module-design`。
 - 实现计划前使用 `create-plan`；创建或修改项目 Skill 时使用 `skill-creator`。
-- 代码评审使用 `clean-coder-review` 或 `two-axis-code-review`。
+- 代码评审使用 `two-axis-code-review`。
 - 依赖或影响分析优先使用已初始化的 CodeGraph，并以源码和测试复核图查询结果。
 
 ## Git
