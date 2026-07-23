@@ -105,19 +105,32 @@ func TestRemoteNodeStopRunsOnlyThroughGatewayCoordinatorAndLocalRunner(t *testin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close(context.Background()) })
+	recoveryRegistry, err := NewMapBlueprintRegistry(map[BlueprintID]BlueprintFactory{
+		"match-v2": func() (gsr.ServiceSpec, error) { return gsr.ServiceSpec{Service: drainWorkService{}}, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryRunner, err := NewRecoveryRunner(nodeB, RecoveryRunnerConfig{Registry: recoveryRegistry, Workers: 1, QueueSize: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recoveryRunner.Close(context.Background()) })
 	reporter, err := monitor.New(nodeB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	agentService, err := NewNodeAgentService(NodeAgentConfig{
-		Reporter:          reporter,
-		ObserverNode:      "node-a",
-		Discovery:         discoveryRef,
-		Address:           transportB.Address(),
-		HeartbeatInterval: time.Hour,
-		CallTimeout:       time.Second,
-		StopCoordinator:   coordinatorRef,
-		StopExecutor:      runner,
+		Reporter:            reporter,
+		ObserverNode:        "node-a",
+		Discovery:           discoveryRef,
+		Address:             transportB.Address(),
+		HeartbeatInterval:   time.Hour,
+		CallTimeout:         time.Second,
+		StopCoordinator:     coordinatorRef,
+		StopExecutor:        runner,
+		RecoveryCoordinator: coordinatorRef,
+		RecoveryExecutor:    recoveryRunner,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -172,11 +185,47 @@ func TestRemoteNodeStopRunsOnlyThroughGatewayCoordinatorAndLocalRunner(t *testin
 		t.Fatalf("old Service after remote Stop error = %v, want ErrServiceClosed", err)
 	}
 
+	expected, err := directory.Get(context.Background(), initial.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := client.BeginRecovery(context.Background(), BeginRecoveryRequest{RequestID: request.RequestID, Principal: request.Principal, Group: expected.Name, Expected: expected, Targets: []RecoveryTargetRequest{{Removed: oldRef, Agent: remoteAgent, Blueprint: "match-v2"}}})
+	if err != nil {
+		t.Fatalf("BeginRecovery() error = %v", err)
+	}
+	for recovery.Phase == RecoveryCreating && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		recovery, err = client.ResolveRecovery(context.Background(), request.RequestID, request.Principal)
+		if err != nil {
+			t.Fatalf("ResolveRecovery() error = %v", err)
+		}
+	}
+	if recovery.Phase != RecoveryAwaitingConfirmation || recovery.Targets[0].Created == (gsr.ServiceRef{}) {
+		t.Fatalf("resolved recovery = %#v", recovery)
+	}
+	recovery, err = client.ConfirmRecovery(context.Background(), request.RequestID, request.Principal)
+	if err != nil {
+		t.Fatalf("ConfirmRecovery() error = %v", err)
+	}
+	if recovery.Phase != RecoveryCompleted || recovery.Targets[0].State != RecoveryTargetPublished {
+		t.Fatalf("confirmed recovery = %#v", recovery)
+	}
+	published, err := directory.Get(context.Background(), initial.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsRecoveryRef(published.Refs, oldRef) || !containsRecoveryRef(published.Refs, recovery.Targets[0].Created) {
+		t.Fatalf("published recovery set = %#v", published)
+	}
+
 	direct, err := NewDrainClient(nodeA, coordinatorRef)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := direct.GetStop(context.Background(), request.RequestID, request.Principal); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("direct GetStop() error = %v, want ErrUnauthorized", err)
+	}
+	if _, err := direct.GetRecovery(context.Background(), request.RequestID, request.Principal); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("direct GetRecovery() error = %v, want ErrUnauthorized", err)
 	}
 }
