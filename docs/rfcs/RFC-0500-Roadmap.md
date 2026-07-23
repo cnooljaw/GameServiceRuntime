@@ -52,7 +52,7 @@ Layer 3: Business Layer
 | RFC-0220 Supervisor | 7E | 已接受 | 已实现 panic Decorator、Source/Generation fencing、有界 Runner、恢复预算、两阶段发布和 Snapshot 纵向切片。 |
 | RFC-0290 客户端入口 | 7F | 已接受 | 已实现内存 SessionRegistry、SingleSession LoginService、固定 proof 线格式、TCP Login/Gateway Adapter、ProtocolMapper seam 与端到端验收。 |
 | RFC-0250 Control Plane | 8 | 已接受 | 已实现可信集群内 NodeAgent 自动 Heartbeat、静态 NodeConfig、缓存 Observed State、可组合 Codec 与双节点验收；Service Desired State、Reconcile 和修改型运维明确后置。 |
-| RFC-0260 ServiceGroup | 9 | 草案 | ServiceGroup 不进入现有 Discovery；需要独立 DirectoryService，Watch 使用 ServiceRef + Command。 |
+| RFC-0260 ServiceGroup | 9 | 已接受 | 独立 DirectoryService 保存带 AuthorityEpoch 的版本事实；Watch 使用 ServiceRef + Command；Router 只路由调用方持有的完整快照。 |
 | RFC-0270 Drain | 10 | 草案 | Visitor 状态改由 Service + Command 持有；需要租约、代际和失败回滚契约。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
 | RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
@@ -219,18 +219,20 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 实现：
 
-- `ServiceGroup`
-- `ServiceSetVersion`
-- `WatchServiceGroup`
-- `RoutingPolicy`
-- `Hash`
-- `RoundRobin`
-- `Broadcast`
+- 独立 `DirectoryService` 和 `ServiceGroup` 事实目录。
+- `AuthorityEpoch + Revision` 组成的 `ServiceSetVersion`。
+- compare-and-set 完整发布、Get 和带代际的 `WatchServiceGroup` lease。
+- `RoutingPolicy`、`Hash`、`RoundRobin`、`Broadcast`。
+- 对调用方持有的 ServiceSet 执行 Send/Call 的 Router。
+- 可组合 Codec 和双节点 TCP 验收。
 
 约束：
 
 - Tooling 能力不得下沉为 Core 领域概念；只有多个上层共同需要的通用 Runtime 能力，才可先修改 RFC 后进入 Core。
-- 不让 Discovery 决定路由策略。
+- Discovery 不保存 ServiceSet，也不决定路由策略。
+- Router 不按组名隐式查询 Directory，不在 Client 内启动 goroutine 或维护 channel。
+- `Direct` 不是 ServiceGroup policy；单个 ServiceRef 继续直接使用 Runtime Send/Call。
+- 本阶段不引入 Desired State、Controller、Reconcile、自动注册进组、健康检查或 ServiceGroup 切换编排。
 
 ## Phase 10：Drain 与热更新切换
 

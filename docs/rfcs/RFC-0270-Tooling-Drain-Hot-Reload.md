@@ -116,13 +116,15 @@ Weak Visitor 必须显式声明，不能默认推断。
 热更新切换通过 ServiceSet 版本完成：
 
 ```text
-v1 -> [old refs]
-v2 -> [new refs]
+(epoch, revision 1) -> [old refs]
+(epoch, revision 2) -> [new refs]
 ```
 
 客户端 watch 到新版本后，根据自身策略切换。
 
 旧版本进入 Drain。
+
+这里的回滚不倒退版本号。切换已经发布后，需要恢复旧成员时，Controller 必须把旧 Refs 作为更高 Revision 的新 ServiceSet 发布。Directory AuthorityEpoch 变化表示权威实例变化，客户端必须替换完整快照，不能跨 epoch 比较 revision 大小。
 
 ServiceSet 切换只能阻止通过 ServiceGroup 解析的新请求。已经缓存旧 `ServiceRef` 的调用方仍可能直接投递，直到旧实例进入 Core Stop 接受边界。因此 Draining 实例还必须由 Tooling decorator 或业务入口 Command 拒绝新的外部工作；不能声称 Core 原生存在 `Draining` 状态。
 

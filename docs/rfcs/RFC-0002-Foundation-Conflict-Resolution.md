@@ -202,6 +202,8 @@ ServiceGroup 是工程化服务治理能力。它依赖 `ServiceRef`，但不是
 
 Core Runtime 不知道 `Hash`、`RoundRobin`、`Broadcast` 等策略。路由策略属于 Runtime Tooling。
 
+Phase 9 进一步裁决：ServiceGroup 事实由独立 `DirectoryService` 持有，Discovery 仍只保存节点租约和长期单名绑定。路由作用于调用方已经持有的完整 ServiceSet，不让一个看似异步的 Send 隐式执行 Directory Call。直接使用一个 `ServiceRef` 时继续调用 Runtime Send/Call，不增加 `Direct` policy。
+
 ### 是否做 Lua 风格热修复
 
 裁决：不做。
@@ -286,5 +288,4 @@ Service 在挂起期间仍保持 busy，不消费自己的后续 Command。Runti
 2. Wallet 持久化接口是否进入 GSR 项目范围。
 3. Transport 是否需要 Codec Registry；即使需要，也不暴露成业务可见的 `ProtocolID`。
 4. 管理面认证授权的第一版实现方式。
-5. ServiceGroup 路由策略的默认组合。
-6. Record 文件格式和脱敏策略。
+5. Record 文件格式和脱敏策略。

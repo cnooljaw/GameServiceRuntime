@@ -26,8 +26,8 @@
 | ServiceID | 单节点内的 Service 实例编号。 |
 | ServiceName | 长生命周期逻辑服务名，例如 `.db`、`.match`、`.config`。 |
 | ServiceGroup | 一组承担同一职责的 Service。它是发现和路由层概念，不是 Core Runtime 实体。 |
-| ServiceSetVersion | ServiceGroup 地址列表的版本号，用于 watch 和平滑切换。 |
-| RoutingPolicy | 面向 ServiceGroup 的路由策略，例如 `Direct`、`Hash`、`RoundRobin`、`Broadcast`。 |
+| ServiceSetVersion | ServiceGroup 完整地址快照的版本身份，由 Directory AuthorityEpoch 和组内 Revision 组成，用于 watch、切换和旧权威 fencing。 |
+| RoutingPolicy | 把一个 ServiceSet 映射为目标 ServiceRef 的 Tooling 策略，例如 `Hash`、`RoundRobin`、`Broadcast`；直接投递单个 ServiceRef 不需要策略。 |
 | NodeID | Cluster 节点标识。 |
 | Command | Service 的能力入口。Command 可通过 Send 或 Call 投递。 |
 | CommandID | Command 的稳定数字编号。 |
@@ -57,6 +57,7 @@
 | AuthProvider | 业务提供的账号认证适配器，负责验证平台 token、账号密码或渠道登录结果。它属于 Business Layer 或业务 adapter。 |
 | ProtocolMapper | 业务协议映射器，把客户端包、HTTP 请求或外部事件转换成 GSR `Command`。它属于 Business Layer。 |
 | DiscoveryService | 系统服务，负责节点发现和长期服务名解析。 |
+| DirectoryService | ServiceGroup 事实的唯一状态 owner，负责版本化发布、查询和 Watch lease；不决定路由策略。 |
 | ClusterObserverService | 系统服务，保存静态节点配置并编排只读节点观测；它不执行收敛或运维动作。 |
 | NodeAgentService | 每个节点上的系统服务，维护本节点 Discovery 租约，并响应受限的只读 Monitor 查询。 |
 | NodeConfig | 用于定位和观测节点的静态部署事实，例如地址、角色、是否启用；不是可收敛的期望状态。 |
