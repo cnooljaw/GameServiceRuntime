@@ -73,6 +73,9 @@ func validVisitorRefs(visitors []VisitorRef) bool {
 }
 
 func validWireVisitorRefs(visitors []wireVisitorRef) bool {
+	if visitors == nil {
+		return false
+	}
 	decoded := make([]VisitorRef, len(visitors))
 	for index, visitor := range visitors {
 		decoded[index] = visitor.visitorRef()

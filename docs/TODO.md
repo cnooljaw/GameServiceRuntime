@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot、Phase 7E Supervisor 和 Phase 7F 客户端入口已于 2026-07-22 完成并通过门禁；客户端入口提供单进程内存 SessionRegistry、SingleSession ticket、固定 proof 线格式、TCP Login/Gateway Adapter 和 ProtocolMapper seam；生产 Handshake、持久化或跨节点会话不在本阶段。Phase 8 已于 2026-07-23 完成 NodeAgent 自动 Discovery Heartbeat、静态 NodeConfig、只读 Observed State、可组合 Codec 与双节点验收。Phase 9 已于 2026-07-23 完成独立 DirectoryService、AuthorityEpoch/Revision ServiceSet、Watch lease、Hash/RoundRobin/Broadcast、显式快照 Router、可组合 Codec 与双节点验收。当前下一阶段为 Phase 10A：VisitorRegistryService 的 lease、代际和过期清理；Drain guard、ServiceGroup 切换、Controller、Reconcile 与受控 NodeAgent 动作将在后续切片先冻结独立契约。外部 Admin API、认证、授权和审计仍不在本阶段。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot、Phase 7E Supervisor 和 Phase 7F 客户端入口已于 2026-07-22 完成并通过门禁；客户端入口提供单进程内存 SessionRegistry、SingleSession ticket、固定 proof 线格式、TCP Login/Gateway Adapter 和 ProtocolMapper seam；生产 Handshake、持久化或跨节点会话不在本阶段。Phase 8 已于 2026-07-23 完成 NodeAgent 自动 Discovery Heartbeat、静态 NodeConfig、只读 Observed State、可组合 Codec 与双节点验收。Phase 9 已于 2026-07-23 完成独立 DirectoryService、AuthorityEpoch/Revision ServiceSet、Watch lease、Hash/RoundRobin/Broadcast、显式快照 Router、可组合 Codec 与双节点验收。Phase 10A 已于 2026-07-23 完成 VisitorRegistryService 的 lease、代际、过期清理、Codec 和双节点验收。当前下一阶段是在独立契约中冻结 Drain guard、ServiceGroup 切换、Controller、Reconcile 与受控 NodeAgent 动作；外部 Admin API、认证、授权和审计仍不能借用 NodeID 来源检查替代。
 
 ## P1：Core API 冻结前完成
 

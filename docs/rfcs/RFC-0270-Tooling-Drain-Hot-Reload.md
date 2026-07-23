@@ -1,7 +1,8 @@
 # RFC-0270：Drain、热更新与访问者追踪
 
-> 状态：待实现
+> 状态：已接受
 > 目标阶段：Phase 10A
+> 接受日期：2026-07-23
 > 范围：Runtime Tooling、Cluster
 > 依赖：[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)、[RFC-0260](RFC-0260-Tooling-ServiceGroup-Routing.md)
 > 依据：`skynet_fly` 的访问者追踪和旧 Service 下线流程

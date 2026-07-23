@@ -174,12 +174,74 @@ func TestVisitorRegistryDoesNotCommitWhenTimerSchedulingFails(t *testing.T) {
 	}
 }
 
+func TestVisitorRegistryFencesPreviousAuthorityAndGenerationExhaustion(t *testing.T) {
+	first := newVisitorFixture(t, VisitorRegistryConfig{LeaseTTL: time.Minute, SweepInterval: time.Hour})
+	firstVisitor := first.newVisitor(t)
+	oldLease, err := first.acquire(t, firstVisitor, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second := newVisitorFixture(t, VisitorRegistryConfig{LeaseTTL: time.Minute, SweepInterval: time.Hour})
+	secondVisitor := second.newVisitor(t)
+	currentLease, err := second.acquire(t, secondVisitor, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldLease.AuthorityEpoch == currentLease.AuthorityEpoch {
+		t.Fatalf("AuthorityEpoch was reused: %d", oldLease.AuthorityEpoch)
+	}
+	if oldLease.Visitor != secondVisitor || oldLease.Target != second.target {
+		t.Fatalf("test requires matching owner and target: old=%#v new=%#v", oldLease, currentLease)
+	}
+	if _, err := second.renew(t, secondVisitor, oldLease); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("Renew(old authority) error = %v, want ErrLeaseExpired", err)
+	}
+
+	second.service.nextGeneration = ^uint64(0)
+	thirdVisitor := second.newVisitor(t)
+	if _, err := second.acquire(t, thirdVisitor, false); !errors.Is(err, ErrLeaseExhausted) {
+		t.Fatalf("Acquire(exhausted generation) error = %v, want ErrLeaseExhausted", err)
+	}
+	visitors, err := second.client.List(context.Background(), second.target)
+	if err != nil || len(visitors) != 1 || visitors[0].Visitor != secondVisitor {
+		t.Fatalf("List() after exhausted Acquire = %#v, %v", visitors, err)
+	}
+}
+
+func TestVisitorRegistryStopCancelsTargetTimerAndClientValidatesResponses(t *testing.T) {
+	fixture := newVisitorFixture(t, VisitorRegistryConfig{LeaseTTL: time.Minute, SweepInterval: time.Hour})
+	visitor := fixture.newVisitor(t)
+	if _, err := fixture.acquire(t, visitor, false); err != nil {
+		t.Fatal(err)
+	}
+	eventuallyDrain(t, func() bool { return fixture.runtime.Inspect().Timers == 1 })
+	if err := fixture.runtime.Stop(context.Background(), fixture.ref); err != nil {
+		t.Fatal(err)
+	}
+	if timers := fixture.runtime.Inspect().Timers; timers != 0 {
+		t.Fatalf("Timers after Stop = %d, want 0", timers)
+	}
+
+	client, err := NewClient(invalidVisitorCaller{}, gsr.ServiceRef{Node: "registry-node", ID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.List(context.Background(), gsr.ServiceRef{Node: "registry-node", ID: 99}); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("List(invalid response) error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := NewVisitorRegistryService(VisitorRegistryConfig{LeaseTTL: -time.Second}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewVisitorRegistryService(negative TTL) error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 type visitorFixture struct {
 	runtime *gsr.Runtime
 	client  *Client
 	ref     gsr.ServiceRef
 	target  gsr.ServiceRef
 	clock   *visitorTestClock
+	service *visitorRegistryService
 }
 
 func newVisitorFixture(t *testing.T, config VisitorRegistryConfig) visitorFixture {
@@ -187,10 +249,11 @@ func newVisitorFixture(t *testing.T, config VisitorRegistryConfig) visitorFixtur
 	clock := &visitorTestClock{now: time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)}
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "registry-node", Workers: 2, Now: clock.Now})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	service, err := NewVisitorRegistryService(config)
+	created, err := NewVisitorRegistryService(config)
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := created.(*visitorRegistryService)
 	ref, err := runtime.CreateService(gsr.ServiceSpec{Name: DefaultVisitorRegistryName, Service: service})
 	if err != nil {
 		t.Fatal(err)
@@ -205,6 +268,7 @@ func newVisitorFixture(t *testing.T, config VisitorRegistryConfig) visitorFixtur
 		ref:     ref,
 		target:  gsr.ServiceRef{Node: "registry-node", ID: 99},
 		clock:   clock,
+		service: service,
 	}
 }
 
@@ -384,3 +448,9 @@ func (noOpMetrics) Inc(string)                    {}
 func (noOpMetrics) Add(string, uint64)            {}
 func (noOpMetrics) SetGauge(string, int64)        {}
 func (noOpMetrics) Observe(string, time.Duration) {}
+
+type invalidVisitorCaller struct{}
+
+func (invalidVisitorCaller) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
+	return "invalid", nil
+}

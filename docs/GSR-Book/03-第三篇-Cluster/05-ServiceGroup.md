@@ -134,7 +134,7 @@ Call 只能选择一个目标。Broadcast Call 返回 `ErrMultipleTargets`。
 - Service 不会自动注册进组。
 - Directory 不做健康检查、负载采样或自动扩缩容。
 - Router 不维护后台缓存，也不重试 Send/Call。
-- Desired State、Controller、Reconcile、Drain 和回滚编排属于 Phase 10。
+- Phase 10A 已提供独立 `VisitorRegistryService` 保存强弱访问者 lease；它不替代 Directory，也不执行 Drain。Drain guard、回滚编排、Desired State、Controller 和 Reconcile 仍需后续契约。
 
 完整契约见 `RFC-0260`。可运行示例：
 

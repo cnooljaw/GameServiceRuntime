@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Visitor lease Registry
+
+- 新增 `tooling/drain`：`VisitorRegistryService` 在自己的 Mailbox 中持有 Target/Visitor lease，并以随机 AuthorityEpoch、单调 Generation、owner 和 expiry fence 迟到 Renew/Release。
+- 新增强弱访问者、类型化 Client、Runtime Timer 驱动的过期清理和只读稳定排序查询；Client、Service 与 Codec 不创建 goroutine。
+- 新增可组合 JSON Codec、双节点 TCP Acquire/Renew/List/Release 验收和 `examples/drain-runtime`；Registry 只提供事实，不执行 Drain、ServiceGroup 切换或 Stop。
+
 ### ServiceGroup
 
 - 新增 `tooling/servicegroup`：独立 `DirectoryService` 以 compare-and-set 发布完整 ServiceSet，版本由随机 AuthorityEpoch 和组内单调 Revision 组成；Directory 重建后旧版本不能修改新权威。
@@ -58,6 +64,7 @@
 - Directory 当前是单一内存权威，不提供复制、选主、持久化或自动 Service 注册；通知是 best-effort 完整快照，不是可靠事件日志。
 - Hash 第一版使用普通取模，不是一致性哈希；成员变化可能重新映射大量 key。Router 不维护后台缓存，订阅 Service 自己决定快照切换时点。
 - ServiceGroup 不包含 Desired State、Controller、Reconcile、健康检查、自动扩缩容、Drain 或回滚编排。
+- Visitor lease Registry 不拒绝新流量、不等待访问者、不迁移状态，也不编排 Service 停止；这些能力仍需后续 Drain 契约。
 - 不修改 Core `Service` 接口，不支持对运行中实例原地 Restore。
 - 当前只提供内存 Snapshot Store，不提供数据库、对象存储、压缩、加密或增量快照。
 - Supervisor 只处理同节点 Handler panic，不提供跨进程恢复、持久故障队列、完整 Supervisor Tree 或远程 Codec。

@@ -1,6 +1,6 @@
 # Phase 10A：Visitor lease Registry 实施计划
 
-> 状态：进行中
+> 状态：已完成
 > 更新：2026-07-23
 > 权威契约：[RFC-0270](../../rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)
 

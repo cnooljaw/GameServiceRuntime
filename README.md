@@ -28,8 +28,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 内存 SessionRegistry、Mailbox 串行的 SingleSession LoginService、固定 HMAC proof 线格式和 TCP Login/Gateway Adapter。
 - `NodeAgentService` 自动 Discovery lease、`ClusterObserverService` 的静态 NodeConfig、只读 Observed State 和类型化节点刷新。
 - 独立 `DirectoryService`、带 AuthorityEpoch/Revision 的 ServiceSet、Watch lease，以及 Hash、RoundRobin、Broadcast 路由。
+- 独立 `VisitorRegistryService`、带 AuthorityEpoch/Generation/owner/expiry 的访问者 lease，以及显式强弱访问者、可组合 Codec 和双节点 TCP 验收。
 
-Phase 10A 的 Visitor lease Registry 契约已经冻结、实现进行中；Drain 编排、Controller 和 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Phase 10A 的 Visitor lease Registry 已完成。Drain guard、切换编排、Controller 和 Business Layer 仍未实现；实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -81,6 +82,14 @@ go run ./examples/servicegroup-runtime
 ```
 
 预期输出：`group=match-worker revision=1 reply=worker-2:ping`。示例由 node-b 的 Directory 保存版本化 ServiceSet，node-a 的订阅 Service 在自己的 Mailbox 中接收完整快照，再用显式缓存执行 Hash 路由。Directory 不进入 Discovery，Router 也不会在 Send/Call 中隐式查询 Directory。
+
+## Visitor lease 示例
+
+```bash
+go run ./examples/drain-runtime
+```
+
+预期输出：`target=local/2 strong=1`。示例让一个 Service 通过自己的 Mailbox 向 VisitorRegistry 登记强访问 lease，再由组合根只读查询。它不执行 Drain、切流或 Stop。
 
 ## 本地 Monitor 示例
 
