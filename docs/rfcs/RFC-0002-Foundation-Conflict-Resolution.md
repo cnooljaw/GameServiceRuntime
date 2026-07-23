@@ -104,7 +104,7 @@ Data Plane: 业务 Envelope 跨节点投递
 Control Plane: 节点管理、健康检查、观测查询、受控运维命令
 ```
 
-`ClusterTransport` 只属于数据面。管理面能力必须放在 `ClusterControlService`、`DiscoveryService`、`NodeAgentService` 等系统 Service 或 Monitor adapter 中。当前 Monitor 不是 Service；远程查询由 `NodeAgentService` 消费本地 Monitor 报告。
+`ClusterTransport` 只属于数据面。管理面能力必须放在 `ClusterObserverService`、`DiscoveryService`、`NodeAgentService` 等系统 Service 或 Monitor adapter 中。当前 Monitor 不是 Service；远程查询由 `NodeAgentService` 消费本地 Monitor 报告。
 
 ### Skynet PTYPE 是否进入 GSR
 

@@ -57,10 +57,11 @@
 | AuthProvider | 业务提供的账号认证适配器，负责验证平台 token、账号密码或渠道登录结果。它属于 Business Layer 或业务 adapter。 |
 | ProtocolMapper | 业务协议映射器，把客户端包、HTTP 请求或外部事件转换成 GSR `Command`。它属于 Business Layer。 |
 | DiscoveryService | 系统服务，负责节点发现和长期服务名解析。 |
-| ClusterControlService | 系统服务，负责集群管理面命令的编排。 |
-| NodeAgentService | 每个节点上的系统服务，响应 ping、节点详情、Service 统计等管理命令。 |
-| Desired State | 节点配置期望状态，例如地址、角色、是否启用。 |
-| Observed State | 节点运行观测状态，例如连接状态、最近心跳、延迟、版本、错误。 |
+| ClusterObserverService | 系统服务，保存静态节点配置并编排只读节点观测；它不执行收敛或运维动作。 |
+| NodeAgentService | 每个节点上的系统服务，维护本节点 Discovery 租约，并响应受限的只读 Monitor 查询。 |
+| NodeConfig | 用于定位和观测节点的静态部署事实，例如地址、角色、是否启用；不是可收敛的期望状态。 |
+| Desired State | Controller 持有的可收敛目标，例如 Service 副本数、版本和放置约束；Phase 10 后才引入。 |
+| Observed State | 控制面读取的当前运行事实，例如节点心跳、延迟、错误和实际 Service 实例。 |
 | Snapshot | Service 状态快照，用于恢复、重连或容灾。 |
 | Command Record | 记录进入 Service 的 Command 序列，用于复现问题。 |
 | Replay | 使用 Command Record 重放 Service 行为。 |
