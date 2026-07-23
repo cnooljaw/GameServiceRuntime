@@ -77,6 +77,11 @@
 | Weak Visitor | 弱访问者。弱访问不阻止旧 Service Drain 退出。 |
 | Principal | 已认证 Gateway 断言的操作者身份。修改型 Control Plane Command 同时验证精确 Gateway Service source、Principal 授权与 RequestID；NodeID 不能替代它。 |
 | Drain Operation | 以 RequestID 标识、由 DrainCoordinatorService 保存的受控切换记录。它记录 Directory 发布、Guard、Visitor 和 ReadyToStop 事实，但不执行 Stop。 |
+| Recovery Operation | 以 RequestID 标识、由 DrainCoordinatorService 保存的人工恢复记录。它只创建替代实例并在人工确认后发布更高 ServiceSet；绝不恢复旧 Ref 或 Resume Guard。 |
+| Blueprint | 组合根注册的稳定实例创建标识。Control Plane 只传 BlueprintID；实际 factory 和业务配置只能由组合根持有。 |
+| Record Bundle | 带格式版本、可选初始业务状态与有序 Command Record 的导出单元，用于隔离 Replay。它不是业务账本。 |
+| LedgerStore | Wallet 使用的外部持久化适配接口，原子保存幂等 RequestID、账本分录和终态结果；不属于 Core Runtime。 |
+| LedgerRunner | 组合根拥有的有界外部 I/O worker。它调用 LedgerStore 并以 Command 将结果交回 WalletService，不直接修改钱包状态。 |
 | Controller | 对比 Desired State 与 Observed State、计算差异并持续收敛的 Tooling 组件。它决定动作，不直接持有业务 Service。 |
 | Reconcile | Controller 根据期望状态与实际状态反复计算并执行收敛动作的循环。 |
 | 设计决策索引 | `docs/DECISIONS.md`。用于检索设计结论及其权威 RFC；它不定义公开 API，也不替代 RFC。 |
@@ -86,6 +91,7 @@
 | PlayerModule | PlayerService 内的业务模块组合单元，属于 Business Layer。 |
 | BattleEpoch | Battle 版本号，用于重连、并发校验和旧消息过滤。 |
 | TimelineRev | Timeline 版本号，用于同步和重连校验。 |
+| Timeline Revision | Timeline 条目的取消/替换 fencing 版本；同一 TimelineID 的旧 Revision 到达时不得触发业务逻辑。 |
 | 状态 owner | 唯一有权写入一份权威状态的 Service。其他 Service 只能通过 Command 请求其变更。 |
 
 ## 禁止术语

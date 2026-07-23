@@ -1,141 +1,91 @@
 # RFC-0350：PlayerModule 与玩家业务组合
 
-> 状态：草案
+> 状态：待实现
 > 目标阶段：Phase 12
 > 范围：Business Layer
-> 依赖：[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)
-> 依据：`quix` 的 PlayerAgent 与模块生命周期设计
+> 依赖：[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)
+> 依据：模块扩展必须仍由 Player 的一个 Mailbox 串行编排
 
 ## 目的
 
-本文定义 GSR 在业务层如何组织 PlayerService 内部的业务模块。
+本文定义 PlayerService 内部模块的稳定扩展点。PlayerModule 适用于背包、任务、个人房间入口等与单个玩家长期状态共址的小领域；它不是 Core 生命周期 hook，也不能绕过 Command 模型。
 
-PlayerModule 是 Business Layer 概念，不进入 Core Runtime。
+## 目标
 
-## 核心结论
+- 用可声明 Command 集、显式 PlayerEvent 和 Snapshot 的接口替代隐式 OnOnline/OnBackup 回调表。
+- 由 PlayerService 在自己的 Handler 内串行分派模块事件与命令，保证模块无法互相直接改状态。
+- 使模块可测、可排序、可导出 snapshot，不要求模块各自成为 Service。
 
-可以学习 `quix` 的玩家业务组织方式：
+## 非目标
 
-```text
-一个 PlayerService 拥有一个玩家的权威状态。
-PlayerService 组合多个 PlayerModule。
-PlayerModule 处理具体业务域。
-```
+- 不定义动态模块热插拔、反射扫描、跨模块对象访问、数据库直接写入、后台 crontab goroutine 或具体钱包语义。
+- 不要求 WalletModule：强一致账本必须使用 RFC-0360 的 WalletService。
 
-但 Core Runtime 不知道 Player、Module、Online、Offline、Backup 等业务词汇。
-
-## 分层位置
+## 分层与依赖
 
 ```text
-Business Layer
-  PlayerService
-    ├── UserModule
-    ├── WalletModule
-    ├── RoomModule
-    ├── ChatModule
-    └── CrontabModule
-
-Runtime Tooling
-  Snapshot / Record / Monitor / Control Plane
-
-Core Runtime
-  Service / Command / Mailbox / Scheduler
+ProtocolMapper -> PlayerService Command
+  -> PlayerService validates identity/state
+  -> one matching PlayerModule.Handle or all modules HandleEvent
+  -> PlayerService commits visible PlayerState / replies
 ```
 
-## PlayerService
+模块属于它的 PlayerService 实例，不能被另一个 Player 共享；模块之间的协作通过 PlayerService 的明确 Command/Event 或外部 Service RequestID 进行，不能互相保存具体模块指针。
 
-`PlayerService` 是玩家状态 owner。
+## 公开契约
 
-职责：
-
-- 加载玩家状态。
-- 接收玩家相关 Command。
-- 组合 PlayerModule。
-- 处理上线、离线、重连、踢下线。
-- 定期生成备份 Command 或调用 Repository。
-- 对外只暴露 Command。
-
-不负责：
-
-- 直接维护 TCP/WebSocket 连接。
-- 直接读写底层数据库连接。
-- 直接绕过 Runtime 调用其他 Service 指针。
-
-## PlayerModule
-
-接口草案：
+包路径为 `game`：
 
 ```go
+type PlayerEventKind string
+const (
+    PlayerActivated PlayerEventKind = "activated"
+    PlayerOnline    PlayerEventKind = "online"
+    PlayerOffline   PlayerEventKind = "offline"
+    PlayerBackup    PlayerEventKind = "backup"
+)
+type PlayerEvent struct {
+    Kind       PlayerEventKind
+    Generation string
+    At         time.Time
+}
+type PlayerContext interface {
+    gsr.CommandContext
+    PlayerID() PlayerID
+    AccountID() AccountID
+    Now() time.Time
+    Send(gsr.ServiceRef, gsr.CommandID, any) error
+}
 type PlayerModule interface {
     Name() string
-    OnLoad(ctx PlayerContext) error
-    OnActivate(ctx PlayerContext) error
-    OnOnline(ctx PlayerContext) error
-    OnOffline(ctx PlayerContext) error
-    OnBackup(ctx PlayerContext) error
-    OnTimeEvent(ctx PlayerContext, event TimeEvent) error
+    Commands() []gsr.CommandID
+    Handle(PlayerContext, gsr.Command) error
+    HandleEvent(PlayerContext, PlayerEvent) error
+    Snapshot(PlayerContext) ([]byte, error)
 }
 ```
 
-所有回调都由 `PlayerService` 编排。`OnActivate`、`OnOnline`、`OnOffline`、`OnBackup` 和 `OnTimeEvent` 只能在对应 Command 的 Handler 内执行；它们不是绕过 Mailbox 的外部生命周期入口。`OnLoad` 只构造尚未注册的初始模块状态，不执行无界 IO。
+Name 必须是去空白非空、最大 64 bytes 的稳定 ASCII 标识；一个 PlayerConfig 内不能重复。Commands 必须严格递增、非零且不与 Player 保留/其他模块 Command 重叠；没有外部 Command 的模块返回 nil。`Handle` 只收到自己声明的 Command；Event 按模块名词典序逐个分派，任一错误使当前 Player Command 返回错误且不继续分派后续模块。
 
-模块之间共享的上下文必须通过 `PlayerContext` 暴露，不能互相持有具体模块指针。
+## 状态与生命周期
 
-## 协议映射
+PlayerService Init 之后以 `PlayerActivated` 调用所有 module；Online、Offline、Backup 分别由其保留 Command 产生 Event，所有事件发生在相应 Handler 内。模块的私有状态随 PlayerService 创建/关闭；模块 Snapshot 收集在 Get/Backup Command 中，按 Name 复制 bytes。模块不得自行调用 Start/Stop 或保留旧 Event/Context。
 
-客户端协议不直接调用模块方法。
+模块若需要异步外部工作，必须让 PlayerService 先冻结 RequestID 并 Send 到另一 Service/外部 runner，收到结果 Command 后再调用 Module.Handle；模块不能从 HandleEvent 中起 goroutine。
 
-推荐流程：
+## 错误与失败语义
 
-```text
-Client Packet
-  ↓
-Gateway Adapter
-  ↓
-ProtocolMapper
-  ↓
-CommandID + Payload
-  ↓
-PlayerService
-  ↓
-PlayerModule Handler
-```
+配置阶段拒绝空/重复名称、命令重叠、nil 模块或无效 Snapshot。Handler 阶段拒绝身份不匹配、未声明 Command、非法 Event 和无法序列化的 Snapshot。模块错误不会自动回滚模块已做的私有修改，因此模块必须先验证输入，或只在成功点写状态；跨模块原子更新不被承诺，应提升到 PlayerService 统一 Command。
 
-这保留 GSR 的统一 Command 模型，避免把 `service.client.xxx` 这类动态函数表带进 Go 实现。
+## 并发与所有权
 
-## 数据保存
+PlayerContext 仅在 Player Handler 有效；Module 不得缓存它、其 Self/Source、也不得把它传递给另一个模块。模块状态只在 Player Mailbox 读写；所有 bytes 和集合返回副本。没有模块可以访问 Runtime 的 Create/Stop 或 PlayerService 内部 map。
 
-玩家状态保存属于业务层和持久化适配层。
+## 可观测性
 
-推荐区分：
+Player Snapshot 使用模块名到匿名 Snapshot bytes 的映射；每次 Event/Command 记录模块名、PlayerID、RequestID（若有）和错误类别。模块不得将敏感业务数据绕过 Record Redactor 写入日志。
 
-```text
-PlayerState:
-  有脏标记，定期保存。
+## 验收
 
-Ledger / Log:
-  append-only，直接写入记录表或事件流。
-```
-
-Wallet 相关数据必须遵守强一致和幂等规则，不能只靠 PlayerModule 的定期备份。
-
-## 与 Runtime Tooling 的关系
-
-PlayerService 可以使用：
-
-- Snapshot：保存当前状态。
-- Record：记录玩家 Command。
-- Monitor：暴露模块耗时和状态。
-- Control Plane：触发踢人、下线、保存等白名单管理命令。
-
-这些都是外部工具能力，不改变 Core Runtime。
-
-## 规则
-
-1. PlayerModule 只属于 Business Layer。
-2. Core Runtime 不内建玩家生命周期。
-3. Gateway Adapter 只负责连接和转发，不拥有玩家状态。
-4. 客户端包必须先映射成 Command。
-5. PlayerService 是玩家状态唯一 owner。
-6. 模块间交互必须通过 PlayerContext、Command 或明确的业务接口。
-7. Wallet 一致性不能依赖普通 PlayerModule 定期保存。
+- 模块排序、名称/Command 冲突、事件顺序、模块错误、Snapshot 副本和异步结果 Command 流程均有测试。
+- AST/并发测试证明 Module 不创建 goroutine、不保存 PlayerContext，并且 Wallet 不能作为普通定期 Backup 模块实现。

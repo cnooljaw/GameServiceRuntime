@@ -57,11 +57,12 @@ Layer 3: Business Layer
 | RFC-0271 Drain Guard | 10B | 已接受 | 已实现旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec、本地与双节点 TCP 验收；跨节点业务拒绝继续由目标节点 adapter 映射。 |
 | RFC-0272 Controlled Drain Operation | 10C1 | 已接受 | 已实现 Gateway+Principal 授权、RequestID 幂等、有界审计、Directory/Guard 未知结果确认、Visitor 刷新、ReadyToStop、本地和双节点 TCP 验收；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
 | RFC-0273 Node Stop Execution | 10C2A | 已接受 | 已实现 Gateway+Principal 授权的 StopOperation、精确 Coordinator NodeAgent receipt、Directory 双重再确认、组合根有界 Runner、本地与双节点 TCP 验收；恢复、补偿和 Reconcile 仍后置。 |
-| RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
-| RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
-| RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
+| RFC-0274 Manual Recovery | 10C2B | 待实现 | 已冻结 Blueprint Runner 创建替代实例、人工 Confirm、Directory CAS、未知结果 Resolve 与审计；不恢复旧 Ref 或自动 Reconcile。 |
+| RFC-0280 Record/Replay | 11 | 待实现 | 已冻结 Handle decorator、有界 Recorder、版本化 Bundle、外置 Archive 与隔离 Replay；持久化由应用 adapter 注入。 |
+| RFC-0300 至 RFC-0370 | 12 | 待实现 | 已冻结 game 包的领域边界、Battle/Timeline/Room/Player/Module/Wallet API、RequestID 与异步 ledger result；具体游戏规则和生产 Store 外置。 |
+| RFC-0400 示例 | 13 | 待实现 | 已冻结打地鼠的 Room→Battle→Timeline→Kick→Settlement→外层 Stop 验收与确定性 Record/Replay。 |
 
-审核只把没有开放接口问题的 RFC 提升为“待实现”。其它 RFC 保持“草案”，不能直接进入代码。
+截至 2026-07-24，后续阶段的开放 API、owner、失败收敛与验收已完成文档冻结，均为“待实现”。它们可以进入失败测试和最小实现；任何兼容性外的变更仍必须先修订 RFC。
 
 ## Phase 0：文档和术语冻结
 
@@ -297,9 +298,13 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 ## 后续 Phase 10C2B：人工恢复与补偿
 
-在 StopOperation 已能完整记录执行结果后，才冻结新实例创建、发布更高 ServiceSet、人工确认和恢复审计。它不得 Resume Guard 或重新发布已停止的旧 Ref。
+状态：待实现。
+
+实现 [RFC-0274](RFC-0274-Tooling-Manual-Recovery-Compensation.md)：由 Gateway + Principal 创建审计化 RecoveryOperation，组合根 Blueprint Runner 创建替代实例，操作者显式 Confirm 后以 Directory CAS 发布更高 ServiceSet。它不得 Resume Guard、重新发布旧 Ref、自动补偿或引入 Desired State/Reconcile。
 
 ## Phase 11：Command Record 与 Replay
+
+状态：待实现。
 
 实现：
 
@@ -315,6 +320,8 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 ## Phase 12：Business Layer 最小封装
 
+状态：待实现。
+
 实现：
 
 - `game.CreateBattle`
@@ -325,6 +332,8 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 - `PlayerModule`
 
 ## Phase 13：业务示例
+
+状态：待实现。
 
 实现端到端：
 
