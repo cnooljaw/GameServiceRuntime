@@ -1,0 +1,334 @@
+package game
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"time"
+
+	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+)
+
+// BattleService owns one Battle's phase, participant reachability, Timeline and game Logic.
+type BattleService struct {
+	id           BattleID
+	epoch        BattleEpoch
+	wallet       gsr.ServiceRef
+	logic        BattleLogic
+	participants map[PlayerID]Participant
+	statuses     map[PlayerID]ParticipantStatus
+	commands     []gsr.CommandID
+	context      gsr.ServiceContext
+	timeline     *battleTimeline
+	phase        BattlePhase
+	finish       FinishBattle
+	settlements  map[RequestID]SettlementResult
+}
+
+// NewBattleService creates a created Battle with immutable identity and participant membership.
+func NewBattleService(config BattleConfig) (*BattleService, error) {
+	if err := validateBattleConfig(config); err != nil {
+		return nil, err
+	}
+	if config.Epoch == 0 {
+		config.Epoch = 1
+	}
+	participants := make(map[PlayerID]Participant, len(config.Participants))
+	statuses := make(map[PlayerID]ParticipantStatus, len(config.Participants))
+	for _, participant := range config.Participants {
+		participants[participant.Player] = participant
+		statuses[participant.Player] = ParticipantOffline
+	}
+	commands := []gsr.CommandID{StartBattleCommand, GetBattleSnapshotCommand, SetParticipantConnectedCommand, FinishBattleCommand, ApplySettlementResultCommand, TimelineFireCommand}
+	commands = append(commands, config.Logic.Commands()...)
+	return &BattleService{id: config.ID, epoch: config.Epoch, wallet: config.Wallet, logic: config.Logic, participants: participants, statuses: statuses, commands: commands, phase: BattleCreated, settlements: make(map[RequestID]SettlementResult)}, nil
+}
+
+// CreateBattle creates a BattleService through a composition-root ServiceCreator.
+func CreateBattle(creator ServiceCreator, name gsr.ServiceName, config BattleConfig) (gsr.ServiceRef, error) {
+	if isNil(creator) {
+		return gsr.ServiceRef{}, ErrInvalidConfig
+	}
+	battle, err := NewBattleService(config)
+	if err != nil {
+		return gsr.ServiceRef{}, err
+	}
+	return creator.CreateService(gsr.ServiceSpec{Name: name, Service: battle})
+}
+
+// Commands declares Battle's reserved and game Logic Commands.
+func (s *BattleService) Commands() []gsr.CommandID {
+	return append([]gsr.CommandID(nil), s.commands...)
+}
+
+// Init captures the current Service context and creates Battle-local Timeline state.
+func (s *BattleService) Init(serviceContext gsr.ServiceContext) error {
+	if isNil(serviceContext) {
+		return ErrInvalidConfig
+	}
+	s.context = serviceContext
+	s.timeline = &battleTimeline{battle: s, items: make(map[TimelineID]timelineRecord)}
+	return nil
+}
+
+// Handle serializes all Battle state transitions and game Logic input.
+func (s *BattleService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
+	switch command.ID {
+	case StartBattleCommand:
+		return s.start(commandContext, command.Payload)
+	case GetBattleSnapshotCommand:
+		if command.Payload != nil {
+			if _, ok := command.Payload.(struct{}); !ok {
+				return ErrInvalidCommand
+			}
+		}
+		snapshot, err := s.snapshot(commandContext)
+		if err != nil {
+			return err
+		}
+		return reply(commandContext, snapshot)
+	case SetParticipantConnectedCommand:
+		request, ok := command.Payload.(ParticipantConnection)
+		if !ok {
+			return ErrInvalidCommand
+		}
+		return s.setParticipantConnected(commandContext, request)
+	case FinishBattleCommand:
+		request, ok := command.Payload.(FinishBattle)
+		if !ok {
+			return ErrInvalidCommand
+		}
+		return s.finishBattle(commandContext, request)
+	case ApplySettlementResultCommand:
+		result, ok := command.Payload.(SettlementResult)
+		if !ok {
+			return ErrInvalidSettlement
+		}
+		return s.applySettlement(commandContext, result)
+	case TimelineFireCommand:
+		fire, ok := command.Payload.(timelineFire)
+		if !ok {
+			return ErrInvalidCommand
+		}
+		return s.fire(commandContext, fire)
+	default:
+		if s.phase != BattleRunning {
+			return ErrStateConflict
+		}
+		return s.withContext(commandContext, func(ctx *battleCommandContext) error { return s.logic.HandleBattle(ctx, command) })
+	}
+}
+
+// Stop only releases lifecycle-local state and never advances Battle business phase.
+func (s *BattleService) Stop(context.Context) error {
+	if s.timeline != nil {
+		s.timeline.cancelAll()
+	}
+	return nil
+}
+
+// Close releases Runtime capabilities after BattleService stops.
+func (s *BattleService) Close() error {
+	s.context = nil
+	s.timeline = nil
+	return nil
+}
+
+func (s *BattleService) start(commandContext gsr.CommandContext, payload any) error {
+	if payload != nil {
+		if _, ok := payload.(struct{}); !ok {
+			return ErrInvalidCommand
+		}
+	}
+	if s.phase != BattleCreated {
+		return ErrStateConflict
+	}
+	s.phase = BattleRunning
+	snapshot, err := s.snapshot(commandContext)
+	if err != nil {
+		return err
+	}
+	return reply(commandContext, snapshot)
+}
+
+func (s *BattleService) setParticipantConnected(commandContext gsr.CommandContext, request ParticipantConnection) error {
+	if _, exists := s.participants[request.Player]; !exists {
+		return ErrInvalidParticipant
+	}
+	if request.Connected {
+		s.statuses[request.Player] = ParticipantConnected
+	} else {
+		s.statuses[request.Player] = ParticipantOffline
+	}
+	return reply(commandContext, s.statuses[request.Player])
+}
+
+func (s *BattleService) finishBattle(commandContext gsr.CommandContext, finish FinishBattle) error {
+	if validateRequestID(finish.RequestID) != nil {
+		return ErrInvalidRequestID
+	}
+	if s.phase != BattleRunning {
+		if s.finish.RequestID == finish.RequestID {
+			if !reflect.DeepEqual(s.finish, finish) {
+				return ErrRequestConflict
+			}
+			return reply(commandContext, s.phase)
+		}
+		return ErrStateConflict
+	}
+	requests := make([]SettlementRequest, len(finish.Settlements))
+	seen := make(map[RequestID]struct{}, len(finish.Settlements))
+	for index, intent := range finish.Settlements {
+		if validateSettlementIntent(intent) != nil {
+			return ErrInvalidSettlement
+		}
+		if _, exists := seen[intent.RequestID]; exists {
+			return ErrInvalidSettlement
+		}
+		seen[intent.RequestID] = struct{}{}
+		requests[index] = SettlementRequest{RequestID: intent.RequestID, Source: s.context.Self(), Currency: intent.Currency, Entries: append([]SettlementEntry(nil), intent.Entries...)}
+	}
+	if len(requests) > 0 && !validServiceRef(s.wallet) {
+		return ErrUnavailable
+	}
+	s.finish = cloneFinishBattle(finish)
+	s.phase = BattleSettling
+	for _, request := range requests {
+		s.settlements[request.RequestID] = SettlementResult{RequestID: request.RequestID, State: SettlementPending, Currency: request.Currency}
+		if err := s.context.Send(s.wallet, CommitSettlementCommand, cloneSettlementRequest(request)); err != nil {
+			s.context.Metrics().Inc("battle_settlement_send_failed_total")
+		}
+	}
+	if len(requests) == 0 {
+		s.phase = BattleFinished
+		s.timeline.cancelAll()
+	}
+	return reply(commandContext, s.phase)
+}
+
+func (s *BattleService) applySettlement(commandContext gsr.CommandContext, result SettlementResult) error {
+	if commandContext.Source() != s.wallet {
+		return ErrUnauthorized
+	}
+	current, exists := s.settlements[result.RequestID]
+	if !exists {
+		return ErrNotFound
+	}
+	if current.State != SettlementPending {
+		return reply(commandContext, s.phase)
+	}
+	if result.State != SettlementCommitted && result.State != SettlementRejected || result.Currency != current.Currency {
+		return ErrInvalidSettlement
+	}
+	s.settlements[result.RequestID] = cloneSettlementResult(result)
+	if result.State == SettlementRejected {
+		s.phase = BattleFailed
+		s.timeline.cancelAll()
+		return reply(commandContext, s.phase)
+	}
+	for _, pending := range s.settlements {
+		if pending.State != SettlementCommitted {
+			return reply(commandContext, s.phase)
+		}
+	}
+	s.phase = BattleFinished
+	s.timeline.cancelAll()
+	return reply(commandContext, s.phase)
+}
+
+func (s *BattleService) fire(commandContext gsr.CommandContext, fire timelineFire) error {
+	if fire.BattleID != s.id || fire.Epoch != s.epoch {
+		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		return nil
+	}
+	record, exists := s.timeline.items[fire.ID]
+	if !exists || record.item.State != TimelineScheduled || record.item.Revision != fire.Revision || record.item.Command != fire.Command {
+		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		return nil
+	}
+	if s.phase != BattleRunning {
+		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		return nil
+	}
+	record.item.State = TimelineFired
+	s.timeline.items[fire.ID] = record
+	payload, err := cloneTimelinePayload(record.payload)
+	if err != nil {
+		return err
+	}
+	return s.withContext(commandContext, func(ctx *battleCommandContext) error {
+		return s.logic.HandleBattle(ctx, gsr.Command{ID: record.item.Command, Payload: payload})
+	})
+}
+
+func (s *BattleService) snapshot(commandContext gsr.CommandContext) (BattleSnapshot, error) {
+	var state []byte
+	err := s.withContext(commandContext, func(ctx *battleCommandContext) error {
+		value, err := s.logic.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		state = append([]byte(nil), value...)
+		return nil
+	})
+	if err != nil {
+		return BattleSnapshot{}, err
+	}
+	participants := make(map[PlayerID]ParticipantStatus, len(s.statuses))
+	for player, status := range s.statuses {
+		participants[player] = status
+	}
+	return cloneBattleSnapshot(BattleSnapshot{ID: s.id, Epoch: s.epoch, Phase: s.phase, Participants: participants, Timeline: s.timeline.snapshot(), State: state}), nil
+}
+
+func (s *BattleService) withContext(commandContext gsr.CommandContext, fn func(*battleCommandContext) error) error {
+	active := true
+	ctx := &battleCommandContext{battle: s, command: commandContext, active: &active}
+	err := fn(ctx)
+	active = false
+	return err
+}
+
+type battleCommandContext struct {
+	battle  *BattleService
+	command gsr.CommandContext
+	active  *bool
+}
+
+func (c *battleCommandContext) Self() gsr.ServiceRef   { return c.command.Self() }
+func (c *battleCommandContext) Source() gsr.ServiceRef { return c.command.Source() }
+func (c *battleCommandContext) Reply(value any) error  { return c.command.Reply(value) }
+func (c *battleCommandContext) BattleID() BattleID     { return c.battle.id }
+func (c *battleCommandContext) Epoch() BattleEpoch     { return c.battle.epoch }
+func (c *battleCommandContext) Now() time.Time         { return c.battle.context.Now() }
+func (c *battleCommandContext) Timeline() Timeline {
+	return timelineHandle{timeline: c.battle.timeline, active: c.active}
+}
+func (c *battleCommandContext) Broadcast(command gsr.CommandID, payload any) BroadcastResult {
+	result := BroadcastResult{}
+	for _, participant := range c.battle.participants {
+		if !validServiceRef(participant.Ref) {
+			continue
+		}
+		if err := c.battle.context.Send(participant.Ref, command, payload); err != nil {
+			result.Rejected++
+			continue
+		}
+		result.Delivered++
+	}
+	return result
+}
+func (c *battleCommandContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
+	if !validServiceRef(target) {
+		return ErrUnavailable
+	}
+	return c.battle.context.Send(target, command, payload)
+}
+
+func reply(commandContext gsr.CommandContext, value any) error {
+	err := commandContext.Reply(value)
+	if errors.Is(err, gsr.ErrReplyUnavailable) {
+		return nil
+	}
+	return err
+}

@@ -42,6 +42,10 @@ type Participant struct {
     Player PlayerID
     Ref    gsr.ServiceRef // optional PlayerService target
 }
+type ParticipantConnection struct {
+    Player    PlayerID
+    Connected bool
+}
 type BattlePhase string
 const (
     BattleCreated   BattlePhase = "created"
@@ -76,6 +80,15 @@ type BattleConfig struct {
     Logic        BattleLogic
     RandomSeed   uint64
 }
+type SettlementIntent struct {
+    RequestID RequestID
+    Currency  Currency
+    Entries   []SettlementEntry
+}
+type FinishBattle struct {
+    RequestID   RequestID
+    Settlements []SettlementIntent
+}
 type BattleContext interface {
     gsr.CommandContext
     BattleID() BattleID
@@ -101,7 +114,7 @@ func CreateBattle(ServiceCreator, gsr.ServiceName, BattleConfig) (gsr.ServiceRef
 0x03000201 TimelineFire（私有）
 ```
 
-Finish payload 为 `FinishBattle{RequestID, Settlements []SettlementRequest}`；它冻结一次性结算输入、转为 `BattleSettling` 并 Send 给 Wallet。Wallet 的 `SettlementResult` 以 `ApplySettlementResult` 回到 Battle；同 RequestID 的重复 Finish 返回原阶段，不重复发送。游戏 Logic 自定义 Command 仅在 `BattleRunning` 处理，且不得修改 BattleContext 之外的权威状态。
+Finish payload 为 `FinishBattle{RequestID, Settlements []SettlementIntent}`；Intent 不携带 `Source`，Battle 在自己的 Handler 中冻结并填入 `Self` 后构造 `SettlementRequest`，转为 `BattleSettling` 并 Send 给 Wallet。Wallet 的 `SettlementResult` 以 `ApplySettlementResult` 回到 Battle；同 RequestID 的重复 Finish 返回原阶段，不重复发送。游戏 Logic 自定义 Command 仅在 `BattleRunning` 处理，且不得修改 BattleContext 之外的权威状态。
 
 ## 状态与生命周期
 

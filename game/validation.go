@@ -45,6 +45,10 @@ func validateSettlementRequest(request SettlementRequest) error {
 	return nil
 }
 
+func validateSettlementIntent(intent SettlementIntent) error {
+	return validateSettlementRequest(SettlementRequest{RequestID: intent.RequestID, Source: gsr.ServiceRef{Node: "intent", ID: 1}, Currency: intent.Currency, Entries: intent.Entries})
+}
+
 func validateBattleConfig(config BattleConfig) error {
 	if validateID(config.ID) != nil || isNil(config.Logic) || len(config.Participants) == 0 {
 		return ErrInvalidConfig
@@ -103,6 +107,19 @@ func reservedBattleCommand(command gsr.CommandID) bool {
 func cloneSettlementRequest(request SettlementRequest) SettlementRequest {
 	request.Entries = append([]SettlementEntry(nil), request.Entries...)
 	return request
+}
+
+func cloneSettlementIntent(intent SettlementIntent) SettlementIntent {
+	intent.Entries = append([]SettlementEntry(nil), intent.Entries...)
+	return intent
+}
+
+func cloneFinishBattle(finish FinishBattle) FinishBattle {
+	finish.Settlements = make([]SettlementIntent, len(finish.Settlements))
+	for index, intent := range finish.Settlements {
+		finish.Settlements[index] = cloneSettlementIntent(intent)
+	}
+	return finish
 }
 
 func cloneSettlementResult(result SettlementResult) SettlementResult {

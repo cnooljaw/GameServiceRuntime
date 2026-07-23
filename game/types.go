@@ -159,6 +159,12 @@ const (
 	ParticipantOffline ParticipantStatus = "offline"
 )
 
+// ParticipantConnection changes one Battle participant's current reachability.
+type ParticipantConnection struct {
+	Player    PlayerID
+	Connected bool
+}
+
 // BattleSnapshot is an independent read-only projection of one Battle.
 type BattleSnapshot struct {
 	ID           BattleID
@@ -232,6 +238,19 @@ type Balance struct {
 type SettlementEntry struct {
 	Player PlayerID
 	Delta  Amount
+}
+
+// SettlementIntent is Battle-local settlement input before Battle assigns its own source reference.
+type SettlementIntent struct {
+	RequestID RequestID
+	Currency  Currency
+	Entries   []SettlementEntry
+}
+
+// FinishBattle freezes one Battle's settlement intents under an idempotency key.
+type FinishBattle struct {
+	RequestID   RequestID
+	Settlements []SettlementIntent
 }
 
 // SettlementRequest is one canonical idempotent Wallet mutation request.
