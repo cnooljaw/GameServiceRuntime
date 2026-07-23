@@ -22,6 +22,11 @@ type stopOperationRecord struct {
 	operation StopOperation
 }
 
+type recoveryOperationRecord struct {
+	request   BeginRecoveryRequest
+	operation RecoveryOperation
+}
+
 type drainCoordinatorService struct {
 	config     DrainCoordinatorConfig
 	context    gsr.ServiceContext
@@ -29,6 +34,7 @@ type drainCoordinatorService struct {
 	visitors   *drain.Client
 	operations map[RequestID]drainOperationRecord
 	stops      map[RequestID]stopOperationRecord
+	recoveries map[RequestID]recoveryOperationRecord
 	audits     []DrainAudit
 	sequence   uint64
 }
@@ -45,7 +51,7 @@ func NewDrainCoordinatorService(config DrainCoordinatorConfig) (gsr.Service, err
 		config.AuditLimit = defaultDrainAuditLimit
 	}
 	config.AllowedPrincipals = append([]Principal(nil), config.AllowedPrincipals...)
-	return &drainCoordinatorService{config: config, operations: make(map[RequestID]drainOperationRecord), stops: make(map[RequestID]stopOperationRecord)}, nil
+	return &drainCoordinatorService{config: config, operations: make(map[RequestID]drainOperationRecord), stops: make(map[RequestID]stopOperationRecord), recoveries: make(map[RequestID]recoveryOperationRecord)}, nil
 }
 
 func (*drainCoordinatorService) Commands() []gsr.CommandID {
@@ -57,6 +63,11 @@ func (*drainCoordinatorService) Commands() []gsr.CommandID {
 		commandBeginDrainStop,
 		commandResolveDrainStop,
 		commandGetDrainStop,
+		commandBeginRecovery,
+		commandConfirmRecovery,
+		commandResolveRecovery,
+		commandGetRecovery,
+		commandAbandonRecovery,
 	}
 }
 
@@ -119,6 +130,36 @@ func (s *drainCoordinatorService) Handle(commandContext gsr.CommandContext, comm
 			return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidStopRequest)
 		}
 		return s.handleGetStop(commandContext, request.RequestID, request.Principal)
+	case commandBeginRecovery:
+		request, ok := command.Payload.(beginRecoveryRequest)
+		if !ok {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+		return s.handleBeginRecovery(commandContext, request.Request)
+	case commandConfirmRecovery:
+		request, ok := command.Payload.(recoveryOperationRequest)
+		if !ok {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+		return s.handleConfirmRecovery(commandContext, request.RequestID, request.Principal)
+	case commandResolveRecovery:
+		request, ok := command.Payload.(recoveryOperationRequest)
+		if !ok {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+		return s.handleResolveRecovery(commandContext, request.RequestID, request.Principal)
+	case commandGetRecovery:
+		request, ok := command.Payload.(recoveryOperationRequest)
+		if !ok {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+		return s.handleGetRecovery(commandContext, request.RequestID, request.Principal)
+	case commandAbandonRecovery:
+		request, ok := command.Payload.(recoveryOperationRequest)
+		if !ok {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+		return s.handleAbandonRecovery(commandContext, request.RequestID, request.Principal)
 	default:
 		return gsr.ErrCommandNotRegistered
 	}
@@ -127,6 +168,7 @@ func (s *drainCoordinatorService) Handle(commandContext gsr.CommandContext, comm
 func (s *drainCoordinatorService) Stop(context.Context) error {
 	s.operations = make(map[RequestID]drainOperationRecord)
 	s.stops = make(map[RequestID]stopOperationRecord)
+	s.recoveries = make(map[RequestID]recoveryOperationRecord)
 	s.audits = nil
 	s.sequence = 0
 	return nil
@@ -138,6 +180,7 @@ func (s *drainCoordinatorService) Close() error {
 	s.visitors = nil
 	s.operations = nil
 	s.stops = nil
+	s.recoveries = nil
 	s.audits = nil
 	s.sequence = 0
 	return nil
@@ -374,6 +417,336 @@ func (s *drainCoordinatorService) handleGetStop(commandContext gsr.CommandContex
 		return s.replyStopOperation(commandContext, StopOperation{}, ErrOperationOwnerMismatch)
 	}
 	return s.replyStopOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleBeginRecovery(commandContext gsr.CommandContext, request BeginRecoveryRequest) error {
+	if !s.gatewaySource(commandContext.Source()) {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrUnauthorized)
+	}
+	normalized, err := normalizeBeginRecoveryRequest(request)
+	if err != nil {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, err)
+	}
+	if !s.allowed(normalized.Principal) {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_recovery", "denied")
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrUnauthorized)
+	}
+	if existing, exists := s.recoveries[normalized.RequestID]; exists {
+		if !sameBeginRecoveryRequest(existing.request, normalized) {
+			s.appendAudit(normalized.RequestID, normalized.Principal, "begin_recovery", "conflict")
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrRecoveryRequestConflict)
+		}
+		return s.replyRecoveryOperation(commandContext, existing.operation, nil)
+	}
+	stop, exists := s.stops[normalized.RequestID]
+	if !exists {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrStopOperationNotFound)
+	}
+	if stop.operation.Principal != normalized.Principal {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrOperationOwnerMismatch)
+	}
+	if !stopTerminal(stop.operation.Phase) || !matchesStopRecoveryTargets(stop.operation.Targets, normalized.Targets) {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrRecoveryNotReady)
+	}
+	for _, target := range normalized.Targets {
+		if containsRecoveryRef(normalized.Expected.Refs, target.Removed) {
+			return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrInvalidRecoveryRequest)
+		}
+	}
+	current, err := s.getDirectory(normalized.Group)
+	if err != nil || !sameDrainServiceSet(current, normalized.Expected) {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, ErrRecoveryNotReady)
+	}
+	now := s.context.Now()
+	record := recoveryOperationRecord{
+		request: normalized,
+		operation: RecoveryOperation{
+			RequestID: normalized.RequestID, Principal: normalized.Principal, Group: normalized.Group,
+			Expected: cloneDrainServiceSet(normalized.Expected), Targets: recoveryTargetsFromRequest(normalized.Targets),
+			Phase: RecoveryCreating, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	s.advanceRecovery(&record)
+	s.recoveries[normalized.RequestID] = record
+	s.appendAudit(normalized.RequestID, normalized.Principal, "begin_recovery", string(record.operation.Phase))
+	s.context.Metrics().Inc("recovery_operations_started_total")
+	return s.replyRecoveryOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleResolveRecovery(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	record, err := s.authorizedRecovery(commandContext, requestID, principal, "resolve_recovery")
+	if err != nil {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, err)
+	}
+	if !recoveryTerminal(record.operation.Phase) {
+		s.advanceRecovery(&record)
+		s.recoveries[requestID] = record
+	}
+	s.appendAudit(requestID, principal, "resolve_recovery", string(record.operation.Phase))
+	return s.replyRecoveryOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleGetRecovery(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	record, err := s.authorizedRecovery(commandContext, requestID, principal, "get_recovery")
+	if err != nil {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, err)
+	}
+	return s.replyRecoveryOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleConfirmRecovery(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	record, err := s.authorizedRecovery(commandContext, requestID, principal, "confirm_recovery")
+	if err != nil {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, err)
+	}
+	if record.operation.Phase != RecoveryAwaitingConfirmation {
+		return s.replyRecoveryOperation(commandContext, record.operation, ErrRecoveryNotReady)
+	}
+	current, getErr := s.getDirectory(record.operation.Group)
+	if getErr != nil || !sameDrainServiceSet(current, record.operation.Expected) {
+		s.setRecoveryPhase(&record, RecoveryFailed)
+		s.recoveries[requestID] = record
+		return s.replyRecoveryOperation(commandContext, record.operation, ErrRecoveryNotReady)
+	}
+	candidate := recoveryPublishedSet(record.operation)
+	s.setRecoveryPhase(&record, RecoveryPublishing)
+	published, publishErr := s.publishRecoveryDirectory(record.operation, candidate)
+	if publishErr != nil {
+		s.recoveries[requestID] = record
+		s.appendAudit(requestID, principal, "confirm_recovery", "publishing")
+		return s.replyRecoveryOperation(commandContext, record.operation, nil)
+	}
+	s.completeRecoveryPublish(&record, published)
+	s.recoveries[requestID] = record
+	s.appendAudit(requestID, principal, "confirm_recovery", string(record.operation.Phase))
+	return s.replyRecoveryOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleAbandonRecovery(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	record, err := s.authorizedRecovery(commandContext, requestID, principal, "abandon_recovery")
+	if err != nil {
+		return s.replyRecoveryOperation(commandContext, RecoveryOperation{}, err)
+	}
+	if record.operation.Phase == RecoveryCompleted || record.operation.Phase == RecoveryPublishing {
+		return s.replyRecoveryOperation(commandContext, record.operation, ErrRecoveryNotReady)
+	}
+	for index := range record.operation.Targets {
+		record.operation.Targets[index].State = RecoveryTargetAbandoned
+		record.operation.Targets[index].Failure = RecoveryFailureNone
+	}
+	s.setRecoveryPhase(&record, RecoveryAbandoned)
+	s.recoveries[requestID] = record
+	s.appendAudit(requestID, principal, "abandon_recovery", string(record.operation.Phase))
+	return s.replyRecoveryOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) authorizedRecovery(commandContext gsr.CommandContext, requestID RequestID, principal Principal, action string) (recoveryOperationRecord, error) {
+	if !s.gatewaySource(commandContext.Source()) {
+		return recoveryOperationRecord{}, ErrUnauthorized
+	}
+	if !validRequestID(requestID) {
+		return recoveryOperationRecord{}, ErrInvalidRequestID
+	}
+	if !validPrincipal(principal) {
+		return recoveryOperationRecord{}, ErrInvalidPrincipal
+	}
+	if !s.allowed(principal) {
+		s.appendAudit(requestID, principal, action, "denied")
+		return recoveryOperationRecord{}, ErrUnauthorized
+	}
+	record, exists := s.recoveries[requestID]
+	if !exists {
+		return recoveryOperationRecord{}, ErrRecoveryOperationNotFound
+	}
+	if record.operation.Principal != principal {
+		return recoveryOperationRecord{}, ErrOperationOwnerMismatch
+	}
+	return record, nil
+}
+
+func (s *drainCoordinatorService) advanceRecovery(record *recoveryOperationRecord) {
+	if record.operation.Phase == RecoveryPublishing {
+		s.resolveRecoveryPublish(record)
+		return
+	}
+	if record.operation.Phase != RecoveryCreating {
+		return
+	}
+	current, err := s.getDirectory(record.operation.Group)
+	if err != nil {
+		s.touchRecovery(record)
+		return
+	}
+	if !sameDrainServiceSet(current, record.operation.Expected) {
+		s.setRecoveryPhase(record, RecoveryFailed)
+		return
+	}
+	for index := range record.operation.Targets {
+		target := record.operation.Targets[index]
+		if target.State == RecoveryTargetCreated || target.State == RecoveryTargetFailed {
+			continue
+		}
+		var receipt RecoveryReceipt
+		if target.State == RecoveryTargetPending {
+			receipt, err = s.beginNodeRecovery(record.operation, target)
+		} else {
+			receipt, err = s.getNodeRecoveryReceipt(record.operation, target)
+		}
+		if err == nil {
+			s.applyNodeRecoveryReceipt(record, index, receipt)
+		}
+	}
+	allCreated := true
+	allTerminal := true
+	anyFailed := false
+	for _, target := range record.operation.Targets {
+		allCreated = allCreated && target.State == RecoveryTargetCreated
+		allTerminal = allTerminal && target.State != RecoveryTargetPending && target.State != RecoveryTargetCreating
+		anyFailed = anyFailed || target.State == RecoveryTargetFailed
+	}
+	switch {
+	case allCreated:
+		s.setRecoveryPhase(record, RecoveryAwaitingConfirmation)
+	case allTerminal && anyFailed:
+		s.setRecoveryPhase(record, RecoveryFailed)
+	default:
+		s.touchRecovery(record)
+	}
+}
+
+func (s *drainCoordinatorService) beginNodeRecovery(operation RecoveryOperation, target RecoveryTarget) (RecoveryReceipt, error) {
+	callContext, cancel := context.WithTimeout(context.Background(), s.config.CallTimeout)
+	value, err := s.context.Call(callContext, target.Agent, commandBeginRecoveryCreate, beginRecoveryCreateRequest{Task: RecoveryCreateTask{Agent: target.Agent, RequestID: operation.RequestID, Removed: target.Removed, Blueprint: target.Blueprint}})
+	cancel()
+	return recoveryReceiptFromResponse(value, err, operation.RequestID, target)
+}
+
+func (s *drainCoordinatorService) getNodeRecoveryReceipt(operation RecoveryOperation, target RecoveryTarget) (RecoveryReceipt, error) {
+	callContext, cancel := context.WithTimeout(context.Background(), s.config.CallTimeout)
+	value, err := s.context.Call(callContext, target.Agent, commandGetRecoveryReceipt, getRecoveryReceiptRequest{RequestID: operation.RequestID, Removed: target.Removed})
+	cancel()
+	return recoveryReceiptFromResponse(value, err, operation.RequestID, target)
+}
+
+func recoveryReceiptFromResponse(value any, callErr error, requestID RequestID, target RecoveryTarget) (RecoveryReceipt, error) {
+	if callErr != nil {
+		return RecoveryReceipt{}, callErr
+	}
+	response, ok := value.(recoveryReceiptResponse)
+	if !ok {
+		return RecoveryReceipt{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return RecoveryReceipt{}, err
+	}
+	if !validRecoveryReceipt(response.Receipt) || response.Receipt.RequestID != requestID || response.Receipt.Removed != target.Removed || response.Receipt.Blueprint != target.Blueprint {
+		return RecoveryReceipt{}, ErrInvalidResponse
+	}
+	return response.Receipt, nil
+}
+
+func (s *drainCoordinatorService) applyNodeRecoveryReceipt(record *recoveryOperationRecord, index int, receipt RecoveryReceipt) {
+	target := &record.operation.Targets[index]
+	target.Created = receipt.Created
+	target.State = receipt.State
+	target.Failure = receipt.Failure
+	s.touchRecovery(record)
+}
+
+func (s *drainCoordinatorService) resolveRecoveryPublish(record *recoveryOperationRecord) {
+	current, err := s.getDirectory(record.operation.Group)
+	if err != nil {
+		s.touchRecovery(record)
+		return
+	}
+	candidate := recoveryPublishedSet(record.operation)
+	if sameDrainServiceSet(current, candidate) {
+		s.completeRecoveryPublish(record, current)
+		return
+	}
+	if !sameDrainServiceSet(current, record.operation.Expected) {
+		s.setRecoveryPhase(record, RecoveryFailed)
+	}
+}
+
+func (s *drainCoordinatorService) completeRecoveryPublish(record *recoveryOperationRecord, published servicegroup.ServiceSet) {
+	record.operation.Published = cloneDrainServiceSet(published)
+	for index := range record.operation.Targets {
+		record.operation.Targets[index].State = RecoveryTargetPublished
+		record.operation.Targets[index].Failure = RecoveryFailureNone
+	}
+	s.setRecoveryPhase(record, RecoveryCompleted)
+}
+
+func (s *drainCoordinatorService) publishRecoveryDirectory(operation RecoveryOperation, candidate servicegroup.ServiceSet) (servicegroup.ServiceSet, error) {
+	callContext, cancel := context.WithTimeout(context.Background(), s.config.CallTimeout)
+	set, err := s.directory.Publish(callContext, operation.Group, operation.Expected.Version, candidate.Refs, candidate.Tags)
+	cancel()
+	return set, err
+}
+
+func (s *drainCoordinatorService) setRecoveryPhase(record *recoveryOperationRecord, phase RecoveryPhase) {
+	if record.operation.Phase == phase {
+		return
+	}
+	record.operation.Phase = phase
+	s.touchRecovery(record)
+	switch phase {
+	case RecoveryCompleted:
+		s.context.Metrics().Inc("recovery_operations_completed_total")
+	case RecoveryFailed:
+		s.context.Metrics().Inc("recovery_operations_failed_total")
+	case RecoveryAbandoned:
+		s.context.Metrics().Inc("recovery_operations_abandoned_total")
+	}
+}
+
+func (s *drainCoordinatorService) touchRecovery(record *recoveryOperationRecord) {
+	now := s.context.Now()
+	if !now.Before(record.operation.UpdatedAt) {
+		record.operation.UpdatedAt = now
+	}
+}
+
+func recoveryTerminal(phase RecoveryPhase) bool {
+	return phase == RecoveryCompleted || phase == RecoveryFailed || phase == RecoveryAbandoned
+}
+
+func matchesStopRecoveryTargets(stops []StopTarget, targets []RecoveryTargetRequest) bool {
+	if len(stops) != len(targets) {
+		return false
+	}
+	for index := range stops {
+		if stops[index].Target != targets[index].Removed {
+			return false
+		}
+	}
+	return true
+}
+
+func recoveryTargetsFromRequest(requests []RecoveryTargetRequest) []RecoveryTarget {
+	targets := make([]RecoveryTarget, len(requests))
+	for index, request := range requests {
+		targets[index] = RecoveryTarget{Removed: request.Removed, Agent: request.Agent, Blueprint: request.Blueprint, State: RecoveryTargetPending}
+	}
+	return targets
+}
+
+func recoveryPublishedSet(operation RecoveryOperation) servicegroup.ServiceSet {
+	refs := append([]gsr.ServiceRef(nil), operation.Expected.Refs...)
+	for _, target := range operation.Targets {
+		if !containsRecoveryRef(refs, target.Created) {
+			refs = append(refs, target.Created)
+		}
+	}
+	for left := 0; left < len(refs); left++ {
+		for right := left + 1; right < len(refs); right++ {
+			if refs[right].Node < refs[left].Node || (refs[right].Node == refs[left].Node && refs[right].ID < refs[left].ID) {
+				refs[left], refs[right] = refs[right], refs[left]
+			}
+		}
+	}
+	return servicegroup.ServiceSet{Name: operation.Group, Version: servicegroup.ServiceSetVersion{AuthorityEpoch: operation.Expected.Version.AuthorityEpoch, Revision: operation.Expected.Version.Revision + 1}, Refs: refs, Tags: cloneDrainTags(operation.Expected.Tags)}
 }
 
 func (s *drainCoordinatorService) advanceStop(record *stopOperationRecord) {
@@ -782,6 +1155,13 @@ func (s *drainCoordinatorService) replyStopOperation(commandContext gsr.CommandC
 		return commandContext.Reply(stopOperationResponse{Error: codeFromError(err)})
 	}
 	return commandContext.Reply(stopOperationResponse{Operation: cloneStopOperation(operation)})
+}
+
+func (s *drainCoordinatorService) replyRecoveryOperation(commandContext gsr.CommandContext, operation RecoveryOperation, err error) error {
+	if err != nil {
+		return commandContext.Reply(recoveryOperationResponse{Error: codeFromError(err)})
+	}
+	return commandContext.Reply(recoveryOperationResponse{Operation: cloneRecoveryOperation(operation)})
 }
 
 func (s *drainCoordinatorService) replyAudits(commandContext gsr.CommandContext, audits []DrainAudit, err error) error {

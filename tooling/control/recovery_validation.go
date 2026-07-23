@@ -175,6 +175,11 @@ func validRecoveryPublishedSet(operation RecoveryOperation) bool {
 	if !validDrainServiceSet(set) || set.Name != operation.Group || set.Version.AuthorityEpoch != operation.Expected.Version.AuthorityEpoch || set.Version.Revision != operation.Expected.Version.Revision+1 {
 		return false
 	}
+	for _, ref := range operation.Expected.Refs {
+		if !containsRecoveryRef(set.Refs, ref) {
+			return false
+		}
+	}
 	for _, target := range operation.Targets {
 		if containsRecoveryRef(set.Refs, target.Removed) || !containsRecoveryRef(set.Refs, target.Created) {
 			return false
@@ -206,7 +211,7 @@ func validRecoveryCreateResult(result recoveryCreateResult) bool {
 	case RecoveryTargetCreated:
 		return validServiceRef(result.Created) && result.Created != result.Removed && result.Failure == RecoveryFailureNone
 	case RecoveryTargetFailed:
-		return result.Created == (gsr.ServiceRef{}) && (result.Failure == RecoveryFailureBlueprintUnavailable || result.Failure == RecoveryFailureCreate || result.Failure == RecoveryFailureRunnerClosed)
+		return result.Created == (gsr.ServiceRef{}) && (result.Failure == RecoveryFailureQueueFull || result.Failure == RecoveryFailureBlueprintUnavailable || result.Failure == RecoveryFailureCreate || result.Failure == RecoveryFailureRunnerClosed)
 	default:
 		return false
 	}

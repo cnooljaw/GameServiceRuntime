@@ -213,6 +213,53 @@ func (c *DrainClient) GetStop(ctx context.Context, requestID RequestID, principa
 	return stopOperationFromResponse(value)
 }
 
+// BeginRecovery creates or retrieves one RequestID-idempotent manual recovery operation.
+func (c *DrainClient) BeginRecovery(ctx context.Context, request BeginRecoveryRequest) (RecoveryOperation, error) {
+	request, err := normalizeBeginRecoveryRequest(request)
+	if err != nil {
+		return RecoveryOperation{}, err
+	}
+	value, err := c.caller.Call(ctx, c.target, commandBeginRecovery, beginRecoveryRequest{Request: request})
+	if err != nil {
+		return RecoveryOperation{}, err
+	}
+	return recoveryOperationFromResponse(value)
+}
+
+// ConfirmRecovery publishes all previously created replacements after explicit operator confirmation.
+func (c *DrainClient) ConfirmRecovery(ctx context.Context, requestID RequestID, principal Principal) (RecoveryOperation, error) {
+	return c.callRecovery(ctx, commandConfirmRecovery, requestID, principal)
+}
+
+// ResolveRecovery explicitly reads receipts or Directory after an unknown recovery action.
+func (c *DrainClient) ResolveRecovery(ctx context.Context, requestID RequestID, principal Principal) (RecoveryOperation, error) {
+	return c.callRecovery(ctx, commandResolveRecovery, requestID, principal)
+}
+
+// GetRecovery returns one independent manual recovery operation snapshot owned by principal.
+func (c *DrainClient) GetRecovery(ctx context.Context, requestID RequestID, principal Principal) (RecoveryOperation, error) {
+	return c.callRecovery(ctx, commandGetRecovery, requestID, principal)
+}
+
+// AbandonRecovery records that an unpublished manual recovery was abandoned.
+func (c *DrainClient) AbandonRecovery(ctx context.Context, requestID RequestID, principal Principal) (RecoveryOperation, error) {
+	return c.callRecovery(ctx, commandAbandonRecovery, requestID, principal)
+}
+
+func (c *DrainClient) callRecovery(ctx context.Context, command gsr.CommandID, requestID RequestID, principal Principal) (RecoveryOperation, error) {
+	if !validRequestID(requestID) {
+		return RecoveryOperation{}, ErrInvalidRequestID
+	}
+	if !validPrincipal(principal) {
+		return RecoveryOperation{}, ErrInvalidPrincipal
+	}
+	value, err := c.caller.Call(ctx, c.target, command, recoveryOperationRequest{RequestID: requestID, Principal: principal})
+	if err != nil {
+		return RecoveryOperation{}, err
+	}
+	return recoveryOperationFromResponse(value)
+}
+
 func drainOperationFromResponse(value any) (DrainOperation, error) {
 	response, ok := value.(drainOperationResponse)
 	if !ok {
@@ -239,4 +286,18 @@ func stopOperationFromResponse(value any) (StopOperation, error) {
 		return StopOperation{}, ErrInvalidResponse
 	}
 	return cloneStopOperation(response.Operation), nil
+}
+
+func recoveryOperationFromResponse(value any) (RecoveryOperation, error) {
+	response, ok := value.(recoveryOperationResponse)
+	if !ok {
+		return RecoveryOperation{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return RecoveryOperation{}, err
+	}
+	if !validRecoveryOperation(response.Operation) {
+		return RecoveryOperation{}, ErrInvalidResponse
+	}
+	return cloneRecoveryOperation(response.Operation), nil
 }

@@ -44,7 +44,7 @@ func TestRecoveryOperationReturnsIndependentCopiesAndValidatesStates(t *testing.
 	}
 	published := expected
 	published.Version.Revision = 3
-	published.Refs = []gsr.ServiceRef{{Node: "node-b", ID: 11}}
+	published.Refs = []gsr.ServiceRef{{Node: "node-b", ID: 7}, {Node: "node-b", ID: 11}}
 	published.Tags = map[string]string{"zone": "a"}
 	operation := RecoveryOperation{
 		RequestID: "recover-1", Principal: "operator-a", Group: "battle", Expected: expected, Published: published,
@@ -57,7 +57,7 @@ func TestRecoveryOperationReturnsIndependentCopiesAndValidatesStates(t *testing.
 	cloned := cloneRecoveryOperation(operation)
 	cloned.Expected.Tags["zone"] = "changed"
 	cloned.Published.Refs[0] = gsr.ServiceRef{Node: "node-x", ID: 1}
-	if operation.Expected.Tags["zone"] != "a" || operation.Published.Refs[0].Node != "node-b" {
+	if operation.Expected.Tags["zone"] != "a" || operation.Published.Refs[0].ID != 7 {
 		t.Fatalf("clone mutated source: %#v", operation)
 	}
 	operation.Targets[0].State = RecoveryTargetCreated

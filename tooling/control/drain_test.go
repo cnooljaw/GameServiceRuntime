@@ -415,7 +415,7 @@ type drainGatewayService struct {
 }
 
 func (*drainGatewayService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandStartDrainOperation, commandResolveDrainOperation, commandGetDrainOperation, commandListDrainAudit, commandBeginDrainStop, commandResolveDrainStop, commandGetDrainStop}
+	return []gsr.CommandID{commandStartDrainOperation, commandResolveDrainOperation, commandGetDrainOperation, commandListDrainAudit, commandBeginDrainStop, commandResolveDrainStop, commandGetDrainStop, commandBeginRecovery, commandConfirmRecovery, commandResolveRecovery, commandGetRecovery, commandAbandonRecovery}
 }
 func (s *drainGatewayService) Init(context gsr.ServiceContext) error { s.context = context; return nil }
 func (s *drainGatewayService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
