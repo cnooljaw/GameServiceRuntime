@@ -29,11 +29,11 @@
 | D-009：Supervisor 是可选恢复策略 | Runtime 负责实例 Create/Stop；`Supervisor` 只在真正承担失败监控、恢复预算和重启策略时作为 Tooling 存在，不是 Core 生命周期替身或 OTP Tree。 | 避免承诺不存在的自动恢复语义，同时允许对已定义的 panic 失败路径做受限恢复。 | [Supervisor](rfcs/RFC-0220-Tooling-Supervisor.md) |
 | D-010：Observed State 先于 Desired State | Discovery、NodeAgent、Observer 只描述当前事实；Controller 负责 Desired State 与 Reconcile，NodeAgent 只执行动作。 | 将“看见系统”与“改变系统”的权限、失败处理和策略分开，防止只读观测面悄然变成运维控制面。 | [Control Plane](rfcs/RFC-0250-Tooling-Cluster-Control-Plane.md)、[Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)、[路线图](rfcs/RFC-0500-Roadmap.md) |
 | D-011：ServiceGroup 独立于 Discovery | `DirectoryService` 是 ServiceSet 的唯一事实 owner；Router 只使用调用方显式持有的快照。 | 避免 Discovery 兼任目录和负载策略，也避免看似异步的 Send 隐含同步远程查询或后台缓存。 | [ServiceGroup](rfcs/RFC-0260-Tooling-ServiceGroup-Routing.md) |
-| D-012：Drain 是切流后的扩展流程 | 新实例就绪后切换 ServiceSet，旧实例拒绝新外部流量、等待访问者释放后再 Stop；回滚使用更高版本。 | 热更新不是进程内代码补丁，且不能为 Drain 污染 Core 最小接口。 | [Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md) |
+| D-012：Drain 使用版本切换与访问者 lease | 新实例就绪后发布更高 ServiceSet；后续 Drain guard 拒绝旧实例的新外部流量，VisitorRegistryService 以有 owner、代际和过期时间的 lease 判断强访问者是否释放，最后才 Stop；回滚仍发布更高版本。 | 热更新不是进程内代码补丁，且访问关系不能散落在调用方共享 map，更不能污染 Core 最小接口。 | [Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md) |
 
 ## 演进与协作
 
 | 决策 | 结论 | 原因摘要 | 权威来源 |
 | --- | --- | --- | --- |
-| D-013：分阶段只引入一个核心问题 | 当前已完成 Phase 9；Phase 10 才冻结 Drain、Visitor、Desired State、Controller、Reconcile 与修改型 NodeAgent 动作。 | 将复杂度拆成可验收的能力，避免把自动恢复、调度和策略塞入 Discovery 或 Core。 | [路线图](rfcs/RFC-0500-Roadmap.md)、[Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md) |
+| D-013：分阶段只引入一个核心问题 | 当前已完成 Phase 9；Phase 10A 先冻结 Visitor lease，Drain 编排、Desired State、Controller、Reconcile 与修改型 NodeAgent 动作分别进入后续契约。 | 将复杂度拆成可验收的能力，避免把自动恢复、调度和策略塞入 Discovery 或 Core。 | [路线图](rfcs/RFC-0500-Roadmap.md)、[Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md) |
 | D-014：聊天结论必须回写 | 聊天用于探索；稳定结论先进入 RFC，再进入本索引，最后按需同步路线图、`AGENTS.md` 和 Skill。 | 让归档后的设计理由仍可检索，避免后续实现靠重新推理或误读历史上下文。 | [RFC 生命周期](rfcs/RFC-0003-Foundation-RFC-Lifecycle.md)、[Codex 开发指南](GSR-Book/06-第六篇-实践/02-Codex开发指南.md) |

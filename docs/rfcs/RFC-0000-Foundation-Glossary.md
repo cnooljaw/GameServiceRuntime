@@ -61,7 +61,7 @@
 | ClusterObserverService | 系统服务，保存静态节点配置并编排只读节点观测；它不执行收敛或运维动作。 |
 | NodeAgentService | 每个节点上的系统服务，维护本节点 Discovery 租约，并响应受限的只读 Monitor 查询。 |
 | NodeConfig | 用于定位和观测节点的静态部署事实，例如地址、角色、是否启用；不是可收敛的期望状态。 |
-| Desired State | Controller 持有的可收敛目标，例如 Service 副本数、版本和放置约束；Phase 10 后才引入。 |
+| Desired State | Controller 持有的可收敛目标，例如 Service 副本数、版本和放置约束；它需要独立的认证、授权和审计契约。 |
 | Observed State | 控制面读取的当前运行事实，例如节点心跳、延迟、错误和实际 Service 实例。 |
 | Snapshot | Service 状态快照，用于恢复、重连或容灾。 |
 | Command Record | 记录进入 Service 的 Command 序列，用于复现问题。 |
@@ -71,6 +71,8 @@
 | Drain | 平滑下线过程。先停止接收新流量，再等待已有访问释放，最后关闭旧 Service。 |
 | Exit Hook | Service 退出时执行的清理逻辑。GSR 第一版通过 `Stop(ctx)` 和 `Close()` 表达，不新增全局 `atexit` API。 |
 | Visitor Tracking | 访问者追踪，用于判断旧 Service 是否仍被其他 Service 使用。 |
+| VisitorRegistryService | Visitor lease 的唯一状态 owner。它通过 Command 保存、续订、释放和查询关系，不探测 Service 存活，也不编排 Drain。 |
+| Visitor Lease | 一个带 AuthorityEpoch、Generation、owner 和过期时间的 Target/Visitor 关系。Visitor 同时是 lease owner；迟到的 Renew 或 Release 不得影响更新后的 lease。 |
 | Weak Visitor | 弱访问者。弱访问不阻止旧 Service Drain 退出。 |
 | Controller | 对比 Desired State 与 Observed State、计算差异并持续收敛的 Tooling 组件。它决定动作，不直接持有业务 Service。 |
 | Reconcile | Controller 根据期望状态与实际状态反复计算并执行收敛动作的循环。 |
