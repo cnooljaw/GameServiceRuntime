@@ -1,18 +1,20 @@
 ---
 name: gsr-runtime
-description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler、Call/Reply、Timer、生命周期、Cluster、Runtime Inspection、Discovery、Monitor 及相关 RFC 时使用，尤其适用于并发、超时、任务所有权和 Core/Tooling 边界裁决。
+description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler、Call/Reply、Timer、生命周期、Cluster、Runtime Inspection、Discovery、Monitor、ServiceGroup、Controller、Drain 及相关 RFC 时使用，尤其适用于并发、超时、任务所有权、阶段演进和 Core/Tooling 边界裁决。
 ---
 
 # GSR Runtime
 
 ## 工作流
 
-1. 先读 `docs/SUMMARY.md`、本次修改对应的 RFC；处理已实现能力时再读 `docs/TODO.md`。
-2. 裁决顺序是：RFC -> Skynet 设计规则 -> Skynet 源码实现。源码只用于补足未说明的语义，不照搬历史实现；结论写回 RFC。
-3. 先确认修改属于 Core、Tooling 还是 Business；外层不得把领域类型或管理 API 压入 Core。
-4. 做跨文件评审或影响分析时，先运行 `codegraph sync` 和 `codegraph status`，再用 `query`、`callers`、`callees`、`impact` 定位；图结果只用于导航，最终以源码和测试为准。
-5. 先写失败测试，再做最小实现。新增导出 API 时同步更新 RFC，私有实现不因测试方便而公开。
-6. 完成后运行 `go test ./...`、`go vet ./...`、`go test -race ./...`；并发敏感测试增加重复次数。
+1. 先读 `docs/SUMMARY.md`、`docs/DECISIONS.md`、本次修改对应的 RFC；处理已实现能力时再读 `docs/TODO.md`。
+2. 进入新 Phase 时，先审核目标 RFC、相邻 RFC、当前实现和 `RFC-0500`。缺少 owner、公开契约、失败语义或验收条件时，先补 RFC，再写测试或代码。
+3. 裁决顺序是：RFC -> Skynet 设计规则 -> Skynet 源码实现。源码只用于补足未说明的语义，不照搬历史实现；结论写回 RFC 和决策索引。
+4. 先确认修改属于 Core、Tooling 还是 Business；外层不得把领域类型或管理 API 压入 Core。
+5. 做跨文件评审或影响分析时，先运行 `codegraph sync` 和 `codegraph status`，再用 `query`、`callers`、`callees`、`impact` 定位；图结果只用于导航，最终以源码和测试为准。
+6. 先写失败测试，再做最小实现。新增导出 API 时同步更新 RFC，私有实现不因测试方便而公开。
+7. 先完成一个可验证的纵向切片，再从“RFC 契约是否满足”和“模块职责是否优雅”两个维度审查。收尾时说明业务作用、非目标和下一阶段依赖。
+8. 完成后运行 `go test ./...`、`go vet ./...`、`go test -race ./...`；并发敏感测试增加重复次数。
 
 ## Core 不变量
 
@@ -25,6 +27,16 @@ description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler�
 - Call 必须校验 Reply 来源、处理超时和迟到 Reply、拒绝同步调用环；Service 等待 Call 时要归还并恢复 Scheduler 执行许可。
 - Timer 只生成 Command；取消和目标关闭必须清理绑定，投递失败需要可观测。
 - 生命周期结束时收敛 Mailbox、PendingCall、Timer、Registry 和 Name；重复或并发 Stop/Close 的语义必须明确且有测试。
+
+## 已冻结的阶段边界
+
+- `Runtime.ResolveRemote` 只在已知节点查询其本地 `ServiceName`；动态名字、租约和节点事实由 Discovery 处理。不要把它扩展成全局目录、ServiceGroup 查询或路由入口。
+- 系统 Service 同样使用动态 `ServiceID` 加稳定 `ServiceName`，不引入 `SystemServiceID`；只有 `ServiceID(0)` 是 Core 的节点端点，不分发给 Service。
+- Discovery 保存节点 lease 和长期 ServiceName，不保存 ServiceSet、不选择路由、不引入 Gossip。ServiceGroup 的事实由 `DirectoryService` 持有，Router 只路由调用方显式持有的 ServiceSet。
+- Timer 只在未来投递 Command；不要把 Timer Wheel 包装成 Service，也不要让 Timer 执行业务回调。
+- 生产代码中的直接 `go` 默认禁止。只有 Runtime 内部任务、Transport/连接 Adapter 的 I/O owner、或固定上限的外部 worker pool 可以例外；例外必须有明确生命周期 owner、取消或关闭入口、真实返回等待和泄漏测试，且不得在 Handler 外修改 Service 状态或使用保存的 `ServiceContext`。
+- Supervisor 是可选 Tooling 的故障恢复组件，不替代 Runtime 的 Create/Stop 生命周期，也不假设 Erlang/OTP 的 Supervisor Tree。只有实际承担监控、恢复和重启策略的组件才使用该名称。
+- Phase 8 的 Discovery/Observer 描述 Observed State；Phase 10 才引入 Desired State、Controller、Reconcile 与 NodeAgent 执行动作。Controller 决策，NodeAgent 执行，Runtime 只提供能力。
 
 ## Cluster 与 Tooling 边界
 

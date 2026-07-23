@@ -23,7 +23,7 @@
 | Business Template | 业务模板。为某类业务提供职责划分、Command 流程和测试样例；不是 Core Runtime 的内建实体，也不是所有业务必须继承的基类。 |
 | Service | 可寻址的运行时实体，拥有状态、生命周期、Mailbox 和 Command 入口。 |
 | ServiceRef | Service 的运行时地址，不是对象指针。 |
-| ServiceID | 单节点内的 Service 实例编号。 |
+| ServiceID | 单节点内的动态 Service 实例编号。系统 Service 不使用特殊 ID；只有 `ServiceID(0)` 保留给 Core 节点端点和 Runtime caller。 |
 | ServiceName | 长生命周期逻辑服务名，例如 `.db`、`.match`、`.config`。 |
 | ServiceGroup | 一组承担同一职责的 Service。它是发现和路由层概念，不是 Core Runtime 实体。 |
 | ServiceSetVersion | ServiceGroup 完整地址快照的版本身份，由 Directory AuthorityEpoch 和组内 Revision 组成，用于 watch、切换和旧权威 fencing。 |
@@ -66,12 +66,15 @@
 | Snapshot | Service 状态快照，用于恢复、重连或容灾。 |
 | Command Record | 记录进入 Service 的 Command 序列，用于复现问题。 |
 | Replay | 使用 Command Record 重放 Service 行为。 |
-| Supervisor | Runtime 故障隔离和恢复策略组件。 |
+| Supervisor（监督器） | Runtime Tooling 的故障隔离和恢复策略组件。它不接管 Core 生命周期，不等同于 Erlang/OTP 的 Supervisor Tree。 |
 | Monitor | Runtime 可观测组件。 |
 | Drain | 平滑下线过程。先停止接收新流量，再等待已有访问释放，最后关闭旧 Service。 |
 | Exit Hook | Service 退出时执行的清理逻辑。GSR 第一版通过 `Stop(ctx)` 和 `Close()` 表达，不新增全局 `atexit` API。 |
 | Visitor Tracking | 访问者追踪，用于判断旧 Service 是否仍被其他 Service 使用。 |
 | Weak Visitor | 弱访问者。弱访问不阻止旧 Service Drain 退出。 |
+| Controller | 对比 Desired State 与 Observed State、计算差异并持续收敛的 Tooling 组件。它决定动作，不直接持有业务 Service。 |
+| Reconcile | Controller 根据期望状态与实际状态反复计算并执行收敛动作的循环。 |
+| 设计决策索引 | `docs/DECISIONS.md`。用于检索设计结论及其权威 RFC；它不定义公开 API，也不替代 RFC。 |
 | Battle | Game Layer 中一组参与者的游戏活动上下文，默认由 `BattleService` 拥有参与者、准备、重连、当前局、动作和计时器等强一致状态。 |
 | Timeline | Game Layer 中的游戏时间轴，底层基于 Timer。 |
 | Broadcast | Game Layer 的玩家广播封装，底层基于 Send。 |

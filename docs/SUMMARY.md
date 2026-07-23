@@ -8,6 +8,7 @@
 2. 如果聊天记录、旧文档和 RFC 冲突，以 RFC 为准。
 3. 如果实现和 RFC 冲突，要么修改实现，要么先更新 RFC。
 4. 所有正式文档使用中文正文，API、类型名、文件名保留英文。
+5. 需要理解既有裁决的原因时，先查决策索引，再阅读其链接的 RFC；索引不能覆盖 RFC。
 
 ## 项目状态
 
@@ -19,6 +20,7 @@
 - [RFC-0001：设计原则](rfcs/RFC-0001-Foundation-Design-Principles.md)
 - [RFC-0002：冲突裁决记录](rfcs/RFC-0002-Foundation-Conflict-Resolution.md)
 - [RFC-0003：RFC 生命周期与写作规范](rfcs/RFC-0003-Foundation-RFC-Lifecycle.md)
+- [设计决策索引](DECISIONS.md)
 
 ## Layer 1：Core Runtime（运行时内核）
 
