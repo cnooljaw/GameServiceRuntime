@@ -99,7 +99,9 @@ func TestClusterObserverMarksInvalidAndTimedOutAgentRepliesUnavailable(t *testin
 	})
 
 	t.Run("timeout", func(t *testing.T) {
-		runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+		// The target deliberately blocks a handler. Keep a second execution permit
+		// so this test isolates Call timeout behavior instead of Scheduler starvation.
+		runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a", Workers: 2})
 		t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 		agent := &blockingReportService{started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{})}
 		agentRef, err := runtime.CreateService(gsr.ServiceSpec{Service: agent})
