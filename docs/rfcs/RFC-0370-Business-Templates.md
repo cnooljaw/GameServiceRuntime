@@ -1,6 +1,8 @@
 # RFC-0370：业务模板与状态归属
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 12
 > 范围：Business Layer
 > 依赖：[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0310](RFC-0310-Business-Battle.md)、[RFC-0330](RFC-0330-Business-Room.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)、[RFC-0360](RFC-0360-Business-WalletService.md)

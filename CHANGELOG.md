@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Business Layer and WhackMole Example
+
+- 新增 `game` 的 Battle/Timeline、Room、Player/Module、Wallet/MemoryLedgerStore 和组合根拥有的有界 LedgerRunner；业务状态分别由相应 Service Mailbox 串行拥有，跨 Service 只使用 ServiceRef、Command、RequestID 与结果 Command。
+- 新增 `examples/whackmole`：首个命中赢分、Timeline 过期安排、BattleContext 结算入口、可执行组合根，以及全新 Runtime 的 Record/Replay 分数复现。
+- MemoryLedger 只用于测试和示例，不提供生产持久性、权限、加密或合规保留；认证协议、自动 Controller、Reconcile 和 Desired State 仍由应用层负责。
+
 ### Command Record and Replay
 
 - 新增 `tooling/record`：透明 Decorator 在目标 Service 的 Handle 边界编码并发送不可变 `RecordEntry`；RecorderService 在自身 Mailbox 中按 StableKey 保存连续 sequence 的有界窗口，normal 录制失败只记录受限日志与指标，strict 模式仅供测试且不执行业务 Handler。

@@ -1,6 +1,8 @@
 # RFC-0350：PlayerModule 与玩家业务组合
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 12
 > 范围：Business Layer
 > 依赖：[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0300](RFC-0300-Business-Layering.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)

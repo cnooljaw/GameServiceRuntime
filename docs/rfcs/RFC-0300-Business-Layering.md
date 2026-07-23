@@ -1,6 +1,8 @@
 # RFC-0300：Business Layer 分层
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 12
 > 范围：Business Layer
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)、[RFC-0280](RFC-0280-Tooling-Command-Record-Replay.md)、[RFC-0290](RFC-0290-Tooling-LoginService-Gateway.md)

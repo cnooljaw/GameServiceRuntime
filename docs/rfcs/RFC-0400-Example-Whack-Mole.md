@@ -1,6 +1,8 @@
 # RFC-0400：打地鼠示例
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 13
 > 范围：Business Layer、Examples
 > 依赖：[RFC-0280](RFC-0280-Tooling-Command-Record-Replay.md)、[RFC-0310](RFC-0310-Business-Battle.md)、[RFC-0320](RFC-0320-Business-Timeline.md)、[RFC-0330](RFC-0330-Business-Room.md)、[RFC-0340](RFC-0340-Business-PlayerService.md)、[RFC-0360](RFC-0360-Business-WalletService.md)
