@@ -20,6 +20,7 @@
 - 业务状态变化只能通过 Command 进入 Mailbox handler；`Stop`、`Close` 只做 Runtime 串行调度的清理。
 - Service 之间只能通过 `ServiceRef` 和 Command 通信，不持有另一个 Service 指针。
 - Service 实现不得直接创建 goroutine；异步工作使用 Command、Timer 或独立 Service，直接 `go` 语句由 AST 测试检查。Runtime 创建的执行任务必须追踪到真实返回。
+- 生产代码中的直接 `go` 默认禁止。只有 Runtime 内部任务、Transport/连接 Adapter 的 I/O owner、或固定上限的外部 worker pool 可以例外；例外必须由明确生命周期 owner 持有，具备取消或关闭入口、并在 `Close` 中等待真实返回。它不得直接修改 Service 状态，也不得在 Handler 外使用保存的 `ServiceContext`。新增例外先更新 RFC 并补关闭、超时和泄漏测试。
 - Timer 只能投递 Command，不能执行业务回调。
 - `Session` 只关联 Call/Reply；业务幂等使用 `RequestID`。
 - `Runtime.Inspect()` 是 Core 唯一只读观测入口；Metrics 快照只通过 `Inspect().Metrics` 获取。

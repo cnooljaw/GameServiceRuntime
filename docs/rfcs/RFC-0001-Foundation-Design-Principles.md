@@ -189,6 +189,26 @@ Timer 到期后只能向目标 Service 投递 Command。
 
 禁止 Timer callback 直接修改状态。
 
+### goroutine 必须有生命周期 owner
+
+生产代码默认不得直接使用 `go`。Service 和 Business Layer 没有例外：异步行为必须通过 Command、Timer、独立 Service 或外层受管边界表达。
+
+允许直接启动 goroutine 的只有三类明确 owner：
+
+1. Core Runtime 的调度与已登记 Runtime Task。
+2. Transport、Login/Gateway Adapter 等连接 I/O owner。
+3. Supervisor Runner 等固定上限的外部 worker pool。
+
+每个例外必须同时满足：
+
+- owner 持有取消或关闭入口；
+- 并发数量有固定上限，或由已建立连接的数量明确界定；
+- `Close(ctx)` 关闭 listener、连接或 context，并等待 goroutine 真实返回；
+- goroutine 不直接修改 Service 状态，也不在 Handler 外使用保存的 `ServiceContext`；
+- 新增例外先更新 RFC，并覆盖关闭、超时和 goroutine 泄漏测试。
+
+GSR 不提供公共 `Runtime.Go` 或 `Fork` API。Runtime 的价值不是替任意后台工作背书，而是让 Service 的状态推进保持在可追踪的 Mailbox 内。
+
 ### Runtime 管生命周期
 
 Service 的创建、停止、重启、关闭由 Runtime 管理。
