@@ -304,6 +304,12 @@ func (c *battleCommandContext) Now() time.Time         { return c.battle.context
 func (c *battleCommandContext) Timeline() Timeline {
 	return timelineHandle{timeline: c.battle.timeline, active: c.active}
 }
+func (c *battleCommandContext) Finish(finish FinishBattle) error {
+	if c.active == nil || !*c.active {
+		return ErrStateConflict
+	}
+	return c.battle.finishBattle(c.command, finish)
+}
 func (c *battleCommandContext) Broadcast(command gsr.CommandID, payload any) BroadcastResult {
 	result := BroadcastResult{}
 	for _, participant := range c.battle.participants {

@@ -95,6 +95,7 @@ type BattleContext interface {
     Epoch() BattleEpoch
     Now() time.Time
     Timeline() Timeline
+    Finish(FinishBattle) error
     Broadcast(gsr.CommandID, any) BroadcastResult
     Send(gsr.ServiceRef, gsr.CommandID, any) error
 }
