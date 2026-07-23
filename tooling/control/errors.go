@@ -41,4 +41,10 @@ var (
 	ErrStopOperationNotFound = errors.New("control: stop operation not found")
 	// ErrStopDisabled reports a NodeAgent without its paired Stop configuration.
 	ErrStopDisabled = errors.New("control: node stop disabled")
+	// ErrStopRequestConflict reports a reused Stop RequestID with different immutable inputs.
+	ErrStopRequestConflict = errors.New("control: stop request conflict")
+	// ErrStopNotReady reports a Drain operation that is not owned and ReadyToStop for a Stop request.
+	ErrStopNotReady = errors.New("control: stop not ready")
+	// ErrStopTargetMismatch reports a Stop target set that does not exactly match the drained targets.
+	ErrStopTargetMismatch = errors.New("control: stop target mismatch")
 )

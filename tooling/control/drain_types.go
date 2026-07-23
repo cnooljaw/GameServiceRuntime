@@ -170,6 +170,49 @@ func (c *DrainClient) ListAudit(ctx context.Context, principal Principal) ([]Dra
 	return cloneDrainAudits(response.Audits), nil
 }
 
+// BeginStop creates or retrieves one RequestID-idempotent controlled Stop operation.
+func (c *DrainClient) BeginStop(ctx context.Context, request BeginStopRequest) (StopOperation, error) {
+	request, err := normalizeBeginStopRequest(request)
+	if err != nil {
+		return StopOperation{}, err
+	}
+	value, err := c.caller.Call(ctx, c.target, commandBeginDrainStop, beginDrainStopRequest{Request: request})
+	if err != nil {
+		return StopOperation{}, err
+	}
+	return stopOperationFromResponse(value)
+}
+
+// ResolveStop explicitly advances one non-terminal controlled Stop operation.
+func (c *DrainClient) ResolveStop(ctx context.Context, requestID RequestID, principal Principal) (StopOperation, error) {
+	if !validRequestID(requestID) {
+		return StopOperation{}, ErrInvalidRequestID
+	}
+	if !validPrincipal(principal) {
+		return StopOperation{}, ErrInvalidPrincipal
+	}
+	value, err := c.caller.Call(ctx, c.target, commandResolveDrainStop, resolveDrainStopRequest{RequestID: requestID, Principal: principal})
+	if err != nil {
+		return StopOperation{}, err
+	}
+	return stopOperationFromResponse(value)
+}
+
+// GetStop returns one independent controlled Stop operation snapshot owned by principal.
+func (c *DrainClient) GetStop(ctx context.Context, requestID RequestID, principal Principal) (StopOperation, error) {
+	if !validRequestID(requestID) {
+		return StopOperation{}, ErrInvalidRequestID
+	}
+	if !validPrincipal(principal) {
+		return StopOperation{}, ErrInvalidPrincipal
+	}
+	value, err := c.caller.Call(ctx, c.target, commandGetDrainStop, getDrainStopRequest{RequestID: requestID, Principal: principal})
+	if err != nil {
+		return StopOperation{}, err
+	}
+	return stopOperationFromResponse(value)
+}
+
 func drainOperationFromResponse(value any) (DrainOperation, error) {
 	response, ok := value.(drainOperationResponse)
 	if !ok {
@@ -182,4 +225,18 @@ func drainOperationFromResponse(value any) (DrainOperation, error) {
 		return DrainOperation{}, ErrInvalidResponse
 	}
 	return cloneDrainOperation(response.Operation), nil
+}
+
+func stopOperationFromResponse(value any) (StopOperation, error) {
+	response, ok := value.(stopOperationResponse)
+	if !ok {
+		return StopOperation{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return StopOperation{}, err
+	}
+	if !validStopOperation(response.Operation) {
+		return StopOperation{}, ErrInvalidResponse
+	}
+	return cloneStopOperation(response.Operation), nil
 }

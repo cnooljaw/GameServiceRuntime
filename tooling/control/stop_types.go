@@ -42,11 +42,60 @@ const (
 
 // NodeStopReceipt is the Mailbox-owned execution fact for one local Stop target.
 type NodeStopReceipt struct {
-	RequestID RequestID
-	Target    gsr.ServiceRef
-	State     StopTargetState
-	Failure   StopFailure
-	UpdatedAt time.Time
+	RequestID RequestID       `json:"request_id"`
+	Target    gsr.ServiceRef  `json:"target"`
+	State     StopTargetState `json:"state"`
+	Failure   StopFailure     `json:"failure"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// StopTargetRequest pairs one drained Service with the NodeAgent that owns its local Stop receipt.
+type StopTargetRequest struct {
+	Target gsr.ServiceRef `json:"target"`
+	Agent  gsr.ServiceRef `json:"agent"`
+}
+
+// StopTarget is the Coordinator-owned state for one requested Stop target.
+type StopTarget struct {
+	Target  gsr.ServiceRef  `json:"target"`
+	Agent   gsr.ServiceRef  `json:"agent"`
+	State   StopTargetState `json:"state"`
+	Failure StopFailure     `json:"failure"`
+}
+
+// StopPhase describes the durable in-memory conclusion of one controlled Stop operation.
+type StopPhase string
+
+const (
+	// StopDispatching means the Coordinator is submitting the frozen target set to NodeAgents.
+	StopDispatching StopPhase = "dispatching"
+	// StopWaiting means at least one target is pending or queued for an explicit ResolveStop.
+	StopWaiting StopPhase = "waiting"
+	// StopCompleted means every target has reached the stopped state.
+	StopCompleted StopPhase = "completed"
+	// StopFailed means every target is terminal and at least one target failed.
+	StopFailed StopPhase = "failed"
+	// StopSuperseded means Directory or a target receipt invalidated the frozen publish.
+	StopSuperseded StopPhase = "superseded"
+)
+
+// StopOperation is an independent Coordinator-owned snapshot of one authorized controlled Stop.
+type StopOperation struct {
+	RequestID RequestID               `json:"request_id"`
+	Principal Principal               `json:"principal"`
+	Group     servicegroup.GroupName  `json:"group"`
+	Published servicegroup.ServiceSet `json:"published"`
+	Targets   []StopTarget            `json:"targets"`
+	Phase     StopPhase               `json:"phase"`
+	CreatedAt time.Time               `json:"created_at"`
+	UpdatedAt time.Time               `json:"updated_at"`
+}
+
+// BeginStopRequest specifies the complete target-to-NodeAgent pairing for one ReadyToStop Drain operation.
+type BeginStopRequest struct {
+	RequestID RequestID           `json:"request_id"`
+	Principal Principal           `json:"principal"`
+	Targets   []StopTargetRequest `json:"targets"`
 }
 
 // NodeStopExecutor accepts a bounded local Node Stop task.
@@ -56,11 +105,11 @@ type NodeStopExecutor interface {
 
 // NodeStopTask identifies one NodeAgent-owned local Runtime.Stop request.
 type NodeStopTask struct {
-	Agent     gsr.ServiceRef
-	RequestID RequestID
-	Target    gsr.ServiceRef
-	Group     servicegroup.GroupName
-	Published servicegroup.ServiceSet
+	Agent     gsr.ServiceRef          `json:"agent"`
+	RequestID RequestID               `json:"request_id"`
+	Target    gsr.ServiceRef          `json:"target"`
+	Group     servicegroup.GroupName  `json:"group"`
+	Published servicegroup.ServiceSet `json:"published"`
 }
 
 // NodeStopRuntime is the narrow Runtime capability required by NodeStopRunner.

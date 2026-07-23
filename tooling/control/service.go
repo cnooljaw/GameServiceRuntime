@@ -241,6 +241,12 @@ func errorFromCode(code errorCode) error {
 		return ErrStopOperationNotFound
 	case responseStopDisabled:
 		return ErrStopDisabled
+	case responseStopRequestConflict:
+		return ErrStopRequestConflict
+	case responseStopNotReady:
+		return ErrStopNotReady
+	case responseStopTargetMismatch:
+		return ErrStopTargetMismatch
 	case responseInvalidRequest:
 		return ErrInvalidResponse
 	default:
@@ -278,6 +284,12 @@ func codeFromError(err error) errorCode {
 		return responseStopOperationNotFound
 	case errors.Is(err, ErrStopDisabled):
 		return responseStopDisabled
+	case errors.Is(err, ErrStopRequestConflict):
+		return responseStopRequestConflict
+	case errors.Is(err, ErrStopNotReady):
+		return responseStopNotReady
+	case errors.Is(err, ErrStopTargetMismatch):
+		return responseStopTargetMismatch
 	default:
 		return responseInvalidRequest
 	}

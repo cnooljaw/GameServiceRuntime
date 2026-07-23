@@ -76,6 +76,28 @@ func TestCodecEncodesNodeStopRequestsAndKeepsRunnerResultPrivate(t *testing.T) {
 	}
 }
 
+func TestCodecEncodesStopOperationRequestsAndResponses(t *testing.T) {
+	codec := NewCodec(nil)
+	target := validNodeStopTaskFor(gsr.ServiceRef{Node: "node-b", ID: 7})
+	request := beginDrainStopRequest{Request: BeginStopRequest{RequestID: target.RequestID, Principal: "ops", Targets: []StopTargetRequest{{Target: target.Target, Agent: target.Agent}}}}
+	payload, err := codec.Encode(commandBeginDrainStop, false, request)
+	if err != nil {
+		t.Fatalf("Encode(BeginDrainStop) error = %v", err)
+	}
+	decoded, err := codec.Decode(commandBeginDrainStop, false, payload)
+	if err != nil {
+		t.Fatalf("Decode(BeginDrainStop) error = %v", err)
+	}
+	if got, ok := decoded.(beginDrainStopRequest); !ok || !sameBeginStopRequest(got.Request, request.Request) {
+		t.Fatalf("decoded request = %#v, want %#v", decoded, request)
+	}
+	now := time.Now()
+	operation := StopOperation{RequestID: request.Request.RequestID, Principal: request.Request.Principal, Group: target.Group, Published: target.Published, Targets: []StopTarget{{Target: target.Target, Agent: target.Agent, State: StopTargetQueued}}, Phase: StopWaiting, CreatedAt: now, UpdatedAt: now}
+	if _, err := codec.Encode(commandResolveDrainStop, true, stopOperationResponse{Operation: operation}); err != nil {
+		t.Fatalf("Encode(ResolveDrainStop response) error = %v", err)
+	}
+}
+
 func TestControlConfigRejectsInvalidTargetsAndClient(t *testing.T) {
 	validTarget := NodeTarget{Config: NodeConfig{ID: "node-b", Address: "127.0.0.1:9000", Enabled: true}, Agent: gsr.ServiceRef{Node: "node-b", ID: 1}}
 	if _, err := NewClusterObserverService(ObserverConfig{Nodes: []NodeTarget{validTarget, validTarget}}); !errors.Is(err, ErrInvalidConfig) {

@@ -17,12 +17,18 @@ type drainOperationRecord struct {
 	operation DrainOperation
 }
 
+type stopOperationRecord struct {
+	request   BeginStopRequest
+	operation StopOperation
+}
+
 type drainCoordinatorService struct {
 	config     DrainCoordinatorConfig
 	context    gsr.ServiceContext
 	directory  *servicegroup.Client
 	visitors   *drain.Client
 	operations map[RequestID]drainOperationRecord
+	stops      map[RequestID]stopOperationRecord
 	audits     []DrainAudit
 	sequence   uint64
 }
@@ -39,7 +45,7 @@ func NewDrainCoordinatorService(config DrainCoordinatorConfig) (gsr.Service, err
 		config.AuditLimit = defaultDrainAuditLimit
 	}
 	config.AllowedPrincipals = append([]Principal(nil), config.AllowedPrincipals...)
-	return &drainCoordinatorService{config: config, operations: make(map[RequestID]drainOperationRecord)}, nil
+	return &drainCoordinatorService{config: config, operations: make(map[RequestID]drainOperationRecord), stops: make(map[RequestID]stopOperationRecord)}, nil
 }
 
 func (*drainCoordinatorService) Commands() []gsr.CommandID {
@@ -48,6 +54,9 @@ func (*drainCoordinatorService) Commands() []gsr.CommandID {
 		commandResolveDrainOperation,
 		commandGetDrainOperation,
 		commandListDrainAudit,
+		commandBeginDrainStop,
+		commandResolveDrainStop,
+		commandGetDrainStop,
 	}
 }
 
@@ -92,6 +101,24 @@ func (s *drainCoordinatorService) Handle(commandContext gsr.CommandContext, comm
 			return s.replyAudits(commandContext, nil, ErrInvalidDrainRequest)
 		}
 		return s.handleListAudit(commandContext, request.Principal)
+	case commandBeginDrainStop:
+		request, ok := command.Payload.(beginDrainStopRequest)
+		if !ok {
+			return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidStopRequest)
+		}
+		return s.handleBeginStop(commandContext, request.Request)
+	case commandResolveDrainStop:
+		request, ok := command.Payload.(resolveDrainStopRequest)
+		if !ok {
+			return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidStopRequest)
+		}
+		return s.handleResolveStop(commandContext, request.RequestID, request.Principal)
+	case commandGetDrainStop:
+		request, ok := command.Payload.(getDrainStopRequest)
+		if !ok {
+			return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidStopRequest)
+		}
+		return s.handleGetStop(commandContext, request.RequestID, request.Principal)
 	default:
 		return gsr.ErrCommandNotRegistered
 	}
@@ -99,6 +126,7 @@ func (s *drainCoordinatorService) Handle(commandContext gsr.CommandContext, comm
 
 func (s *drainCoordinatorService) Stop(context.Context) error {
 	s.operations = make(map[RequestID]drainOperationRecord)
+	s.stops = make(map[RequestID]stopOperationRecord)
 	s.audits = nil
 	s.sequence = 0
 	return nil
@@ -109,6 +137,7 @@ func (s *drainCoordinatorService) Close() error {
 	s.directory = nil
 	s.visitors = nil
 	s.operations = nil
+	s.stops = nil
 	s.audits = nil
 	s.sequence = 0
 	return nil
@@ -223,6 +252,288 @@ func (s *drainCoordinatorService) handleListAudit(commandContext gsr.CommandCont
 		return s.replyAudits(commandContext, nil, ErrUnauthorized)
 	}
 	return s.replyAudits(commandContext, s.audits, nil)
+}
+
+func (s *drainCoordinatorService) handleBeginStop(commandContext gsr.CommandContext, request BeginStopRequest) error {
+	if !s.gatewaySource(commandContext.Source()) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	normalized, err := normalizeBeginStopRequest(request)
+	if err != nil {
+		return s.replyStopOperation(commandContext, StopOperation{}, err)
+	}
+	if !s.allowed(normalized.Principal) {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "denied")
+		s.context.Metrics().Inc("drain_stop_operations_denied_total")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	if existing, exists := s.stops[normalized.RequestID]; exists {
+		if !sameBeginStopRequest(existing.request, normalized) {
+			s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "conflict")
+			return s.replyStopOperation(commandContext, StopOperation{}, ErrStopRequestConflict)
+		}
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "duplicate")
+		s.context.Metrics().Inc("drain_stop_operations_duplicate_total")
+		return s.replyStopOperation(commandContext, existing.operation, nil)
+	}
+	drainRecord, exists := s.operations[normalized.RequestID]
+	if !exists || drainRecord.operation.Phase != DrainReadyToStop {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "not_ready")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrStopNotReady)
+	}
+	if drainRecord.operation.Principal != normalized.Principal {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "owner_mismatch")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrOperationOwnerMismatch)
+	}
+	if !matchesDrainStopTargets(normalized.Targets, drainRecord.operation.Targets) {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "target_mismatch")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrStopTargetMismatch)
+	}
+	matches, err := s.matchesStopDirectory(drainRecord.operation.Published)
+	if err != nil {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "directory_unavailable")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidResponse)
+	}
+	if !matches {
+		s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", "superseded")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrStopNotReady)
+	}
+	now := s.context.Now()
+	record := stopOperationRecord{
+		request: normalized,
+		operation: StopOperation{
+			RequestID: normalized.RequestID,
+			Principal: normalized.Principal,
+			Group:     drainRecord.operation.Group,
+			Published: cloneDrainServiceSet(drainRecord.operation.Published),
+			Targets:   stopTargetsFromRequest(normalized.Targets),
+			Phase:     StopDispatching,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+	s.advanceStop(&record)
+	s.stops[normalized.RequestID] = record
+	s.appendAudit(normalized.RequestID, normalized.Principal, "begin_stop", string(record.operation.Phase))
+	s.context.Metrics().Inc("drain_stop_operations_started_total")
+	return s.replyStopOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleResolveStop(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	if !s.gatewaySource(commandContext.Source()) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	if !validRequestID(requestID) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidRequestID)
+	}
+	if !validPrincipal(principal) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidPrincipal)
+	}
+	if !s.allowed(principal) {
+		s.appendAudit(requestID, principal, "resolve_stop", "denied")
+		s.context.Metrics().Inc("drain_stop_operations_denied_total")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	record, exists := s.stops[requestID]
+	if !exists {
+		s.appendAudit(requestID, principal, "resolve_stop", "not_found")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrStopOperationNotFound)
+	}
+	if record.operation.Principal != principal {
+		s.appendAudit(requestID, principal, "resolve_stop", "owner_mismatch")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrOperationOwnerMismatch)
+	}
+	if !stopTerminal(record.operation.Phase) {
+		s.advanceStop(&record)
+		s.stops[requestID] = record
+	}
+	s.appendAudit(requestID, principal, "resolve_stop", string(record.operation.Phase))
+	return s.replyStopOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) handleGetStop(commandContext gsr.CommandContext, requestID RequestID, principal Principal) error {
+	if !s.gatewaySource(commandContext.Source()) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	if !validRequestID(requestID) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidRequestID)
+	}
+	if !validPrincipal(principal) {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrInvalidPrincipal)
+	}
+	if !s.allowed(principal) {
+		s.appendAudit(requestID, principal, "get_stop", "denied")
+		s.context.Metrics().Inc("drain_stop_operations_denied_total")
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrUnauthorized)
+	}
+	record, exists := s.stops[requestID]
+	if !exists {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrStopOperationNotFound)
+	}
+	if record.operation.Principal != principal {
+		return s.replyStopOperation(commandContext, StopOperation{}, ErrOperationOwnerMismatch)
+	}
+	return s.replyStopOperation(commandContext, record.operation, nil)
+}
+
+func (s *drainCoordinatorService) advanceStop(record *stopOperationRecord) {
+	if stopTerminal(record.operation.Phase) {
+		return
+	}
+	matches, err := s.matchesStopDirectory(record.operation.Published)
+	if err != nil {
+		s.setStopPhase(record, StopWaiting)
+		return
+	}
+	if !matches {
+		s.setStopPhase(record, StopSuperseded)
+		return
+	}
+	for index := range record.operation.Targets {
+		if receipt, err := s.getNodeStopReceipt(record.operation, record.operation.Targets[index]); err == nil {
+			s.applyNodeStopReceipt(record, index, receipt)
+		}
+	}
+	for index := range record.operation.Targets {
+		if record.operation.Targets[index].State != StopTargetPending {
+			continue
+		}
+		matches, err := s.matchesStopDirectory(record.operation.Published)
+		if err != nil {
+			s.setStopPhase(record, StopWaiting)
+			return
+		}
+		if !matches {
+			s.setStopPhase(record, StopSuperseded)
+			return
+		}
+		if receipt, err := s.beginNodeStop(record.operation, record.operation.Targets[index]); err == nil {
+			s.applyNodeStopReceipt(record, index, receipt)
+		}
+	}
+	s.concludeStop(record)
+}
+
+func (s *drainCoordinatorService) matchesStopDirectory(published servicegroup.ServiceSet) (bool, error) {
+	current, err := s.getDirectory(published.Name)
+	if err != nil {
+		return false, err
+	}
+	return sameDrainServiceSet(current, published), nil
+}
+
+func (s *drainCoordinatorService) beginNodeStop(operation StopOperation, target StopTarget) (NodeStopReceipt, error) {
+	callContext, cancel := context.WithTimeout(context.Background(), s.config.CallTimeout)
+	value, err := s.context.Call(callContext, target.Agent, commandBeginNodeStop, beginNodeStopRequest{Task: NodeStopTask{
+		Agent: target.Agent, RequestID: operation.RequestID, Target: target.Target, Group: operation.Group, Published: cloneDrainServiceSet(operation.Published),
+	}})
+	cancel()
+	return nodeStopReceiptFromResponse(value, err, operation.RequestID, target.Target)
+}
+
+func (s *drainCoordinatorService) getNodeStopReceipt(operation StopOperation, target StopTarget) (NodeStopReceipt, error) {
+	callContext, cancel := context.WithTimeout(context.Background(), s.config.CallTimeout)
+	value, err := s.context.Call(callContext, target.Agent, commandGetNodeStopReceipt, getNodeStopReceiptRequest{RequestID: operation.RequestID, Target: target.Target})
+	cancel()
+	return nodeStopReceiptFromResponse(value, err, operation.RequestID, target.Target)
+}
+
+func nodeStopReceiptFromResponse(value any, callErr error, requestID RequestID, target gsr.ServiceRef) (NodeStopReceipt, error) {
+	if callErr != nil {
+		return NodeStopReceipt{}, callErr
+	}
+	response, ok := value.(nodeStopReceiptResponse)
+	if !ok {
+		return NodeStopReceipt{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return NodeStopReceipt{}, err
+	}
+	if !validNodeStopReceipt(response.Receipt) || response.Receipt.RequestID != requestID || response.Receipt.Target != target {
+		return NodeStopReceipt{}, ErrInvalidResponse
+	}
+	return response.Receipt, nil
+}
+
+func (s *drainCoordinatorService) applyNodeStopReceipt(record *stopOperationRecord, index int, receipt NodeStopReceipt) {
+	record.operation.Targets[index].State = receipt.State
+	record.operation.Targets[index].Failure = receipt.Failure
+	s.touchStop(record)
+}
+
+func (s *drainCoordinatorService) concludeStop(record *stopOperationRecord) {
+	allStopped := true
+	allTerminal := true
+	anyFailed := false
+	for _, target := range record.operation.Targets {
+		switch target.State {
+		case StopTargetSuperseded:
+			s.setStopPhase(record, StopSuperseded)
+			return
+		case StopTargetStopped:
+		case StopTargetFailed:
+			allStopped = false
+			anyFailed = true
+		case StopTargetPending, StopTargetQueued:
+			allStopped = false
+			allTerminal = false
+		}
+	}
+	switch {
+	case allStopped:
+		s.setStopPhase(record, StopCompleted)
+	case allTerminal && anyFailed:
+		s.setStopPhase(record, StopFailed)
+	default:
+		s.setStopPhase(record, StopWaiting)
+	}
+}
+
+func (s *drainCoordinatorService) setStopPhase(record *stopOperationRecord, phase StopPhase) {
+	if record.operation.Phase == phase {
+		return
+	}
+	record.operation.Phase = phase
+	s.touchStop(record)
+	switch phase {
+	case StopCompleted:
+		s.context.Metrics().Inc("drain_stop_operations_completed_total")
+	case StopFailed:
+		s.context.Metrics().Inc("drain_stop_operations_failed_total")
+	case StopSuperseded:
+		s.context.Metrics().Inc("drain_stop_operations_superseded_total")
+	}
+}
+
+func (s *drainCoordinatorService) touchStop(record *stopOperationRecord) {
+	now := s.context.Now()
+	if !now.Before(record.operation.UpdatedAt) {
+		record.operation.UpdatedAt = now
+	}
+}
+
+func stopTerminal(phase StopPhase) bool {
+	return phase == StopCompleted || phase == StopFailed || phase == StopSuperseded
+}
+
+func matchesDrainStopTargets(targets []StopTargetRequest, drained []DrainTarget) bool {
+	if len(targets) != len(drained) {
+		return false
+	}
+	for index := range targets {
+		if targets[index].Target != drained[index].Ref {
+			return false
+		}
+	}
+	return true
+}
+
+func stopTargetsFromRequest(requests []StopTargetRequest) []StopTarget {
+	targets := make([]StopTarget, len(requests))
+	for index, request := range requests {
+		targets[index] = StopTarget{Target: request.Target, Agent: request.Agent, State: StopTargetPending}
+	}
+	return targets
 }
 
 func (s *drainCoordinatorService) advance(record *drainOperationRecord) {
@@ -464,6 +775,13 @@ func (s *drainCoordinatorService) replyOperation(commandContext gsr.CommandConte
 		return commandContext.Reply(drainOperationResponse{Error: codeFromError(err)})
 	}
 	return commandContext.Reply(drainOperationResponse{Operation: cloneDrainOperation(operation)})
+}
+
+func (s *drainCoordinatorService) replyStopOperation(commandContext gsr.CommandContext, operation StopOperation, err error) error {
+	if err != nil {
+		return commandContext.Reply(stopOperationResponse{Error: codeFromError(err)})
+	}
+	return commandContext.Reply(stopOperationResponse{Operation: cloneStopOperation(operation)})
 }
 
 func (s *drainCoordinatorService) replyAudits(commandContext gsr.CommandContext, audits []DrainAudit, err error) error {

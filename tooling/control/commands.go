@@ -19,6 +19,9 @@ const (
 	commandResolveDrainOperation gsr.CommandID = 0x02500302
 	commandGetDrainOperation     gsr.CommandID = 0x02500303
 	commandListDrainAudit        gsr.CommandID = 0x02500304
+	commandBeginDrainStop        gsr.CommandID = 0x02500305
+	commandResolveDrainStop      gsr.CommandID = 0x02500306
+	commandGetDrainStop          gsr.CommandID = 0x02500307
 )
 
 type errorCode string
@@ -39,6 +42,9 @@ const (
 	responseInvalidStopRequest     errorCode = "invalid_stop_request"
 	responseStopOperationNotFound  errorCode = "stop_operation_not_found"
 	responseStopDisabled           errorCode = "stop_disabled"
+	responseStopRequestConflict    errorCode = "stop_request_conflict"
+	responseStopNotReady           errorCode = "stop_not_ready"
+	responseStopTargetMismatch     errorCode = "stop_target_mismatch"
 )
 
 type getNodeReportRequest struct{}
@@ -108,4 +114,23 @@ type drainOperationResponse struct {
 type drainAuditsResponse struct {
 	Audits []DrainAudit `json:"audits"`
 	Error  errorCode    `json:"error"`
+}
+
+type beginDrainStopRequest struct {
+	Request BeginStopRequest `json:"request"`
+}
+
+type resolveDrainStopRequest struct {
+	RequestID RequestID `json:"request_id"`
+	Principal Principal `json:"principal"`
+}
+
+type getDrainStopRequest struct {
+	RequestID RequestID `json:"request_id"`
+	Principal Principal `json:"principal"`
+}
+
+type stopOperationResponse struct {
+	Operation StopOperation `json:"operation"`
+	Error     errorCode     `json:"error"`
 }

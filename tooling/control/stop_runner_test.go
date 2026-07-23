@@ -65,6 +65,42 @@ func TestNodeStopRunnerStopsAndCloseWaitsForStartedStop(t *testing.T) {
 	}
 }
 
+func TestNodeStopRunnerTreatsAlreadyClosedTargetAsStopped(t *testing.T) {
+	fixture := newNodeStopRunnerFixture(t, NodeStopRunnerConfig{Workers: 1, QueueSize: 1, CallTimeout: time.Second, StopTimeout: time.Second})
+	if err := fixture.runtime.Stop(context.Background(), fixture.target); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.runner.Submit(fixture.task()); err != nil {
+		t.Fatal(err)
+	}
+	result := fixture.awaitResult(t)
+	if result.State != StopTargetStopped || result.Failure != StopFailureNone {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestNodeStopRunnerReportsRuntimeStopFailure(t *testing.T) {
+	fixture := newNodeStopRunnerFixture(t, NodeStopRunnerConfig{Workers: 1, QueueSize: 1, CallTimeout: time.Second, StopTimeout: 20 * time.Millisecond})
+	blocking := &blockingStopService{entered: make(chan struct{}), release: make(chan struct{})}
+	target, err := fixture.runtime.CreateService(gsr.ServiceSpec{Service: blocking})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.runner.Submit(fixture.taskFor(target)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-blocking.entered:
+	case <-time.After(time.Second):
+		t.Fatal("Runtime.Stop did not enter target Stop")
+	}
+	result := fixture.awaitResult(t)
+	if result.State != StopTargetFailed || result.Failure != StopFailureRuntimeStop {
+		t.Fatalf("result = %#v", result)
+	}
+	close(blocking.release)
+}
+
 func TestNodeStopRunnerRejectsInvalidFullAndClosedSubmissions(t *testing.T) {
 	fixture := newNodeStopRunnerFixture(t, NodeStopRunnerConfig{Workers: 1, QueueSize: 1, CallTimeout: time.Second, StopTimeout: time.Second})
 	if err := fixture.runner.Submit(NodeStopTask{}); !errors.Is(err, ErrInvalidConfig) {

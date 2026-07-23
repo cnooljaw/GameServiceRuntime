@@ -72,6 +72,37 @@ func normalizeStartDrainRequest(request StartDrainRequest) (StartDrainRequest, e
 	return request, nil
 }
 
+func normalizeBeginStopRequest(request BeginStopRequest) (BeginStopRequest, error) {
+	if !validRequestID(request.RequestID) {
+		return BeginStopRequest{}, ErrInvalidRequestID
+	}
+	if !validPrincipal(request.Principal) {
+		return BeginStopRequest{}, ErrInvalidPrincipal
+	}
+	targets := append([]StopTargetRequest(nil), request.Targets...)
+	for _, target := range targets {
+		if !validStopTargetRequest(target) {
+			return BeginStopRequest{}, ErrInvalidStopRequest
+		}
+	}
+	sort.Slice(targets, func(left, right int) bool {
+		if targets[left].Target.Node != targets[right].Target.Node {
+			return targets[left].Target.Node < targets[right].Target.Node
+		}
+		return targets[left].Target.ID < targets[right].Target.ID
+	})
+	for index := 1; index < len(targets); index++ {
+		if targets[index-1].Target == targets[index].Target {
+			return BeginStopRequest{}, ErrInvalidStopRequest
+		}
+	}
+	if targets == nil {
+		targets = make([]StopTargetRequest, 0)
+	}
+	request.Targets = targets
+	return request, nil
+}
+
 func sameStartDrainRequest(left, right StartDrainRequest) bool {
 	if left.RequestID != right.RequestID || left.Principal != right.Principal || left.Group != right.Group || left.Expected != right.Expected || len(left.NextRefs) != len(right.NextRefs) || len(left.NextTags) != len(right.NextTags) {
 		return false
@@ -83,6 +114,18 @@ func sameStartDrainRequest(left, right StartDrainRequest) bool {
 	}
 	for key, value := range left.NextTags {
 		if rightValue, exists := right.NextTags[key]; !exists || rightValue != value {
+			return false
+		}
+	}
+	return true
+}
+
+func sameBeginStopRequest(left, right BeginStopRequest) bool {
+	if left.RequestID != right.RequestID || left.Principal != right.Principal || len(left.Targets) != len(right.Targets) {
+		return false
+	}
+	for index := range left.Targets {
+		if left.Targets[index] != right.Targets[index] {
 			return false
 		}
 	}
@@ -220,6 +263,81 @@ func validNodeStopReceipt(receipt NodeStopReceipt) bool {
 	default:
 		return false
 	}
+}
+
+func validStopTargetRequest(target StopTargetRequest) bool {
+	return validServiceRef(target.Target) && validServiceRef(target.Agent) && target.Target != target.Agent && target.Target.Node == target.Agent.Node
+}
+
+func validStopTarget(target StopTarget) bool {
+	if !validStopTargetRequest(StopTargetRequest{Target: target.Target, Agent: target.Agent}) {
+		return false
+	}
+	switch target.State {
+	case StopTargetQueued:
+		return target.Failure == StopFailureNone
+	case StopTargetPending:
+		return target.Failure == StopFailureNone || target.Failure == StopFailureQueueFull || target.Failure == StopFailureDirectoryUnavailable
+	case StopTargetStopped, StopTargetSuperseded:
+		return target.Failure == StopFailureNone
+	case StopTargetFailed:
+		return target.Failure == StopFailureRunnerClosed || target.Failure == StopFailureRuntimeStop
+	default:
+		return false
+	}
+}
+
+func validStopPhase(phase StopPhase) bool {
+	switch phase {
+	case StopDispatching, StopWaiting, StopCompleted, StopFailed, StopSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+func validStopOperation(operation StopOperation) bool {
+	if !validRequestID(operation.RequestID) || !validPrincipal(operation.Principal) || !validDrainGroup(operation.Group) || !validDrainServiceSet(operation.Published) || operation.Published.Name != operation.Group || !validStopPhase(operation.Phase) || operation.Targets == nil || operation.CreatedAt.IsZero() || operation.UpdatedAt.Before(operation.CreatedAt) {
+		return false
+	}
+	for index, target := range operation.Targets {
+		if !validStopTarget(target) {
+			return false
+		}
+		if index > 0 {
+			previous := operation.Targets[index-1]
+			if previous.Target.Node > target.Target.Node || (previous.Target.Node == target.Target.Node && previous.Target.ID >= target.Target.ID) {
+				return false
+			}
+		}
+	}
+	switch operation.Phase {
+	case StopDispatching, StopWaiting:
+		for _, target := range operation.Targets {
+			if target.State == StopTargetStopped || target.State == StopTargetFailed || target.State == StopTargetSuperseded {
+				continue
+			}
+		}
+	case StopCompleted:
+		for _, target := range operation.Targets {
+			if target.State != StopTargetStopped {
+				return false
+			}
+		}
+	case StopFailed:
+		failed := false
+		for _, target := range operation.Targets {
+			if target.State == StopTargetPending || target.State == StopTargetQueued || target.State == StopTargetSuperseded {
+				return false
+			}
+			failed = failed || target.State == StopTargetFailed
+		}
+		if !failed {
+			return false
+		}
+	case StopSuperseded:
+	}
+	return true
 }
 
 func sameNodeStopTask(left, right NodeStopTask) bool {

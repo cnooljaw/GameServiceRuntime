@@ -115,6 +115,21 @@ func controlPayload(command gsr.CommandID, response bool) (any, bool) {
 			return drainAuditsResponse{}, true
 		}
 		return listDrainAuditRequest{}, true
+	case commandBeginDrainStop:
+		if response {
+			return stopOperationResponse{}, true
+		}
+		return beginDrainStopRequest{}, true
+	case commandResolveDrainStop:
+		if response {
+			return stopOperationResponse{}, true
+		}
+		return resolveDrainStopRequest{}, true
+	case commandGetDrainStop:
+		if response {
+			return stopOperationResponse{}, true
+		}
+		return getDrainStopRequest{}, true
 	default:
 		return nil, false
 	}
@@ -148,6 +163,9 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandListDrainAudit:
 		response, ok := value.(drainAuditsResponse)
 		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validDrainAudits(response.Audits))
+	case commandBeginDrainStop, commandResolveDrainStop, commandGetDrainStop:
+		response, ok := value.(stopOperationResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validStopOperation(response.Operation))
 	default:
 		return false
 	}
@@ -169,7 +187,10 @@ func validResponseCode(code errorCode) bool {
 		responseOperationOwnerMismatch,
 		responseInvalidStopRequest,
 		responseStopOperationNotFound,
-		responseStopDisabled:
+		responseStopDisabled,
+		responseStopRequestConflict,
+		responseStopNotReady,
+		responseStopTargetMismatch:
 		return true
 	default:
 		return false
