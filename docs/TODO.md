@@ -1,6 +1,6 @@
 # GSR 待办列表
 
-> 更新时间：2026-07-22
+> 更新时间：2026-07-23
 >
 > 作用：记录已实现里程碑的工程欠账和收口项；尚未开始的新能力仍以 `RFC-0500` 为准。
 
@@ -21,7 +21,7 @@
 
 Core API 冻结前的 P1 收口已于 2026-07-17 完成。
 
-Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot、Phase 7E Supervisor 和 Phase 7F 客户端入口已于 2026-07-22 完成并通过门禁；远程 NodeAgent 与管理面查询未进入本地 Monitor。客户端入口提供单进程内存 SessionRegistry、SingleSession ticket、固定 proof 线格式、TCP Login/Gateway Adapter 和 ProtocolMapper seam；生产 Handshake、持久化或跨节点会话不在本阶段。
+Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runtime 验证和 Phase 7A Runtime Inspection 已于 2026-07-17 完成。Phase 7B 最小 Discovery、Phase 7C 本地 Monitor、Phase 7D Snapshot、Phase 7E Supervisor 和 Phase 7F 客户端入口已于 2026-07-22 完成并通过门禁；客户端入口提供单进程内存 SessionRegistry、SingleSession ticket、固定 proof 线格式、TCP Login/Gateway Adapter 和 ProtocolMapper seam；生产 Handshake、持久化或跨节点会话不在本阶段。当前执行 Phase 8A：在可信集群内实现只读 NodeAgent、静态 Desired State 和单节点 Observed State 刷新；外部 Admin API、认证、授权、审计和修改型运维不在此切片。
 
 ## P1：Core API 冻结前完成
 
