@@ -270,15 +270,16 @@ func TestDrainCoordinatorConfirmsLostGuardReplyThroughStatus(t *testing.T) {
 }
 
 type drainFixture struct {
-	runtime     *gsr.Runtime
-	client      *DrainClient
-	coordinator gsr.ServiceRef
-	directory   gsr.ServiceRef
-	registry    gsr.ServiceRef
-	old         gsr.ServiceRef
-	next        gsr.ServiceRef
-	initial     servicegroup.ServiceSet
-	visitor     gsr.ServiceRef
+	runtime            *gsr.Runtime
+	client             *DrainClient
+	coordinator        gsr.ServiceRef
+	coordinatorService *drainCoordinatorService
+	directory          gsr.ServiceRef
+	registry           gsr.ServiceRef
+	old                gsr.ServiceRef
+	next               gsr.ServiceRef
+	initial            servicegroup.ServiceSet
+	visitor            gsr.ServiceRef
 }
 
 func newDrainFixture(t *testing.T, principals []Principal) drainFixture {
@@ -363,7 +364,7 @@ func newDrainFixtureWithOldWrapper(t *testing.T, principals []Principal, directo
 	if err != nil {
 		t.Fatal(err)
 	}
-	return drainFixture{runtime: runtime, client: client, coordinator: coordinator, directory: directory, registry: registry, old: old, next: next, initial: initial, visitor: visitor}
+	return drainFixture{runtime: runtime, client: client, coordinator: coordinator, coordinatorService: coordinatorService.(*drainCoordinatorService), directory: directory, registry: registry, old: old, next: next, initial: initial, visitor: visitor}
 }
 
 func (f drainFixture) request(id RequestID, principal Principal) StartDrainRequest {

@@ -79,6 +79,15 @@ func TestDrainCoordinatorCreatesRecoveryThenRequiresConfirmToPublish(t *testing.
 	if operation.Phase != RecoveryCreating {
 		t.Fatalf("BeginRecovery() = %#v, want creating", operation)
 	}
+	duplicate, err := fixture.client.BeginRecovery(context.Background(), request)
+	if err != nil || duplicate.Phase != operation.Phase {
+		t.Fatalf("duplicate BeginRecovery() = %#v, %v", duplicate, err)
+	}
+	conflicting := request
+	conflicting.Targets[0].Blueprint = "different"
+	if _, err := fixture.client.BeginRecovery(context.Background(), conflicting); !errors.Is(err, ErrRecoveryRequestConflict) {
+		t.Fatalf("conflicting BeginRecovery() error = %v, want ErrRecoveryRequestConflict", err)
+	}
 	if _, err := fixture.client.ConfirmRecovery(context.Background(), requestID, "ops"); !errors.Is(err, ErrRecoveryNotReady) {
 		t.Fatalf("Confirm before receipt error = %v, want ErrRecoveryNotReady", err)
 	}
@@ -106,5 +115,32 @@ func TestDrainCoordinatorCreatesRecoveryThenRequiresConfirmToPublish(t *testing.
 	published := fixture.getDirectory(t)
 	if len(published.Refs) != len(expected.Refs)+1 || containsRecoveryRef(published.Refs, fixture.old) || !containsRecoveryRef(published.Refs, operation.Targets[0].Created) {
 		t.Fatalf("published set = %#v", published)
+	}
+}
+
+func TestDrainCoordinatorAbandonRecoveryNeverPublishesCreatedRef(t *testing.T) {
+	fixture := newDrainFixture(t, []Principal{"ops"})
+	request := BeginRecoveryRequest{
+		RequestID: "abandon-recovery", Principal: "ops", Group: fixture.initial.Name, Expected: fixture.initial,
+		Targets: []RecoveryTargetRequest{{Removed: fixture.old, Agent: gsr.ServiceRef{Node: fixture.old.Node, ID: fixture.old.ID + 100}, Blueprint: "match-v2"}},
+	}
+	normalized, err := normalizeBeginRecoveryRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	fixture.coordinatorService.recoveries[request.RequestID] = recoveryOperationRecord{
+		request:   normalized,
+		operation: RecoveryOperation{RequestID: request.RequestID, Principal: request.Principal, Group: request.Group, Expected: fixture.initial, Targets: recoveryTargetsFromRequest(normalized.Targets), Phase: RecoveryCreating, CreatedAt: now, UpdatedAt: now},
+	}
+	operation, err := fixture.client.AbandonRecovery(context.Background(), request.RequestID, request.Principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.Phase != RecoveryAbandoned || operation.Published.Name != "" || operation.Targets[0].State != RecoveryTargetAbandoned {
+		t.Fatalf("AbandonRecovery() = %#v", operation)
+	}
+	if current := fixture.getDirectory(t); !sameDrainServiceSet(current, fixture.initial) {
+		t.Fatalf("Abandon changed Directory: %#v", current)
 	}
 }
