@@ -40,7 +40,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup 与 Phase 10A Visitor lease Registry 已完成。下一步是在独立契约中冻结 Drain guard、ServiceGroup 切换、Controller 与 Reconcile。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup 与 Phase 10A Visitor lease Registry 已完成。Phase 10B 已冻结 Drain Guard 契约，正在实现；后续 ServiceGroup 切换、回滚、Controller 与 Reconcile 必须以带操作身份的独立控制面契约推进。
 
 ## 后续 RFC 审核结果
 
@@ -54,6 +54,7 @@ Layer 3: Business Layer
 | RFC-0250 Control Plane | 8 | 已接受 | 已实现可信集群内 NodeAgent 自动 Heartbeat、静态 NodeConfig、缓存 Observed State、可组合 Codec 与双节点验收；Service Desired State、Reconcile 和修改型运维明确后置。 |
 | RFC-0260 ServiceGroup | 9 | 已接受 | 已实现独立 DirectoryService、AuthorityEpoch/Revision、CAS、Watch lease、显式快照 Router、三种策略和双节点验收。 |
 | RFC-0270 Drain | 10A | 已接受 | 已实现 VisitorRegistryService 的 lease、代际、owner、过期、Codec、双节点 TCP 和本地示例；Drain 编排、回滚、Controller 与 Reconcile 仍需后续独立契约。 |
+| RFC-0271 Drain Guard | 10B | 已接受 | 已冻结旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec 与验收；实现进行中。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
 | RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
 | RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
@@ -251,16 +252,24 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 - Drain guard、旧实例 `Stop` 编排、ServiceGroup 切换或回滚。
 - Desired State、Controller、Reconcile 与修改型 NodeAgent 动作。
 
-## 后续 Phase 10：Drain 与热更新切换
+## Phase 10B：Drain Guard
 
-在 Phase 10A 已接受后，先冻结完整失败语义再实现：
+状态：契约已接受，实现进行中（2026-07-23）。
 
-- `DrainService`
-- `Visitor Tracking`
-- `Weak Visitor`
-- ServiceGroup 版本切换。
-- 切换失败回滚。
-- Service Desired State、Controller、Reconcile 与 NodeAgent 执行动作。
+实现：
+
+- `tooling/drain` 的 Service decorator。
+- 受信任协调 Service 发起的 Begin、查询状态和显式外部 Command 拒绝。
+- 单个旧实例 Mailbox 内的不可逆切换、可组合 Codec 和双节点验收。
+
+不实现：
+
+- ServiceGroup 发布、切换、回滚、Visitor 等待、超时轮询或 `Runtime.Stop`。
+- Desired State、Controller、Reconcile、NodeAgent 修改型动作与外部 Admin API。
+
+## 后续 Phase 10C：受控 Drain 操作
+
+在 Guard 已可验证后，才冻结包含 ServiceGroup 版本切换、失败/超时未知结果、回滚、Visitor 等待和 Stop 的控制面操作。该契约必须同时定义 principal、`RequestID`、动作授权、审计和人工恢复查询；不得借用 NodeID source fencing 充当用户认证。
 
 不实现：
 

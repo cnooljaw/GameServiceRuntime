@@ -68,7 +68,8 @@
 | Replay | 使用 Command Record 重放 Service 行为。 |
 | Supervisor（监督器） | Runtime Tooling 的故障隔离和恢复策略组件。它不接管 Core 生命周期，不等同于 Erlang/OTP 的 Supervisor Tree。 |
 | Monitor | Runtime 可观测组件。 |
-| Drain | 平滑下线过程。先停止接收新流量，再等待已有访问释放，最后关闭旧 Service。 |
+| Drain | 平滑下线过程。受控操作先切走新流量、使旧实例的 Drain Guard 拒绝新外部工作，再等待已有访问释放，最后关闭旧 Service。 |
+| Drain Guard | 包装在目标 Service 外的 Tooling decorator。它在目标 Mailbox 内不可逆地开始 Drain，并拒绝组合根显式列出的外部 Command；它不是 Core 生命周期状态，也不负责切流、等待 Visitor 或 Stop。 |
 | Exit Hook | Service 退出时执行的清理逻辑。GSR 第一版通过 `Stop(ctx)` 和 `Close()` 表达，不新增全局 `atexit` API。 |
 | Visitor Tracking | 访问者追踪，用于判断旧 Service 是否仍被其他 Service 使用。 |
 | VisitorRegistryService | Visitor lease 的唯一状态 owner。它通过 Command 保存、续订、释放和查询关系，不探测 Service 存活，也不编排 Drain。 |

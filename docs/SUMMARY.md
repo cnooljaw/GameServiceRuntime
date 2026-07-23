@@ -47,6 +47,7 @@
 - [RFC-0250：Cluster Control Plane](rfcs/RFC-0250-Tooling-Cluster-Control-Plane.md)
 - [RFC-0260：ServiceGroup 与路由策略](rfcs/RFC-0260-Tooling-ServiceGroup-Routing.md)
 - [RFC-0270：Drain、热更新与访问者追踪](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)
+- [RFC-0271：Drain Guard](rfcs/RFC-0271-Tooling-Drain-Guard.md)
 - [RFC-0280：Command Record 与 Replay](rfcs/RFC-0280-Tooling-Command-Record-Replay.md)
 - [RFC-0290：LoginService 与 Gateway 入口](rfcs/RFC-0290-Tooling-LoginService-Gateway.md)
 

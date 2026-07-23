@@ -35,7 +35,7 @@ Phase 10A 不实现：
 - 任意代码热替换、进程内热补丁、自动状态迁移或持久化 Visitor lease。
 - 由非 Service 的连接对象直接作为 Visitor；Gateway 或业务会话必须在后续契约中映射为持有明确 `ServiceRef` 的 owner。
 
-后续 Phase 10B 先冻结 Drain guard、切换、失败回滚和超时后的人工处理语义；Phase 10C 才能在独立 RFC 中冻结携带 principal、`RequestID`、动作授权和审计的 Desired State / Controller / NodeAgent 动作。它们不得把责任回填给本 RFC 的 Registry。
+后续 Phase 10B 先冻结并交付独立的 Drain guard（见 [RFC-0271](RFC-0271-Tooling-Drain-Guard.md)）。ServiceSet 切换、失败回滚和超时后的人工处理必须随携带 principal、`RequestID`、动作授权和审计的控制面操作契约一起进入后续阶段；它们不得把责任回填给本 RFC 的 Registry。
 
 ## 分层与依赖
 
@@ -179,9 +179,9 @@ visitor_expired_total
 
 ## 与后续 Drain 的关系
 
-后续 Drain 必须先发布新的 `ServiceSetVersion`，再使旧实例拒绝新外部工作，最后以 `List(target)` 判断强访问者是否清零。ServiceGroup 切换只能影响通过组解析的新请求；缓存旧 `ServiceRef` 的调用方仍可能直接投递，因此 Drain guard 必须位于 Tooling decorator 或业务入口 Command，不能声称 Core 原生存在 `Draining` 状态。
+后续受控 Drain 操作必须先发布新的 `ServiceSetVersion`，再使旧实例拒绝新外部工作，最后以 `List(target)` 判断强访问者是否清零。ServiceGroup 切换只能影响通过组解析的新请求；缓存旧 `ServiceRef` 的调用方仍可能直接投递，因此 [Drain guard](RFC-0271-Tooling-Drain-Guard.md) 必须位于 Tooling decorator 或业务入口 Command，不能声称 Core 原生存在 `Draining` 状态。
 
-已经发布后的回滚不得倒退 Directory Revision。Controller 必须把旧 Refs 作为更高 Revision 的新 ServiceSet 发布。Directory AuthorityEpoch 改变时，调用方必须完整替换快照，不能跨 epoch 比较 Revision。
+已经发布后的回滚不得倒退 Directory Revision。后续控制面必须把旧 Refs 作为更高 Revision 的新 ServiceSet 发布，并记录不确定结果以支持人工恢复。Directory AuthorityEpoch 改变时，调用方必须完整替换快照，不能跨 epoch 比较 Revision。
 
 ## 验收
 
