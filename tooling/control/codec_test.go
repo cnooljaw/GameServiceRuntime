@@ -52,6 +52,30 @@ func TestCodecRejectsInvalidPayloadAndTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestCodecEncodesNodeStopRequestsAndKeepsRunnerResultPrivate(t *testing.T) {
+	codec := NewCodec(nil)
+	task := validNodeStopTaskFor(gsr.ServiceRef{Node: "node-b", ID: 7})
+	payload, err := codec.Encode(commandBeginNodeStop, false, beginNodeStopRequest{Task: task})
+	if err != nil {
+		t.Fatalf("Encode(BeginNodeStop) error = %v", err)
+	}
+	decoded, err := codec.Decode(commandBeginNodeStop, false, payload)
+	if err != nil {
+		t.Fatalf("Decode(BeginNodeStop) error = %v", err)
+	}
+	request, ok := decoded.(beginNodeStopRequest)
+	if !ok || !sameNodeStopTask(request.Task, task) {
+		t.Fatalf("decoded request = %#v, want %#v", decoded, task)
+	}
+	receipt := NodeStopReceipt{RequestID: task.RequestID, Target: task.Target, State: StopTargetQueued, UpdatedAt: time.Now()}
+	if _, err := codec.Encode(commandGetNodeStopReceipt, true, nodeStopReceiptResponse{Receipt: receipt}); err != nil {
+		t.Fatalf("Encode(GetNodeStopReceipt response) error = %v", err)
+	}
+	if _, err := codec.Encode(commandRecordNodeStopResult, false, nodeStopResult{}); !errors.Is(err, ErrUnsupportedCommand) {
+		t.Fatalf("Encode(private runner result) error = %v, want ErrUnsupportedCommand", err)
+	}
+}
+
 func TestControlConfigRejectsInvalidTargetsAndClient(t *testing.T) {
 	validTarget := NodeTarget{Config: NodeConfig{ID: "node-b", Address: "127.0.0.1:9000", Enabled: true}, Agent: gsr.ServiceRef{Node: "node-b", ID: 1}}
 	if _, err := NewClusterObserverService(ObserverConfig{Nodes: []NodeTarget{validTarget, validTarget}}); !errors.Is(err, ErrInvalidConfig) {

@@ -40,6 +40,15 @@ const (
 	StopFailureRuntimeStop StopFailure = "runtime_stop"
 )
 
+// NodeStopReceipt is the Mailbox-owned execution fact for one local Stop target.
+type NodeStopReceipt struct {
+	RequestID RequestID
+	Target    gsr.ServiceRef
+	State     StopTargetState
+	Failure   StopFailure
+	UpdatedAt time.Time
+}
+
 // NodeStopExecutor accepts a bounded local Node Stop task.
 type NodeStopExecutor interface {
 	Submit(NodeStopTask) error

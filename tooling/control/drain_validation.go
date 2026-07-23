@@ -187,3 +187,41 @@ func validDrainAudits(audits []DrainAudit) bool {
 	}
 	return true
 }
+
+func validNodeStopResult(result nodeStopResult) bool {
+	if !validRequestID(result.RequestID) || !validServiceRef(result.Target) {
+		return false
+	}
+	switch result.State {
+	case StopTargetStopped, StopTargetSuperseded:
+		return result.Failure == StopFailureNone
+	case StopTargetPending:
+		return result.Failure == StopFailureDirectoryUnavailable
+	case StopTargetFailed:
+		return result.Failure == StopFailureRuntimeStop || result.Failure == StopFailureRunnerClosed
+	default:
+		return false
+	}
+}
+
+func validNodeStopReceipt(receipt NodeStopReceipt) bool {
+	if !validRequestID(receipt.RequestID) || !validServiceRef(receipt.Target) || receipt.UpdatedAt.IsZero() {
+		return false
+	}
+	switch receipt.State {
+	case StopTargetQueued:
+		return receipt.Failure == StopFailureNone
+	case StopTargetPending:
+		return receipt.Failure == StopFailureQueueFull || receipt.Failure == StopFailureDirectoryUnavailable
+	case StopTargetStopped, StopTargetSuperseded:
+		return receipt.Failure == StopFailureNone
+	case StopTargetFailed:
+		return receipt.Failure == StopFailureRuntimeStop || receipt.Failure == StopFailureRunnerClosed
+	default:
+		return false
+	}
+}
+
+func sameNodeStopTask(left, right NodeStopTask) bool {
+	return left.Agent == right.Agent && left.RequestID == right.RequestID && left.Target == right.Target && left.Group == right.Group && sameDrainServiceSet(left.Published, right.Published)
+}

@@ -70,6 +70,16 @@ func controlPayload(command gsr.CommandID, response bool) (any, bool) {
 			return nodeReportResponse{}, true
 		}
 		return getNodeReportRequest{}, true
+	case commandBeginNodeStop:
+		if response {
+			return nodeStopReceiptResponse{}, true
+		}
+		return beginNodeStopRequest{}, true
+	case commandGetNodeStopReceipt:
+		if response {
+			return nodeStopReceiptResponse{}, true
+		}
+		return getNodeStopReceiptRequest{}, true
 	case commandListNodes:
 		if response {
 			return nodesResponse{}, true
@@ -115,6 +125,9 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandGetNodeReport:
 		response, ok := value.(nodeReportResponse)
 		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validNode(response.Report.Node))
+	case commandBeginNodeStop, commandGetNodeStopReceipt:
+		response, ok := value.(nodeStopReceiptResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validNodeStopReceipt(response.Receipt))
 	case commandListNodes:
 		response, ok := value.(nodesResponse)
 		if !ok || !validResponseCode(response.Error) {
@@ -153,7 +166,10 @@ func validResponseCode(code errorCode) bool {
 		responseInvalidDrainRequest,
 		responseRequestConflict,
 		responseOperationNotFound,
-		responseOperationOwnerMismatch:
+		responseOperationOwnerMismatch,
+		responseInvalidStopRequest,
+		responseStopOperationNotFound,
+		responseStopDisabled:
 		return true
 	default:
 		return false

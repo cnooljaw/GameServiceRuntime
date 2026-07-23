@@ -7,6 +7,8 @@ import (
 
 const (
 	commandGetNodeReport         gsr.CommandID = 0x02500101
+	commandBeginNodeStop         gsr.CommandID = 0x02500102
+	commandGetNodeStopReceipt    gsr.CommandID = 0x02500103
 	commandRecordNodeStopResult  gsr.CommandID = 0x025001fd
 	commandRegisterNodeLease     gsr.CommandID = 0x025001fe
 	commandHeartbeatNodeLease    gsr.CommandID = 0x025001ff
@@ -34,6 +36,9 @@ const (
 	responseRequestConflict        errorCode = "request_conflict"
 	responseOperationNotFound      errorCode = "operation_not_found"
 	responseOperationOwnerMismatch errorCode = "operation_owner_mismatch"
+	responseInvalidStopRequest     errorCode = "invalid_stop_request"
+	responseStopOperationNotFound  errorCode = "stop_operation_not_found"
+	responseStopDisabled           errorCode = "stop_disabled"
 )
 
 type getNodeReportRequest struct{}
@@ -51,6 +56,20 @@ type refreshNodeRequest struct {
 type nodeReportResponse struct {
 	Report monitor.Report `json:"report"`
 	Error  errorCode      `json:"error"`
+}
+
+type beginNodeStopRequest struct {
+	Task NodeStopTask `json:"task"`
+}
+
+type getNodeStopReceiptRequest struct {
+	RequestID RequestID      `json:"request_id"`
+	Target    gsr.ServiceRef `json:"target"`
+}
+
+type nodeStopReceiptResponse struct {
+	Receipt NodeStopReceipt `json:"receipt"`
+	Error   errorCode       `json:"error"`
 }
 
 type nodeDetailResponse struct {

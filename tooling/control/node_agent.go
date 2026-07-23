@@ -25,6 +25,17 @@ type nodeAgent struct {
 	newLeaseClient func(gsr.ServiceContext, gsr.ServiceRef) (nodeLeaseClient, error)
 	lease          discovery.NodeLease
 	hasLease       bool
+	stopReceipts   map[nodeStopKey]nodeStopRecord
+}
+
+type nodeStopKey struct {
+	requestID RequestID
+	target    gsr.ServiceRef
+}
+
+type nodeStopRecord struct {
+	task    NodeStopTask
+	receipt NodeStopReceipt
 }
 
 // NewNodeAgentService creates a NodeAgentService that maintains its local Discovery lease.
@@ -38,11 +49,11 @@ func NewNodeAgentService(config NodeAgentConfig) (gsr.Service, error) {
 	if config.CallTimeout == 0 {
 		config.CallTimeout = defaultCallTimeout
 	}
-	return &nodeAgent{config: config, newLeaseClient: newNodeLeaseClient}, nil
+	return &nodeAgent{config: config, newLeaseClient: newNodeLeaseClient, stopReceipts: make(map[nodeStopKey]nodeStopRecord)}, nil
 }
 
 func (*nodeAgent) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGetNodeReport, commandRegisterNodeLease, commandHeartbeatNodeLease}
+	return []gsr.CommandID{commandGetNodeReport, commandBeginNodeStop, commandGetNodeStopReceipt, commandRecordNodeStopResult, commandRegisterNodeLease, commandHeartbeatNodeLease}
 }
 
 // StartupCommand starts registration only after Runtime has entered Running.
@@ -64,6 +75,12 @@ func (a *nodeAgent) Handle(commandContext gsr.CommandContext, command gsr.Comman
 	switch command.ID {
 	case commandGetNodeReport:
 		return a.handleGetNodeReport(commandContext, command)
+	case commandBeginNodeStop:
+		return a.handleBeginNodeStop(commandContext, command)
+	case commandGetNodeStopReceipt:
+		return a.handleGetNodeStopReceipt(commandContext, command)
+	case commandRecordNodeStopResult:
+		return a.handleNodeStopResult(commandContext, command)
 	case commandRegisterNodeLease:
 		if command.Payload != nil || !a.allowedLeaseCommandSource(commandContext.Source()) {
 			return ErrUnauthorized
@@ -96,6 +113,110 @@ func (a *nodeAgent) handleGetNodeReport(commandContext gsr.CommandContext, comma
 		return commandContext.Reply(nodeReportResponse{Error: responseUnauthorized})
 	}
 	return commandContext.Reply(nodeReportResponse{Report: cloneReport(a.config.Reporter.Capture())})
+}
+
+func (a *nodeAgent) handleBeginNodeStop(commandContext gsr.CommandContext, command gsr.Command) error {
+	if !a.stopEnabled() {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrStopDisabled)
+	}
+	if commandContext.Source() != a.config.StopCoordinator {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrUnauthorized)
+	}
+	request, ok := command.Payload.(beginNodeStopRequest)
+	if !ok || !a.validNodeStopTask(request.Task) {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrInvalidStopRequest)
+	}
+	key := nodeStopKey{requestID: request.Task.RequestID, target: request.Task.Target}
+	if record, exists := a.stopReceipts[key]; exists {
+		if !sameNodeStopTask(record.task, request.Task) {
+			return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrInvalidStopRequest)
+		}
+		if record.receipt.State != StopTargetPending {
+			return a.replyNodeStopReceipt(commandContext, record.receipt, nil)
+		}
+	}
+	return a.submitNodeStop(commandContext, key, request.Task)
+}
+
+func (a *nodeAgent) handleGetNodeStopReceipt(commandContext gsr.CommandContext, command gsr.Command) error {
+	if !a.stopEnabled() {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrStopDisabled)
+	}
+	if commandContext.Source() != a.config.StopCoordinator {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrUnauthorized)
+	}
+	request, ok := command.Payload.(getNodeStopReceiptRequest)
+	if !ok || !validRequestID(request.RequestID) || !validServiceRef(request.Target) || request.Target.Node != a.context.Self().Node || request.Target == a.context.Self() {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrInvalidStopRequest)
+	}
+	record, exists := a.stopReceipts[nodeStopKey{requestID: request.RequestID, target: request.Target}]
+	if !exists {
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrStopOperationNotFound)
+	}
+	return a.replyNodeStopReceipt(commandContext, record.receipt, nil)
+}
+
+func (a *nodeAgent) handleNodeStopResult(commandContext gsr.CommandContext, command gsr.Command) error {
+	if !a.stopEnabled() || !a.runtimeNodeSource(commandContext.Source()) {
+		return ErrUnauthorized
+	}
+	result, ok := command.Payload.(nodeStopResult)
+	if !ok || !validNodeStopResult(result) {
+		return ErrInvalidStopRequest
+	}
+	key := nodeStopKey{requestID: result.RequestID, target: result.Target}
+	record, exists := a.stopReceipts[key]
+	if !exists || record.receipt.State != StopTargetQueued {
+		return ErrInvalidStopRequest
+	}
+	record.receipt.State = result.State
+	record.receipt.Failure = result.Failure
+	record.receipt.UpdatedAt = a.context.Now()
+	a.stopReceipts[key] = record
+	switch result.State {
+	case StopTargetStopped:
+		a.context.Metrics().Inc("node_stop_completed_total")
+	case StopTargetSuperseded:
+		a.context.Metrics().Inc("node_stop_superseded_total")
+	case StopTargetFailed:
+		a.context.Metrics().Inc("node_stop_failed_total")
+	}
+	return nil
+}
+
+func (a *nodeAgent) submitNodeStop(commandContext gsr.CommandContext, key nodeStopKey, task NodeStopTask) error {
+	now := a.context.Now()
+	receipt := NodeStopReceipt{RequestID: task.RequestID, Target: task.Target, State: StopTargetQueued, UpdatedAt: now}
+	err := a.config.StopExecutor.Submit(task)
+	switch {
+	case err == nil:
+		a.stopReceipts[key] = nodeStopRecord{task: cloneNodeStopTask(task), receipt: receipt}
+		a.context.Metrics().Inc("node_stop_queued_total")
+	case errors.Is(err, ErrNodeStopQueueFull):
+		receipt.State = StopTargetPending
+		receipt.Failure = StopFailureQueueFull
+		a.stopReceipts[key] = nodeStopRecord{task: cloneNodeStopTask(task), receipt: receipt}
+	case errors.Is(err, ErrNodeStopRunnerClosed):
+		receipt.State = StopTargetFailed
+		receipt.Failure = StopFailureRunnerClosed
+		a.stopReceipts[key] = nodeStopRecord{task: cloneNodeStopTask(task), receipt: receipt}
+		a.context.Metrics().Inc("node_stop_failed_total")
+	default:
+		return a.replyNodeStopReceipt(commandContext, NodeStopReceipt{}, ErrInvalidResponse)
+	}
+	return a.replyNodeStopReceipt(commandContext, receipt, nil)
+}
+
+func (a *nodeAgent) stopEnabled() bool {
+	return validServiceRef(a.config.StopCoordinator) && !isNil(a.config.StopExecutor)
+}
+
+func (a *nodeAgent) validNodeStopTask(task NodeStopTask) bool {
+	return validNodeStopTask(task) && task.Agent == a.context.Self()
+}
+
+func (a *nodeAgent) replyNodeStopReceipt(commandContext gsr.CommandContext, receipt NodeStopReceipt, err error) error {
+	return commandContext.Reply(nodeStopReceiptResponse{Receipt: receipt, Error: codeFromError(err)})
 }
 
 func (a *nodeAgent) registerLease() error {
@@ -133,6 +254,7 @@ func (a *nodeAgent) schedule(command gsr.CommandID) error {
 }
 
 func (a *nodeAgent) Stop(stopContext context.Context) error {
+	a.stopReceipts = nil
 	if !a.hasLease || a.leaseClient == nil {
 		return nil
 	}
@@ -160,7 +282,8 @@ func newNodeLeaseClient(caller gsr.ServiceContext, target gsr.ServiceRef) (nodeL
 }
 
 func validNodeAgentConfig(config NodeAgentConfig) bool {
-	return !isNil(config.Reporter) && validNode(config.ObserverNode) && validServiceRef(config.Discovery) && strings.TrimSpace(config.Address) != "" && config.HeartbeatInterval >= 0 && config.CallTimeout >= 0
+	stopConfigured := config.StopCoordinator != (gsr.ServiceRef{}) || !isNil(config.StopExecutor)
+	return !isNil(config.Reporter) && validNode(config.ObserverNode) && validServiceRef(config.Discovery) && strings.TrimSpace(config.Address) != "" && config.HeartbeatInterval >= 0 && config.CallTimeout >= 0 && (!stopConfigured || validServiceRef(config.StopCoordinator) && !isNil(config.StopExecutor))
 }
 
 var _ gsr.Service = (*nodeAgent)(nil)

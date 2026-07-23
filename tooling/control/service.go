@@ -235,6 +235,12 @@ func errorFromCode(code errorCode) error {
 		return ErrDrainOperationNotFound
 	case responseOperationOwnerMismatch:
 		return ErrOperationOwnerMismatch
+	case responseInvalidStopRequest:
+		return ErrInvalidStopRequest
+	case responseStopOperationNotFound:
+		return ErrStopOperationNotFound
+	case responseStopDisabled:
+		return ErrStopDisabled
 	case responseInvalidRequest:
 		return ErrInvalidResponse
 	default:
@@ -266,6 +272,12 @@ func codeFromError(err error) errorCode {
 		return responseOperationNotFound
 	case errors.Is(err, ErrOperationOwnerMismatch):
 		return responseOperationOwnerMismatch
+	case errors.Is(err, ErrInvalidStopRequest):
+		return responseInvalidStopRequest
+	case errors.Is(err, ErrStopOperationNotFound):
+		return responseStopOperationNotFound
+	case errors.Is(err, ErrStopDisabled):
+		return responseStopDisabled
 	default:
 		return responseInvalidRequest
 	}

@@ -34,6 +34,12 @@ type NodeAgentConfig struct {
 	HeartbeatInterval time.Duration
 	// CallTimeout bounds each Discovery Call. Zero defaults to three seconds.
 	CallTimeout time.Duration
+	// StopCoordinator is the exact Coordinator ServiceRef authorized for local Node Stop requests.
+	// It must be set together with StopExecutor.
+	StopCoordinator gsr.ServiceRef
+	// StopExecutor queues local Runtime.Stop work outside this Service handler.
+	// It must be set together with StopCoordinator.
+	StopExecutor NodeStopExecutor
 }
 
 // NodeConfig is static deployment configuration for one cluster node.

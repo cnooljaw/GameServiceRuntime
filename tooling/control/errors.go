@@ -35,4 +35,10 @@ var (
 	ErrNodeStopQueueFull = errors.New("control: node stop queue full")
 	// ErrNodeStopRunnerClosed reports a submission after its composition-root-owned runner was closed.
 	ErrNodeStopRunnerClosed = errors.New("control: node stop runner closed")
+	// ErrInvalidStopRequest reports malformed Node Stop input or result facts.
+	ErrInvalidStopRequest = errors.New("control: invalid stop request")
+	// ErrStopOperationNotFound reports an unknown Stop operation or local Node Stop receipt.
+	ErrStopOperationNotFound = errors.New("control: stop operation not found")
+	// ErrStopDisabled reports a NodeAgent without its paired Stop configuration.
+	ErrStopDisabled = errors.New("control: node stop disabled")
 )
