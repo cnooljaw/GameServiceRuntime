@@ -369,7 +369,7 @@ Desired State + Observed State
   -> Publish higher ServiceSetVersion
 ```
 
-回滚必须发布更高 Revision 的旧成员集合。Directory 的 NodeID 来源检查不能替代 Phase 10 修改型控制命令所需的 principal、动作级授权、RequestID 和审计。
+在尚未开始任何旧实例 Guard 前，人工补偿可以发布更高 Revision 的旧成员集合；一旦任一旧实例 Guard 开始，原 Refs 不可重新接流，恢复必须准备新的可用实例并发布更高 Revision。Directory 的 NodeID 来源检查不能替代 Phase 10 修改型控制命令所需的 principal、动作级授权、RequestID 和审计。
 
 ## 验收
 

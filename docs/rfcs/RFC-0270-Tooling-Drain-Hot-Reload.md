@@ -181,7 +181,7 @@ visitor_expired_total
 
 后续受控 Drain 操作必须先发布新的 `ServiceSetVersion`，再使旧实例拒绝新外部工作，最后以 `List(target)` 判断强访问者是否清零。ServiceGroup 切换只能影响通过组解析的新请求；缓存旧 `ServiceRef` 的调用方仍可能直接投递，因此 [Drain guard](RFC-0271-Tooling-Drain-Guard.md) 必须位于 Tooling decorator 或业务入口 Command，不能声称 Core 原生存在 `Draining` 状态。
 
-已经发布后的回滚不得倒退 Directory Revision。后续控制面必须把旧 Refs 作为更高 Revision 的新 ServiceSet 发布，并记录不确定结果以支持人工恢复。Directory AuthorityEpoch 改变时，调用方必须完整替换快照，不能跨 epoch 比较 Revision。
+已经发布后的回滚不得倒退 Directory Revision。尚未开始任何旧实例 Guard 时，后续控制面可以把旧 Refs 作为更高 Revision 的新 ServiceSet 发布；任一 Guard 开始后，原 Ref 已不可重新接流，恢复必须准备新实例并发布更高 Revision。控制面必须记录不确定结果以支持人工恢复。Directory AuthorityEpoch 改变时，调用方必须完整替换快照，不能跨 epoch 比较 Revision。
 
 ## 验收
 

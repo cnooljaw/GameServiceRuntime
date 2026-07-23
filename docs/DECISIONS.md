@@ -29,7 +29,7 @@
 | D-009：Supervisor 是可选恢复策略 | Runtime 负责实例 Create/Stop；`Supervisor` 只在真正承担失败监控、恢复预算和重启策略时作为 Tooling 存在，不是 Core 生命周期替身或 OTP Tree。 | 避免承诺不存在的自动恢复语义，同时允许对已定义的 panic 失败路径做受限恢复。 | [Supervisor](rfcs/RFC-0220-Tooling-Supervisor.md) |
 | D-010：Observed State 先于 Desired State | Discovery、NodeAgent、Observer 只描述当前事实；Controller 负责 Desired State 与 Reconcile，NodeAgent 只执行动作。 | 将“看见系统”与“改变系统”的权限、失败处理和策略分开，防止只读观测面悄然变成运维控制面。 | [Control Plane](rfcs/RFC-0250-Tooling-Cluster-Control-Plane.md)、[Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)、[路线图](rfcs/RFC-0500-Roadmap.md) |
 | D-011：ServiceGroup 独立于 Discovery | `DirectoryService` 是 ServiceSet 的唯一事实 owner；Router 只使用调用方显式持有的快照。 | 避免 Discovery 兼任目录和负载策略，也避免看似异步的 Send 隐含同步远程查询或后台缓存。 | [ServiceGroup](rfcs/RFC-0260-Tooling-ServiceGroup-Routing.md) |
-| D-012：Drain 使用入口 guard、版本切换与访问者 lease | Drain Guard 在旧实例自己的 Mailbox 内拒绝显式外部 Command；受控操作在新实例就绪后发布更高 ServiceSet，再等待 VisitorRegistryService 的强 lease 清零，最后才 Stop；回滚仍发布更高版本。 | 热更新不是进程内代码补丁，缓存旧 ServiceRef 不能只靠切流阻止；访问关系不能散落在调用方共享 map，更不能污染 Core 最小接口。 | [Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)、[Drain Guard](rfcs/RFC-0271-Tooling-Drain-Guard.md) |
+| D-012：Drain 使用入口 guard、版本切换与访问者 lease | Drain Guard 在旧实例自己的 Mailbox 内拒绝显式外部 Command；受控操作在新实例就绪后发布更高 ServiceSet，再等待 VisitorRegistryService 的强 lease 清零，最后才 Stop。Guard 开始后不得重新发布原旧 Ref；恢复需新实例和更高版本。 | 热更新不是进程内代码补丁，缓存旧 ServiceRef 不能只靠切流阻止；不可逆 Guard 使“原 Ref 回滚”不再成立，访问关系不能散落在调用方共享 map，更不能污染 Core 最小接口。 | [Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)、[Drain Guard](rfcs/RFC-0271-Tooling-Drain-Guard.md)、[受控 Drain 操作](rfcs/RFC-0272-Tooling-Controlled-Drain-Operation.md) |
 
 ## 演进与协作
 
@@ -37,3 +37,4 @@
 | --- | --- | --- | --- |
 | D-013：分阶段只引入一个核心问题 | Phase 10A 先冻结 Visitor lease，Phase 10B 再独立交付入口 Drain Guard；ServiceSet 切换、回滚、Desired State、Controller、Reconcile 与修改型 NodeAgent 动作进入后续带操作身份的契约。 | 将复杂度拆成可验收的能力，避免把自动恢复、调度和策略塞入 Discovery 或 Core，也不让无审计的 decorator 承担未知提交恢复。 | [路线图](rfcs/RFC-0500-Roadmap.md)、[Drain 与热更新](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)、[Drain Guard](rfcs/RFC-0271-Tooling-Drain-Guard.md) |
 | D-014：聊天结论必须回写 | 聊天用于探索；稳定结论先进入 RFC，再进入本索引，最后按需同步路线图、`AGENTS.md` 和 Skill。 | 让归档后的设计理由仍可检索，避免后续实现靠重新推理或误读历史上下文。 | [RFC 生命周期](rfcs/RFC-0003-Foundation-RFC-Lifecycle.md)、[Codex 开发指南](GSR-Book/06-第六篇-实践/02-Codex开发指南.md) |
+| D-015：修改型 Drain 先保存操作事实 | Phase 10C1 的 Coordinator 以 Gateway source、Principal 与 RequestID 约束 Start/Resolve，并保存 Directory/Guard/Visitor 的未知或已确认阶段；它只到 ReadyToStop。 | 超时不能证明 Publish 或 Begin 未发生，且 Runtime.Stop 需要节点级生命周期 owner；把操作事实、动作授权和执行 Stop 分开，才能避免脚本式重试破坏版本或重新接流被 Guard 的旧 Ref。 | [受控 Drain 操作](rfcs/RFC-0272-Tooling-Controlled-Drain-Operation.md) |

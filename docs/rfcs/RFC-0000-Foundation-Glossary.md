@@ -31,7 +31,7 @@
 | NodeID | Cluster 节点标识。 |
 | Command | Service 的能力入口。Command 可通过 Send 或 Call 投递。 |
 | CommandID | Command 的稳定数字编号。 |
-| RequestID | 一次业务请求的稳定标识，用于跨 Service 重试时的幂等去重。它是业务字段，不替代 Runtime 的 `Session`。 |
+| RequestID | 一次业务或控制操作的稳定标识，用于跨 Service 重试时的幂等去重。它是业务字段，不替代 Runtime 的 `Session`。 |
 | Envelope | Runtime 内部消息包，包含 Source、Target、Session、Command、Payload。 |
 | Send | 异步投递 Command，不等待业务结果。 |
 | Call | 同步投递 Command，通过 Session 等待 Reply。 |
@@ -75,6 +75,8 @@
 | VisitorRegistryService | Visitor lease 的唯一状态 owner。它通过 Command 保存、续订、释放和查询关系，不探测 Service 存活，也不编排 Drain。 |
 | Visitor Lease | 一个带 AuthorityEpoch、Generation、owner 和过期时间的 Target/Visitor 关系。Visitor 同时是 lease owner；迟到的 Renew 或 Release 不得影响更新后的 lease。 |
 | Weak Visitor | 弱访问者。弱访问不阻止旧 Service Drain 退出。 |
+| Principal | 已认证 Gateway 断言的操作者身份。修改型 Control Plane Command 同时验证精确 Gateway Service source、Principal 授权与 RequestID；NodeID 不能替代它。 |
+| Drain Operation | 以 RequestID 标识、由 DrainCoordinatorService 保存的受控切换记录。它记录 Directory 发布、Guard、Visitor 和 ReadyToStop 事实，但不执行 Stop。 |
 | Controller | 对比 Desired State 与 Observed State、计算差异并持续收敛的 Tooling 组件。它决定动作，不直接持有业务 Service。 |
 | Reconcile | Controller 根据期望状态与实际状态反复计算并执行收敛动作的循环。 |
 | 设计决策索引 | `docs/DECISIONS.md`。用于检索设计结论及其权威 RFC；它不定义公开 API，也不替代 RFC。 |

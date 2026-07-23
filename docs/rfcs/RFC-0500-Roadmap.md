@@ -40,7 +40,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup、Phase 10A Visitor lease Registry 与 Phase 10B Drain Guard 已完成。后续 ServiceGroup 切换、回滚、Controller 与 Reconcile 必须以带操作身份的独立控制面契约推进。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup、Phase 10A Visitor lease Registry 与 Phase 10B Drain Guard 已完成。Phase 10C1 已冻结受控 Drain 操作契约；后续 ServiceGroup 切换、Stop、Controller 与 Reconcile 必须以带操作身份推进。
 
 ## 后续 RFC 审核结果
 
@@ -55,6 +55,7 @@ Layer 3: Business Layer
 | RFC-0260 ServiceGroup | 9 | 已接受 | 已实现独立 DirectoryService、AuthorityEpoch/Revision、CAS、Watch lease、显式快照 Router、三种策略和双节点验收。 |
 | RFC-0270 Drain | 10A | 已接受 | 已实现 VisitorRegistryService 的 lease、代际、owner、过期、Codec、双节点 TCP 和本地示例；Drain 编排、回滚、Controller 与 Reconcile 仍需后续独立契约。 |
 | RFC-0271 Drain Guard | 10B | 已接受 | 已实现旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec、本地与双节点 TCP 验收；跨节点业务拒绝继续由目标节点 adapter 映射。 |
+| RFC-0272 Controlled Drain Operation | 10C1 | 待实现 | 已冻结 Gateway+Principal 授权、RequestID 幂等、审计、发布/Guard 未知结果、Visitor 刷新和 ReadyToStop；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
 | RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
 | RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
@@ -267,9 +268,23 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 - ServiceGroup 发布、切换、回滚、Visitor 等待、超时轮询或 `Runtime.Stop`。
 - Desired State、Controller、Reconcile、NodeAgent 修改型动作与外部 Admin API。
 
-## 后续 Phase 10C：受控 Drain 操作
+## Phase 10C1：受控 Drain 操作
 
-在 Guard 已可验证后，才冻结包含 ServiceGroup 版本切换、失败/超时未知结果、回滚、Visitor 等待和 Stop 的控制面操作。该契约必须同时定义 principal、`RequestID`、动作授权、审计和人工恢复查询；不得借用 NodeID source fencing 充当用户认证。
+状态：待实现（2026-07-23）。
+
+实现：
+
+- Coordinator 保存经 Gateway、Principal 和 RequestID 约束的 Drain Operation 与有界审计。
+- Directory CAS、未知 Publish 的只读确认、Guard 幂等确认、Visitor 刷新和 `ReadyToStop`。
+
+不实现：
+
+- Runtime Stop、NodeAgent 修改型动作、自动恢复或后台 Reconcile。
+- Desired State、扩缩容、放置、外部认证协议或持久化审计。
+
+## 后续 Phase 10C2：节点 Stop 与恢复操作
+
+在 Operation 已经能够审计地给出 ReadyToStop 后，才冻结 NodeAgent 执行 Stop、节点级权限、超时、执行结果、补偿和人工恢复。它不得重新发布已经 Guard 的原旧 Ref，也不得把 NodeID source fencing 充当用户认证。
 
 不实现：
 
