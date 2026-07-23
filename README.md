@@ -32,7 +32,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 可组合的 `Drain Guard` decorator：由精确 `ServiceRef` Controller 在旧实例 Mailbox 内开始不可逆 Drain，显式外部 Command 被拒绝，内部清理 Command 保持可用。
 - `DrainCoordinatorService`：仅接受认证 Gateway 断言的 Principal，以 RequestID 保存 Directory 切换、Guard、Visitor 和有界审计事实，并给出不执行 Stop 的 `ReadyToStop` 结论。
 
-Phase 10A 的 Visitor lease Registry、Phase 10B 的 Drain Guard 与 Phase 10C1 的受控切换已完成。Coordinator 不创建实例、不执行 Runtime Stop、不恢复或重新发布已经 Guard 的旧 Ref；NodeAgent Stop、恢复、Controller、Reconcile 和 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Phase 10A 的 Visitor lease Registry、Phase 10B 的 Drain Guard、Phase 10C1 的受控切换与 Phase 10C2A 的 Node Stop 执行已完成。Gateway+Coordinator 只授权并记录 StopOperation；NodeAgent 保存本地 receipt，组合根有界 Runner 在 Directory 再确认后调用 Runtime.Stop。它们不创建替代实例、不恢复或重新发布已经 Guard/停止的旧 Ref；人工恢复与补偿、Controller、Reconcile 和 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 

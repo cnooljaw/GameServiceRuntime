@@ -134,7 +134,7 @@ Call 只能选择一个目标。Broadcast Call 返回 `ErrMultipleTargets`。
 - Service 不会自动注册进组。
 - Directory 不做健康检查、负载采样或自动扩缩容。
 - Router 不维护后台缓存，也不重试 Send/Call。
-- Phase 10A 已提供独立 `VisitorRegistryService` 保存强弱访问者 lease；Phase 10B 的 `Drain Guard` 可在旧实例自己的 Mailbox 内拒绝显式的新外部 Command；Phase 10C1 的 `DrainCoordinatorService` 通过 Gateway+Principal+RequestID 串行发布完整新 ServiceSet、只 Guard 被移除的旧 Ref、等待强 Visitor 清零，并记录不执行 Stop 的 `ReadyToStop`。它不替代 Directory，也不创建实例、执行 Stop、重新发布已 Guard 的旧 Ref、自动恢复、Desired State、Controller 或 Reconcile。
+- Phase 10A 已提供独立 `VisitorRegistryService` 保存强弱访问者 lease；Phase 10B 的 `Drain Guard` 可在旧实例自己的 Mailbox 内拒绝显式的新外部 Command；Phase 10C1 的 `DrainCoordinatorService` 通过 Gateway+Principal+RequestID 串行发布完整新 ServiceSet、只 Guard 被移除的旧 Ref、等待强 Visitor 清零，并记录 `ReadyToStop`。Phase 10C2A 以独立 StopOperation 将同一 Principal 的授权延续到精确 NodeAgent receipt：Coordinator 与组合根有界 Runner 都会强确认 Published ServiceSet，只有 Runner 在 Handler 外调用 `Runtime.Stop`，Gateway 通过显式 Resolve 读取结果。它不替代 Directory，也不创建实例、重新发布已 Guard/停止的旧 Ref、自动恢复、Desired State、Controller 或 Reconcile。
 
 完整契约见 `RFC-0260`。可运行示例：
 

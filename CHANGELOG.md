@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Controlled Node Stop Execution
+
+- 新增 `StopOperation`、`BeginStop`、`ResolveStop` 与 `GetStop`：只有精确 Gateway ServiceRef 代表允许的 Principal 才能把同 RequestID 的 `ReadyToStop` Drain Operation 推进为受控 Stop；Coordinator 在创建和每次向 NodeAgent 投递前都强确认冻结的 Published ServiceSet。
+- 新增可选成对配置的 NodeAgent Stop receipt，以及组合根持有的有界 `NodeStopRunner`。Runner 是唯一调用 `Runtime.Stop` 的 adapter；每次实际 Stop 前再次读取 Directory，结果只经本机私有 Command 回到 NodeAgent Mailbox，关闭时取消未开始工作并等待已开始 Stop 返回。
+- 新增 Control Codec Stop payload、本地与双节点 TCP 验收。Directory 不匹配会使操作 Superseded；队列满、Directory 不可用和 Runner 关闭都保留可审计的 receipt/Operation 事实。此阶段不创建替代实例、不自动补偿或恢复，也不引入 Controller 或 Reconcile。
+
 ### Controlled Drain Operation
 
 - 新增 `tooling/control` 的 `DrainCoordinatorService`、`DrainClient`、`Principal`、`RequestID`、`DrainOperation` 和有界 `DrainAudit`。只有精确 Gateway ServiceRef 代表白名单 Principal 才能 Start、Resolve、Get 或读取审计；同一 RequestID 的规范化输入稳定幂等，不同输入得到 `ErrRequestConflict`。

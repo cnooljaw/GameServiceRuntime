@@ -1,6 +1,8 @@
 # RFC-0273：受控 Node Stop 执行
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-23
+> 实现日期：2026-07-23
 > 目标阶段：Phase 10C2A
 > 范围：Runtime Tooling、Cluster Control Plane
 > 依赖：[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0250](RFC-0250-Tooling-Cluster-Control-Plane.md)、[RFC-0260](RFC-0260-Tooling-ServiceGroup-Routing.md)、[RFC-0271](RFC-0271-Tooling-Drain-Guard.md)、[RFC-0272](RFC-0272-Tooling-Controlled-Drain-Operation.md)
