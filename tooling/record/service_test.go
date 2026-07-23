@@ -146,6 +146,52 @@ func TestDecoratorFailureModeControlsDelegate(t *testing.T) {
 	if strictTarget.total.Load() != 0 {
 		t.Fatal("strict recording failure reached delegate")
 	}
+
+	redactedTarget := &recordTargetService{}
+	redacted, err := NewDecorator(redactedTarget, recorderRef, "battle:42", jsonCommandCodec{}, failingRedactor{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := redacted.Init(recordServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := redacted.Handle(recordCommandContext{}, gsr.Command{ID: commandRecordTestIncrement, Payload: 1}); err != nil || redactedTarget.total.Load() != 1 {
+		t.Fatalf("normal Redactor failure = %v, delegate total=%d", err, redactedTarget.total.Load())
+	}
+	strictRedactedTarget := &recordTargetService{}
+	strictRedacted, err := NewDecorator(strictRedactedTarget, recorderRef, "battle:42", jsonCommandCodec{}, failingRedactor{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := strictRedacted.Init(recordServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := strictRedacted.Handle(recordCommandContext{}, gsr.Command{ID: commandRecordTestIncrement, Payload: 1}); !errors.Is(err, errRecordCodec) || strictRedactedTarget.total.Load() != 0 {
+		t.Fatalf("strict Redactor failure = %v, delegate total=%d", err, strictRedactedTarget.total.Load())
+	}
+
+	normalSendTarget := &recordTargetService{}
+	normalSend, err := NewDecorator(normalSendTarget, recorderRef, "battle:42", jsonCommandCodec{}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := normalSend.Init(failingSendContext{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalSend.Handle(recordCommandContext{}, gsr.Command{ID: commandRecordTestIncrement, Payload: 1}); err != nil || normalSendTarget.total.Load() != 1 {
+		t.Fatalf("normal Send failure = %v, delegate total=%d", err, normalSendTarget.total.Load())
+	}
+	strictSendTarget := &recordTargetService{}
+	strictSend, err := NewDecorator(strictSendTarget, recorderRef, "battle:42", jsonCommandCodec{}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := strictSend.Init(failingSendContext{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := strictSend.Handle(recordCommandContext{}, gsr.Command{ID: commandRecordTestIncrement, Payload: 1}); !errors.Is(err, errRecordCodec) || strictSendTarget.total.Load() != 0 {
+		t.Fatalf("strict Send failure = %v, delegate total=%d", err, strictSendTarget.total.Load())
+	}
 }
 
 func TestReplayValidatesBundleAndSendsDecodedInputsToIsolatedTarget(t *testing.T) {
@@ -231,6 +277,10 @@ type failingCommandCodec struct{}
 func (failingCommandCodec) Encode(gsr.CommandID, any) ([]byte, error) { return nil, errRecordCodec }
 func (failingCommandCodec) Decode(gsr.CommandID, []byte) (any, error) { return nil, errRecordCodec }
 
+type failingRedactor struct{}
+
+func (failingRedactor) Redact(gsr.CommandID, []byte) ([]byte, error) { return nil, errRecordCodec }
+
 type recordServiceContext struct{}
 
 func (recordServiceContext) Self() gsr.ServiceRef                          { return gsr.ServiceRef{Node: "record-node", ID: 2} }
@@ -246,6 +296,10 @@ func (recordServiceContext) Logger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 func (recordServiceContext) Metrics() gsr.Metrics { return recordMetrics{} }
+
+type failingSendContext struct{ recordServiceContext }
+
+func (failingSendContext) Send(gsr.ServiceRef, gsr.CommandID, any) error { return errRecordCodec }
 
 type recordMetrics struct{}
 

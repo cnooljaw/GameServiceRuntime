@@ -58,7 +58,7 @@ Layer 3: Business Layer
 | RFC-0272 Controlled Drain Operation | 10C1 | 已接受 | 已实现 Gateway+Principal 授权、RequestID 幂等、有界审计、Directory/Guard 未知结果确认、Visitor 刷新、ReadyToStop、本地和双节点 TCP 验收；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
 | RFC-0273 Node Stop Execution | 10C2A | 已接受 | 已实现 Gateway+Principal 授权的 StopOperation、精确 Coordinator NodeAgent receipt、Directory 双重再确认、组合根有界 Runner、本地与双节点 TCP 验收；恢复、补偿和 Reconcile 仍后置。 |
 | RFC-0274 Manual Recovery | 10C2B | 已接受 | 已实现 Blueprint Runner 创建替代实例、NodeAgent receipt、人工 Confirm、Directory CAS、未知结果 Resolve、本地与双节点 TCP 验收；不恢复旧 Ref 或自动 Reconcile。 |
-| RFC-0280 Record/Replay | 11 | 待实现 | 已冻结 Handle decorator、有界 Recorder、版本化 Bundle、外置 Archive 与隔离 Replay；持久化由应用 adapter 注入。 |
+| RFC-0280 Record/Replay | 11 | 已接受 | 已实现 Handle decorator、有界 Recorder、版本化 Bundle、目录型 JSONArchive、可组合 Codec 与隔离 Replay；Battle 的确定性业务组合留待 Phase 13。 |
 | RFC-0300 至 RFC-0370 | 12 | 待实现 | 已冻结 game 包的领域边界、Battle/Timeline/Room/Player/Module/Wallet API、RequestID 与异步 ledger result；具体游戏规则和生产 Store 外置。 |
 | RFC-0400 示例 | 13 | 待实现 | 已冻结打地鼠的 Room→Battle→Timeline→Kick→Settlement→外层 Stop 验收与确定性 Record/Replay。 |
 
@@ -304,19 +304,18 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 ## Phase 11：Command Record 与 Replay
 
-状态：待实现。
+状态：已完成（2026-07-24）。
 
 实现：
 
-- Command Record。
-- Battle Replay。
-- Record 文件版本。
-- 时间和随机数控制策略。
+- `tooling/record` 的 Handle decorator、有界 RecorderService、typed Client、版本化 JSON Bundle、目录型 JSONArchive 与可组合 Cluster Codec。
+- TargetFactory 创建隔离 Runtime 后的逐条 Decode/Send Replay；旧 Runtime 不会被 Replay 直接寻址。
+- 通用 Timer Command 的录制与重放验收；Battle 的随机 seed、Clock、Timeline 与结算结果由后续业务示例提供 Command payload。
 
 约束：
 
-- Record/Replay 只作为 Debug 和测试能力。
-- 不替代 Snapshot 和持久化。
+- Record/Replay 只作为 Debug 和测试能力，不是线上流量镜像、持久事件日志或故障恢复。
+- JSONArchive 只写调用方提供的目录；保留期、加密、上传和生产对象存储仍由应用 adapter 负责。
 
 ## Phase 12：Business Layer 最小封装
 

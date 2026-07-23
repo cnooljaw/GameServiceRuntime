@@ -26,16 +26,6 @@ type StableKey string
 // Sequence identifies one input's order within a stable target's Mailbox history.
 type Sequence uint64
 
-// Mode describes the replay guarantee requested by a caller.
-type Mode uint8
-
-const (
-	// BestEffort replays the recorded input order without controlling business dependencies.
-	BestEffort Mode = iota
-	// Deterministic relies on the target's injected deterministic business dependencies.
-	Deterministic
-)
-
 // RecordEntry is one immutable encoded Command that entered a decorated Service.
 type RecordEntry struct {
 	FormatVersion uint16

@@ -38,6 +38,9 @@ func TestClusterCodecRoundTripsRecorderProtocolAndComposes(t *testing.T) {
 	if _, err := codec.Decode(AppendRecordCommand, false, []byte(`{"Entry":{"FormatVersion":2}}`)); !errors.Is(err, ErrInvalidResponse) {
 		t.Fatalf("Decode(invalid entry) error = %v, want ErrInvalidResponse", err)
 	}
+	if _, err := codec.Decode(ClearRecordsCommand, false, []byte(`{"Key":"battle:42"} {}`)); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode(trailing JSON) error = %v, want ErrInvalidResponse", err)
+	}
 }
 
 type recordingClusterCodec struct{ encodeCalls int }

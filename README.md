@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 10C2B 人工恢复与补偿，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口、Control Plane 和 ServiceGroup Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 11 Command Record/Replay，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口、Control Plane、ServiceGroup 与 Record Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -32,8 +32,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 可组合的 `Drain Guard` decorator：由精确 `ServiceRef` Controller 在旧实例 Mailbox 内开始不可逆 Drain，显式外部 Command 被拒绝，内部清理 Command 保持可用。
 - `DrainCoordinatorService`：仅接受认证 Gateway 断言的 Principal，以 RequestID 保存 Directory 切换、Guard、Visitor 和有界审计事实，并给出不执行 Stop 的 `ReadyToStop` 结论。
 - `RecoveryOperation`：组合根的有界 Blueprint Runner 在目标节点创建替代实例，NodeAgent 保存 receipt；Coordinator 只在 Principal 显式 Confirm 后以 Directory CAS 追加新 Ref，旧 Guard/Stopped Ref 永不重新发布。
+- `tooling/record`：Decorator 在目标 Mailbox 的 Handle 边界编码并投递有界 RecordEntry；JSONArchive 在 Service 外保存版本化 Bundle，Replay 只将输入发送到工厂创建的隔离目标。
 
-Phase 10A 的 Visitor lease Registry、Phase 10B 的 Drain Guard、Phase 10C1 的受控切换、Phase 10C2A 的 Node Stop 与 Phase 10C2B 的人工恢复已完成。Gateway+Coordinator 只授权并记录 Operation；NodeAgent 保存本地 receipt，组合根有界 Runner 执行 Stop 或新实例创建。恢复必须经人工 Confirm 才能以 CAS 追加新 Ref，绝不恢复或重新发布旧 Ref；Controller、Reconcile、Record/Replay 和 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Phase 10A 的 Visitor lease Registry、Phase 10B 的 Drain Guard、Phase 10C1 的受控切换、Phase 10C2A 的 Node Stop、Phase 10C2B 的人工恢复与 Phase 11 的 Command Record/Replay 已完成。Gateway+Coordinator 只授权并记录 Operation；NodeAgent 保存本地 receipt，组合根有界 Runner 执行 Stop 或新实例创建。恢复必须经人工 Confirm 才能以 CAS 追加新 Ref，绝不恢复或重新发布旧 Ref。Record 默认不阻断业务、不能替代 Snapshot/账本/生产留存，确定性取决于业务显式把 Timer、随机和外部输入编码为 Command；Controller、Reconcile 与 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 

@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Command Record and Replay
+
+- 新增 `tooling/record`：透明 Decorator 在目标 Service 的 Handle 边界编码并发送不可变 `RecordEntry`；RecorderService 在自身 Mailbox 中按 StableKey 保存连续 sequence 的有界窗口，normal 录制失败只记录受限日志与指标，strict 模式仅供测试且不执行业务 Handler。
+- 新增 typed Client、版本化 `RecordBundle`、调用方目录内原子替换的 JSONArchive，以及只创建并驱动隔离 TargetFactory 目标的 Replay；Replay 不复用或直接调用原 Runtime/ServiceRef。
+- 新增可组合 Recorder Cluster Codec、Timer Command、Redactor/Codec/发送失败、环形淘汰、归档损坏和原 Runtime 隔离验收。Record 不替代 Snapshot、业务账本、生产保留或流量镜像；随机/时间确定性仍由业务 Command payload 提供。
+
 ### Manual Recovery and Compensation
 
 - 新增 `RecoveryOperation`、`BeginRecovery`、`ResolveRecovery`、`ConfirmRecovery`、`GetRecovery` 与 `AbandonRecovery`：Recovery 必须复用一个已终态 StopOperation 的 RequestID 和完整旧 Target 集合；只有 Gateway 代表允许的 Principal 才能读取或推进它。

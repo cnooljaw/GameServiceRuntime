@@ -1,6 +1,8 @@
 # RFC-0280：Command Record 与 Replay
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 11
 > 范围：Runtime Tooling、Debug、Business Layer
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0170](RFC-0170-Core-Timer.md)、[RFC-0210](RFC-0210-Tooling-Snapshot.md)
@@ -47,11 +49,6 @@ const FormatVersion uint16 = 1
 
 type StableKey string
 type Sequence uint64
-type Mode uint8
-const (
-    BestEffort Mode = iota
-    Deterministic
-)
 
 type RecordEntry struct {
     FormatVersion uint16
@@ -129,7 +126,7 @@ Archive 是组合根或外部 adapter 的所有者。它只能消费已经从 Re
 
 Replay 要求 TargetFactory 创建全新的隔离 Runtime、目标 Service 和可选初始业务状态。它验证 Bundle、Entry 版本、Key 与严格连续 Sequence，然后按顺序 `Send` Decode 后的 Command。Replay 不连接生产 Transport，不复用原 Ref，不调用原 Runtime，也不直接调用 Handle。
 
-BestEffort 只保证输入顺序。Deterministic 额外要求目标服务从业务注入的 `Clock`、`Random` 和外部输入 provider 读取值：Record 负责保存相应 Command payload（例如 timer fire、随机 seed、IO result），不试图劫持 `time.Now` 或全局随机数。Battle 的随机 seed、`BattleEpoch`、`TimelineID/Revision` 和结算结果必须包含在其业务 Command/Snapshot 投影中。
+普通 Replay 只保证输入顺序。需要确定性时，目标服务必须从业务注入的 `Clock`、`Random` 和外部输入 provider 读取值：Record 负责保存相应 Command payload（例如 timer fire、随机 seed、IO result），不试图劫持 `time.Now` 或全局随机数。Battle 的随机 seed、`BattleEpoch`、`TimelineID/Revision` 和结算结果必须包含在其业务 Command/Snapshot 投影中。
 
 ## 错误与失败语义
 
@@ -144,12 +141,12 @@ Decorator、RecorderService 和 Replay target 的状态只在各自 Mailbox 或�
 
 ## 可观测性
 
-Recorder 暴露每 Key 的已保留条目数、最早/最新 Sequence、淘汰计数和普通模式录制失败计数；这些是 Tooling 状态，Core Metrics 仍只从 `Inspect().Metrics` 取得。日志只能包含 Key、Command、Sequence、长度和错误类别，绝不写 payload 明文。业务 TraceID 是不透明字符串，不自动生成或解释。
+Recorder 的 `List` 返回每 Key 已保留条目及其最早/最新 Sequence；Core Metrics（只经 `Inspect().Metrics`）提供经 StableKey 哈希后的保留条目 gauge、全局淘汰计数和普通模式录制失败计数。日志只能包含 Key、Command、Sequence、长度和错误类别，绝不写 payload 明文。业务 TraceID 是不透明字符串，不自动生成或解释。
 
 ## 验收
 
 - Decorator 记录同一目标 Service 的 Command 顺序、Source、Key、深拷贝 payload，并不改变普通 Handle 行为。
 - strict/normal 录制失败、环形淘汰、Clear/List 游标、Codec 与 Redactor 异常均有单元测试。
 - JSON Bundle 可 round-trip，未知版本、非连续 Sequence、错误 Key/Command payload 必须失败。
-- 隔离 Replay 证明原 Runtime 未收到 Command；timer Command、随机 seed 与业务状态投影可在确定性 Battle 测试中复现。
+- 隔离 Replay 证明原 Runtime 未收到 Command；通用 Timer Command 已可录制与重放。随机 seed、业务状态投影及其 Battle 确定性验收由 RFC-0400 的实际业务组合完成。
 - Cluster Codec 与其他 Tooling Codec 可组合；`go test -race ./...` 不出现共享 buffer 或状态竞争。

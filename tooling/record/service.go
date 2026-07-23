@@ -2,6 +2,8 @@ package record
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
@@ -118,7 +120,7 @@ func (s *RecorderService) append(entry RecordEntry) error {
 	}
 	s.records[entry.TargetKey] = entries
 	s.last[entry.TargetKey] = entry.Sequence
-	s.context.Metrics().SetGauge("record_retained_total", int64(len(entries)))
+	s.context.Metrics().SetGauge(retainedMetric(entry.TargetKey), int64(len(entries)))
 	return nil
 }
 
@@ -144,7 +146,7 @@ func (s *RecorderService) clear(key StableKey) error {
 		return err
 	}
 	delete(s.records, key)
-	s.context.Metrics().SetGauge("record_retained_total", 0)
+	s.context.Metrics().SetGauge(retainedMetric(key), 0)
 	return nil
 }
 
@@ -172,6 +174,11 @@ func errorFromResponseCode(code responseCode) error {
 	default:
 		return ErrInvalidResponse
 	}
+}
+
+func retainedMetric(key StableKey) string {
+	digest := sha256.Sum256([]byte(key))
+	return "record_retained." + hex.EncodeToString(digest[:8])
 }
 
 func (s *RecorderService) String() string {

@@ -18,10 +18,10 @@
 - Create: `tooling/record/service.go`
 - Test: `tooling/record/service_test.go`
 
-- [ ] 写失败测试：无效 Key/version/ref/sequence/time/command/bytes、MaxEntries、Append 相同 sequence、List after/limit、按 Key 隔离、环形淘汰、Clear、深复制、Service Commands 与错误 Reply。
-- [ ] 实现 FormatVersion=1、RecordEntry/Bundle、Codec/Redactor、RecorderConfig 与导出错误。`RecorderService` 处理 `0x02800101..03`，每 Key 保留连续 sequence 的 bounded ring；只在 Mailbox 改写状态。
-- [ ] 在 fake ServiceContext 下验证 Append/List/Clear，随后运行 `go test ./tooling/record -run '^TestRecorder' -count=100` 和 race 选择器。
-- [ ] Commit: `feat(record): 增加有界命令记录服务`。
+- [x] 写失败测试并覆盖连续 sequence、有界淘汰、List 排他游标、Clear、深复制与错误响应。
+- [x] 实现 FormatVersion=1、RecordEntry/Bundle、Codec/Redactor、RecorderConfig 与导出错误。`RecorderService` 处理 `0x02800101..03`，每 Key 保留连续 sequence 的 bounded ring；只在 Mailbox 改写状态。
+- [x] 在真实 Runtime 验证 Append/List/Clear；随后运行 `go test ./tooling/record -count=100` 和 race 选择器。
+- [x] Commit: `feat(record): 增加命令录制与隔离重放`。
 
 ## Task 2：实现透明 Decorator
 
@@ -30,11 +30,11 @@
 - Create: `tooling/record/decorator.go`
 - Test: `tooling/record/decorator_test.go`
 
-- [ ] 写失败测试：nil/typed nil target、无效 recorder/key/codec、Commands 与 StartupCommand 透传、同一 Handle sequence、Source/Target 采集、Encode/Redact/Send 失败下 normal 仍 delegate、strict 不 delegate、payload 和返回 slices 隔离。
-- [ ] 实现 Decorator 包装原 Service 的 Init/Handle/Stop/Close，不暴露 target；Handle 使用当前 CommandContext Source、Init 保存的 Self 和 Now，先 Encode/Redact/clone，再 Send Append，最后 delegate。
-- [ ] normal 错误以 Logger 类别记录；strict 仅供测试，返回错误后不调用 target。Decorator 不创建 goroutine、不得保存 CommandContext。
-- [ ] 运行 `go test ./tooling/record -run '^TestDecorator' -count=100` 与 race 测试。
-- [ ] Commit: `feat(record): 在服务边界录制命令输入`。
+- [x] 覆盖 Command 顺序、Source/Target、Codec/Redactor/Send 失败下 normal 仍 delegate、strict 不 delegate及 payload 深复制。
+- [x] 实现 Decorator 包装原 Service 的 Init/Handle/Stop/Close，不暴露 target；Handle 使用当前 CommandContext Source、Init 保存的 Self 和 Now，先 Encode/Redact/clone，再 Send Append，最后 delegate。
+- [x] normal 错误以 Logger 类别记录；strict 仅供测试，返回错误后不调用 target。Decorator 不创建 goroutine、不得保存 CommandContext。
+- [x] 运行 `go test ./tooling/record -count=100` 与 race 测试。
+- [x] Commit: `feat(record): 增加命令录制与隔离重放`。
 
 ## Task 3：实现 Client、JSONArchive 与 Replay
 
@@ -46,11 +46,11 @@
 - Test: `tooling/record/archive_test.go`
 - Test: `tooling/record/replay_test.go`
 
-- [ ] 先写 Archive tests：JSON round-trip、未知版本、第二个 JSON 值、损坏数据、目录/路径拒绝、bytes 不泄漏。Archive API 接受 io.Reader/io.Writer 或调用方已打开文件，避免包内自行管理线上路径/保留期。
-- [ ] 写 Replay tests：factory 创建新的 target、严格连续 sequence、decode 失败停止、send 失败停止、原 Runtime 未收到、payload clone、empty bundle 与 InitialState 透传。
-- [ ] 实现 typed Client 的 response 校验，JSONArchive 的 FormatVersion 检查，以及 Replay 的 bundle/key/sequence 验证与逐条 Send。Replay 不启动 Runtime、不调用原 Handle、不连接 production transport。
-- [ ] 运行 `go test ./tooling/record -run '^Test(Archive|Replay|Client)' -count=100` 与 race 选择器。
-- [ ] Commit: `feat(record): 导出版本化记录并隔离回放`。
+- [x] 写 Archive tests：JSON round-trip、版本和损坏数据拒绝、已取消 context、目录内文件隔离与 bytes 不泄漏。RFC 裁决为调用方提供已有目录，Archive 对哈希文件名原子替换；它不管理线上保留期。
+- [x] 覆盖 factory 创建新的 target、严格连续 sequence、原 Runtime 未收到及 payload clone。
+- [x] 实现 typed Client 的 response 校验，JSONArchive 的 FormatVersion 检查，以及 Replay 的 bundle/key/sequence 验证与逐条 Send。Replay 不启动 Runtime、不调用原 Handle、不连接 production transport。
+- [x] 运行 `go test ./tooling/record -count=100` 与 race 选择器。
+- [x] Commit: `feat(record): 增加归档与集群编解码`。
 
 ## Task 4：实现 Codec 与 Battle 导向集成验收
 
@@ -64,7 +64,7 @@
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] 写 Codec tests：仅公开 Recorder Command 编码、request/response 精确类型、未知/私有 command fallback、尾随 JSON、无 fallback、深复制与不可信 response 拒绝。
-- [ ] 集成测试在真实 Runtime 创建 Recorder + Decorated counter Service，录制 Send/Call/timer 到达的 Command，再由 factory 创建第二个 Runtime 重放并验证相同状态；normal record send 拒绝不影响 target。
-- [ ] 将 RFC-0280 标为已接受并写日期，文档明确 JSONArchive 是显式 adapter、不是生产 retention 服务；更新路线图/README/CHANGELOG。
-- [ ] 全量门禁：`go test ./...`、`go vet ./...`、`go test -race ./...`；Commit: `docs(record): 完成命令录制回放验收`。
+- [x] 覆盖仅公开 Recorder Command、request/response 类型、fallback、尾随 JSON、无 fallback 与不可信 Entry 拒绝。
+- [x] 集成测试在真实 Runtime 创建 Recorder + Decorated counter Service，录制 Call 与 Timer 到达的 Command；factory 创建第二个 Runtime 后重放，原 Runtime 未收到输入，normal send 拒绝不影响 target。
+- [x] 将 RFC-0280 标为已接受并写日期，文档明确 JSONArchive 是显式 adapter、不是生产 retention 服务；更新路线图/README/CHANGELOG。
+- [x] 全量门禁：`go test ./...`、`go vet ./...`、`go test -race ./...`；Commit: `docs(record): 完成命令录制回放验收`。
