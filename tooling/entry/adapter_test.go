@@ -210,6 +210,272 @@ func TestGatewayCallWritesMapperResponse(t *testing.T) {
 	}
 }
 
+func TestGatewayTimesOutUnauthenticatedConnection(t *testing.T) {
+	listener := newTCPListener(t)
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	gateway, err := NewGatewayAdapter(GatewayAdapterConfig{
+		Listener:       listener,
+		Registry:       registry,
+		Mapper:         &countingMapper{},
+		Dispatcher:     rejectingDispatcher{},
+		IdleTimeout:    20 * time.Millisecond,
+		MaxConnections: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayAdapter() error = %v", err)
+	}
+	if err := gateway.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = gateway.Close(context.Background()) })
+	connection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.Close()
+	if line := readLine(t, connection); line != "ERR timeout\n" {
+		t.Fatalf("idle response = %q, want timeout", line)
+	}
+}
+
+func TestGatewayRejectsConnectionBeyondCapacity(t *testing.T) {
+	listener := newTCPListener(t)
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	gateway, err := NewGatewayAdapter(GatewayAdapterConfig{
+		Listener:       listener,
+		Registry:       registry,
+		Mapper:         &countingMapper{},
+		Dispatcher:     rejectingDispatcher{},
+		IdleTimeout:    time.Second,
+		MaxConnections: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayAdapter() error = %v", err)
+	}
+	if err := gateway.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = gateway.Close(context.Background()) })
+	first, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial(first) error = %v", err)
+	}
+	defer first.Close()
+	second, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial(second) error = %v", err)
+	}
+	defer second.Close()
+	if line := readLine(t, second); line != "ERR busy\n" {
+		t.Fatalf("capacity response = %q, want busy", line)
+	}
+}
+
+func TestGatewayRateLimitsAuthenticatedPackets(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	runtime := gsr.NewRuntime(gsr.Config{Now: func() time.Time { return now }})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	received := make(chan SessionIdentity, 2)
+	target, err := runtime.CreateService(gsr.ServiceSpec{Service: &entryCaptureService{received: received}})
+	if err != nil {
+		t.Fatalf("CreateService() error = %v", err)
+	}
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{Capacity: 2, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	identity := AuthIdentity{AccountID: "account-1", PlayerID: "player-1", Server: "asia"}
+	secret := []byte("01234567890123456789012345678901")
+	secretRef, err := registry.StoreSecret(identity, secret, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("StoreSecret() error = %v", err)
+	}
+	ticket := LoginTicket{UID: "uid-1", SubID: "sub-1", Server: "asia", SecretRef: secretRef, Generation: 1, ExpiresAt: now.Add(time.Minute)}
+	if err := registry.Issue(ticket, identity); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	listener := newTCPListener(t)
+	gateway, err := NewGatewayAdapter(GatewayAdapterConfig{
+		Listener:            listener,
+		Registry:            registry,
+		Mapper:              testMapper{target: target},
+		Dispatcher:          runtime,
+		MaxPacketsPerSecond: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewGatewayAdapter() error = %v", err)
+	}
+	if err := gateway.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = gateway.Close(context.Background()) })
+	connection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.Close()
+	proof := SignGatewayProof(secret, GatewayProof{UID: ticket.UID, SubID: ticket.SubID, Server: ticket.Server, Generation: ticket.Generation, Sequence: 1})
+	line, err := FormatAuthLine(proof)
+	if err != nil {
+		t.Fatalf("FormatAuthLine() error = %v", err)
+	}
+	if _, err := connection.Write([]byte(line)); err != nil {
+		t.Fatalf("Write(AUTH) error = %v", err)
+	}
+	if line := readLine(t, connection); line != "OK\n" {
+		t.Fatalf("AUTH response = %q, want OK", line)
+	}
+	if _, err := connection.Write([]byte("PING\n")); err != nil {
+		t.Fatalf("Write(PING) error = %v", err)
+	}
+	if line := readLine(t, connection); line != "OK\n" {
+		t.Fatalf("first PING response = %q, want OK", line)
+	}
+	if _, err := connection.Write([]byte("PING\n")); err != nil {
+		t.Fatalf("Write(second PING) error = %v", err)
+	}
+	if line := readLine(t, connection); line != "ERR rate_limited\n" {
+		t.Fatalf("second PING response = %q, want rate_limited", line)
+	}
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("first packet was not routed")
+	}
+	select {
+	case <-received:
+		t.Fatal("rate limited packet was routed")
+	default:
+	}
+}
+
+func TestGatewayRejectsPacketAfterSessionIsRevoked(t *testing.T) {
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{Capacity: 2, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	identity := AuthIdentity{AccountID: "account-1", PlayerID: "player-1", Server: "asia"}
+	secret := []byte("01234567890123456789012345678901")
+	secretRef, err := registry.StoreSecret(identity, secret, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("StoreSecret() error = %v", err)
+	}
+	ticket := LoginTicket{UID: "uid-1", SubID: "sub-1", Server: "asia", SecretRef: secretRef, Generation: 1, ExpiresAt: now.Add(time.Minute)}
+	if err := registry.Issue(ticket, identity); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	listener := newTCPListener(t)
+	mapper := &countingMapper{}
+	gateway, err := NewGatewayAdapter(GatewayAdapterConfig{Listener: listener, Registry: registry, Mapper: mapper, Dispatcher: rejectingDispatcher{}})
+	if err != nil {
+		t.Fatalf("NewGatewayAdapter() error = %v", err)
+	}
+	if err := gateway.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = gateway.Close(context.Background()) })
+	connection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.Close()
+	proof := SignGatewayProof(secret, GatewayProof{UID: ticket.UID, SubID: ticket.SubID, Server: ticket.Server, Generation: ticket.Generation, Sequence: 1})
+	line, err := FormatAuthLine(proof)
+	if err != nil {
+		t.Fatalf("FormatAuthLine() error = %v", err)
+	}
+	if _, err := connection.Write([]byte(line)); err != nil {
+		t.Fatalf("Write(AUTH) error = %v", err)
+	}
+	if line := readLine(t, connection); line != "OK\n" {
+		t.Fatalf("AUTH response = %q, want OK", line)
+	}
+	if revoked := registry.Revoke(ticket.UID, ticket.Server, ticket.Generation); revoked == "" {
+		t.Fatal("Revoke() did not remove the authenticated session")
+	}
+	if _, err := connection.Write([]byte("PING\n")); err != nil {
+		t.Fatalf("Write(PING) error = %v", err)
+	}
+	if line := readLine(t, connection); line != "ERR session_revoked\n" {
+		t.Fatalf("revoked response = %q, want session_revoked", line)
+	}
+	if mapper.calls.Load() != 0 {
+		t.Fatalf("mapper calls = %d, want 0", mapper.calls.Load())
+	}
+}
+
+func TestLoginAdapterTimesOutHandshake(t *testing.T) {
+	listener := newTCPListener(t)
+	handshake := blockingHandshake{started: make(chan struct{}), returned: make(chan struct{})}
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	adapter, err := NewLoginAdapter(LoginAdapterConfig{Listener: listener, Handshake: handshake, Registry: registry, Issuer: rejectingIssuer{}, ConnectionCloser: noopConnectionCloser{}, HandshakeTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("NewLoginAdapter() error = %v", err)
+	}
+	if err := adapter.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = adapter.Close(context.Background()) })
+	connection, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.Close()
+	if line := readLine(t, connection); line != "ERR timeout\n" {
+		t.Fatalf("timeout response = %q, want timeout", line)
+	}
+	select {
+	case <-handshake.returned:
+	case <-time.After(time.Second):
+		t.Fatal("handshake did not return after timeout")
+	}
+}
+
+func TestLoginAdapterRejectsConnectionBeyondCapacity(t *testing.T) {
+	listener := newTCPListener(t)
+	handshake := blockingHandshake{started: make(chan struct{}), returned: make(chan struct{})}
+	registry, err := NewInMemorySessionRegistry(RegistryConfig{})
+	if err != nil {
+		t.Fatalf("NewInMemorySessionRegistry() error = %v", err)
+	}
+	adapter, err := NewLoginAdapter(LoginAdapterConfig{Listener: listener, Handshake: handshake, Registry: registry, Issuer: rejectingIssuer{}, ConnectionCloser: noopConnectionCloser{}, MaxConnections: 1, HandshakeTimeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewLoginAdapter() error = %v", err)
+	}
+	if err := adapter.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = adapter.Close(context.Background()) })
+	first, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial(first) error = %v", err)
+	}
+	defer first.Close()
+	select {
+	case <-handshake.started:
+	case <-time.After(time.Second):
+		t.Fatal("first handshake did not start")
+	}
+	second, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial(second) error = %v", err)
+	}
+	defer second.Close()
+	if line := readLine(t, second); line != "ERR busy\n" {
+		t.Fatalf("capacity response = %q, want busy", line)
+	}
+}
+
 func TestLoginAdapterCloseWaitsForHandshakeReturn(t *testing.T) {
 	listener := newTCPListener(t)
 	handshake := blockingHandshake{started: make(chan struct{}), returned: make(chan struct{})}

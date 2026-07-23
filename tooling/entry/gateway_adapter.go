@@ -13,9 +13,16 @@ import (
 
 const defaultGatewayPacketBytes = 4096
 
+const (
+	defaultGatewayMaxConnections   = 1024
+	defaultGatewayIdleTimeout      = 30 * time.Second
+	defaultGatewayPacketsPerSecond = 100
+)
+
 // GatewayRegistry validates proofs and clears bindings when Gateway connections end.
 type GatewayRegistry interface {
 	VerifyAndBind(GatewayProof, ConnectionID) (SessionBinding, error)
+	IsBound(SessionIdentity, ConnectionID) bool
 	Unbind(ConnectionID, uint64)
 }
 
@@ -56,6 +63,12 @@ type GatewayAdapterConfig struct {
 	Dispatcher     CommandDispatcher
 	MaxPacketBytes int
 	CallTimeout    time.Duration
+	// MaxConnections limits all unauthenticated and authenticated Gateway connections. Zero defaults to 1024.
+	MaxConnections int
+	// IdleTimeout bounds time spent waiting for the AUTH line and each subsequent client packet. Zero defaults to 30 seconds.
+	IdleTimeout time.Duration
+	// MaxPacketsPerSecond bounds authenticated client packets per connection in each fixed one-second window. Zero defaults to 100.
+	MaxPacketsPerSecond int
 }
 
 // GatewayAdapter owns TCP Gateway connections, proof binding, and client packet forwarding.
@@ -63,13 +76,14 @@ type GatewayAdapter struct {
 	server *tcpServer
 	config GatewayAdapterConfig
 
-	connectionsMu sync.Mutex
-	connections   map[ConnectionID]net.Conn
+	connectionsMu   sync.Mutex
+	connections     map[ConnectionID]net.Conn
+	connectionSlots chan struct{}
 }
 
 // NewGatewayAdapter creates a TCP Gateway Adapter without starting its listener loop.
 func NewGatewayAdapter(config GatewayAdapterConfig) (*GatewayAdapter, error) {
-	if nilInterface(config.Listener) || nilInterface(config.Registry) || nilInterface(config.Mapper) || nilInterface(config.Dispatcher) || config.MaxPacketBytes < 0 || config.CallTimeout < 0 {
+	if nilInterface(config.Listener) || nilInterface(config.Registry) || nilInterface(config.Mapper) || nilInterface(config.Dispatcher) || config.MaxPacketBytes < 0 || config.CallTimeout < 0 || config.MaxConnections < 0 || config.IdleTimeout < 0 || config.MaxPacketsPerSecond < 0 {
 		return nil, ErrInvalidConfig
 	}
 	if config.MaxPacketBytes == 0 {
@@ -81,7 +95,16 @@ func NewGatewayAdapter(config GatewayAdapterConfig) (*GatewayAdapter, error) {
 	if config.CallTimeout == 0 {
 		config.CallTimeout = 5 * time.Second
 	}
-	adapter := &GatewayAdapter{config: config, connections: make(map[ConnectionID]net.Conn)}
+	if config.MaxConnections == 0 {
+		config.MaxConnections = defaultGatewayMaxConnections
+	}
+	if config.IdleTimeout == 0 {
+		config.IdleTimeout = defaultGatewayIdleTimeout
+	}
+	if config.MaxPacketsPerSecond == 0 {
+		config.MaxPacketsPerSecond = defaultGatewayPacketsPerSecond
+	}
+	adapter := &GatewayAdapter{config: config, connections: make(map[ConnectionID]net.Conn), connectionSlots: make(chan struct{}, config.MaxConnections)}
 	adapter.server = newTCPServer(config.Listener, adapter.handle)
 	return adapter, nil
 }
@@ -103,6 +126,13 @@ func (a *GatewayAdapter) CloseConnection(id ConnectionID) {
 }
 
 func (a *GatewayAdapter) handle(ctx context.Context, connection net.Conn) {
+	select {
+	case a.connectionSlots <- struct{}{}:
+		defer func() { <-a.connectionSlots }()
+	default:
+		writeEntryError(connection, "busy")
+		return
+	}
 	id, err := newConnectionID()
 	if err != nil {
 		return
@@ -116,9 +146,9 @@ func (a *GatewayAdapter) handle(ctx context.Context, connection net.Conn) {
 		a.connectionsMu.Unlock()
 	}()
 	reader := bufio.NewReaderSize(connection, a.config.MaxPacketBytes)
-	line, err := readLimitedLine(reader, a.config.MaxPacketBytes)
+	line, err := a.readLine(connection, reader)
 	if err != nil {
-		writeEntryError(connection, "invalid_proof")
+		writeEntryError(connection, readErrorCode(err, "invalid_proof"))
 		return
 	}
 	proof, err := ParseAuthLine(line)
@@ -138,12 +168,24 @@ func (a *GatewayAdapter) handle(ctx context.Context, connection net.Conn) {
 	if _, err := connection.Write([]byte("OK\n")); err != nil {
 		return
 	}
+	limiter := packetRate{limit: a.config.MaxPacketsPerSecond}
 	for {
-		line, err := readLimitedLine(reader, a.config.MaxPacketBytes)
+		line, err := a.readLine(connection, reader)
 		if err != nil {
+			if isTimeout(err) {
+				writeEntryError(connection, "timeout")
+			}
 			return
 		}
 		packet := ClientPacket{Payload: append([]byte(nil), line[:len(line)-1]...)}
+		if !a.config.Registry.IsBound(binding.Identity, id) {
+			writeEntryError(connection, "session_revoked")
+			return
+		}
+		if !limiter.allow(time.Now()) {
+			writeEntryError(connection, "rate_limited")
+			return
+		}
 		route, err := a.config.Mapper.Map(binding.Identity, packet)
 		if err != nil || !validRoute(route) {
 			writeEntryError(connection, "protocol")
@@ -184,6 +226,30 @@ func (a *GatewayAdapter) handle(ctx context.Context, connection net.Conn) {
 	}
 }
 
+func (a *GatewayAdapter) readLine(connection net.Conn, reader *bufio.Reader) (string, error) {
+	if err := connection.SetReadDeadline(time.Now().Add(a.config.IdleTimeout)); err != nil {
+		return "", err
+	}
+	line, err := readLimitedLine(reader, a.config.MaxPacketBytes)
+	_ = connection.SetReadDeadline(time.Time{})
+	return line, err
+}
+
+type packetRate struct {
+	limit int
+	start time.Time
+	used  int
+}
+
+func (r *packetRate) allow(now time.Time) bool {
+	if r.start.IsZero() || !now.Before(r.start.Add(time.Second)) {
+		r.start = now
+		r.used = 0
+	}
+	r.used++
+	return r.used <= r.limit
+}
+
 func newConnectionID() (ConnectionID, error) {
 	value, err := newOpaqueID()
 	return ConnectionID(value), err
@@ -215,6 +281,18 @@ func readLimitedLine(reader *bufio.Reader, limit int) (string, error) {
 		return "", errors.New("entry: line too long")
 	}
 	return string(line), nil
+}
+
+func readErrorCode(err error, fallback string) string {
+	if isTimeout(err) {
+		return "timeout"
+	}
+	return fallback
+}
+
+func isTimeout(err error) bool {
+	networkErr, ok := err.(net.Error)
+	return ok && networkErr.Timeout()
 }
 
 func writeEntryError(connection net.Conn, code string) {

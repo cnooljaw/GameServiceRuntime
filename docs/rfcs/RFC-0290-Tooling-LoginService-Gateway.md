@@ -95,19 +95,21 @@ type SessionIdentity struct {
 
 ## 会话状态与原子操作
 
-SessionRegistry 必须把下列状态作为一个受锁保护的记录维护：ticket、受控 secret、最近成功 proof 序号和当前连接绑定。它至少提供以下原子操作：
+SessionRegistry 必须把下列状态作为一个受锁保护的记录维护：可按逻辑会话键 `AccountID + Server` 恢复的当前 ticket、受控 secret、最近成功 proof 序号和当前连接绑定。它至少提供以下原子操作：
 
 ```text
 StoreSecret(identity, secret, expiresAt) -> SecretRef
+Current(identity) -> current LoginTicket
 Replace(ticket, identity, previous) -> replaced ConnectionID
 VerifyAndBind(proof, connectionID) -> SessionBinding
+IsBound(identity, connectionID) -> bool
 Unbind(connectionID, generation) -> void
 Revoke(uid, server, generation) -> void
 ```
 
-`Replace` 只接受先前由 `StoreSecret` 返回的 `SecretRef`，将 ticket 与 identity 绑定，并在同一临界区撤销仍匹配的旧 ticket。`VerifyAndBind` 返回 `SessionBinding`（已认证 `SessionIdentity` 与被替换连接 ID），并必须在同一临界区完成：查找当前 ticket、检查未过期和未撤销、检查 `UID`/`SubID`/`Server`/`Generation`、校验 HMAC、要求 `Sequence` 严格大于已接受序号、记录新序号，并建立或替换该代际的连接绑定。它不得分成“先验证、后绑定”的两个可竞争调用。
+`Current` 只返回同一 `AccountID + Server` 的未过期 ticket 独立副本，不返回 secret；LoginService 实例首次签发该逻辑会话时必须调用它恢复当前 Generation。这样 LoginService 重建不会把 Generation 从 1 重新开始，也不会遗漏对旧 ticket 的撤销；同账号切换 PlayerID 也仍遵守 SingleSession。`Replace` 只接受先前由 `StoreSecret` 返回的 `SecretRef`，将 ticket 与 identity 绑定，并在同一临界区撤销仍匹配的旧 ticket。`VerifyAndBind` 返回 `SessionBinding`（已认证 `SessionIdentity` 与被替换连接 ID），并必须在同一临界区完成：查找当前 ticket、检查未过期和未撤销、检查 `UID`/`SubID`/`Server`/`Generation`、校验 HMAC、要求 `Sequence` 严格大于已接受序号、记录新序号，并建立或替换该代际的连接绑定。它不得分成“先验证、后绑定”的两个可竞争调用。
 
-同一 ticket 的新连接绑定会替换旧绑定；Gateway 通过由 Registry 返回的被替换 connection ID 主动关闭旧连接。`Unbind` 必须同时匹配 connection ID 与 Generation，迟到断线不能删除新绑定。票据过期、撤销或被新代际覆盖时必须删除 secret、proof 序号和绑定。Registry 清理也必须受 TTL 和最大活动会话数限制；容量满时拒绝新登录，不能驱逐仍有效的任意会话。
+同一 ticket 的新连接绑定会替换旧绑定；Gateway 通过由 Registry 返回的被替换 connection ID 主动关闭旧连接。`IsBound` 必须在同一同步边界检查 identity、Generation 和 connection ID 是否仍为当前绑定；Gateway 在每个业务包进入 mapper 前调用它。这样新登录的 `Replace` 提交后，即使旧 socket 的关闭尚在传播，旧连接也不能再投递新的业务 Command。`Unbind` 必须同时匹配 connection ID 与 Generation，迟到断线不能删除新绑定。票据过期、撤销或被新代际覆盖时必须删除 secret、proof 序号和绑定。Registry 清理也必须受 TTL 和最大活动会话数限制；容量满时拒绝新登录，不能驱逐仍有效的任意会话。
 
 ## LoginService
 
@@ -119,7 +121,7 @@ LoginService 只接受已经完成握手和认证的 `IssueLoginTicket` Command�
 4. 将旧 Generation 标记为撤销，并通过 SessionRegistry 原子写入新 ticket。
 5. Reply 一个不含明文 secret 的 `TicketIssue`；其中包含 `LoginTicket` 和被 SingleSession 撤销的旧 Gateway `ConnectionID`。
 
-LoginService 对 Registry 写入失败返回稳定错误且不 Reply 成功 ticket。Login Adapter 仅在收到成功 Reply 后才向客户端写入 ticket；连接中断、认证失败、Registry 满、Call 超时或 LoginService 关闭都不得产生半签发 ticket。若 LoginService 成功 Reply 但 Adapter 写回客户端失败，ticket 保留到过期；客户端可用该 ticket 进入 Gateway，调用方不得猜测它未签发。
+LoginService 对 Registry 写入失败返回稳定错误且不 Reply 成功 ticket。它在 Mailbox Handler 内调用的 TicketRegistry 必须为进程本地、非阻塞实现；远程或持久化 Registry 必须在未来以独立异步协议接入。Login Adapter 仅在收到成功 Reply 后才向客户端写入 ticket；连接中断、认证失败、Registry 满、Call 超时或 LoginService 关闭都不得产生半签发 ticket。若 LoginService 成功 Reply 但 Adapter 写回客户端失败，ticket 保留到过期；客户端可用该 ticket 进入 Gateway，调用方不得猜测它未签发。
 
 第一版提供 `SingleSession` 策略。它按 `AccountID + Server` 维持当前 Generation；新的成功登录撤销旧 ticket，并在 `TicketIssue` 中返回旧绑定的 `ConnectionID`，由必填的 Gateway `ConnectionCloser` 关闭旧连接。多端并存和顶号通知是后续策略扩展，不改变 proof 格式。
 
@@ -142,6 +144,13 @@ type VerifiedLogin struct {
 `Handshake.Accept` 拥有 challenge、密钥协商、HMAC、token 解密和 `AuthProvider` 调用。它返回时必须已经认证 identity，并提供不少于 32 字节、密码学随机或经安全协商得到的 secret。生产实现必须运行在 TLS 或提供等价的认证密钥交换；本 RFC 的测试握手仅用于验证分层，不能作为公网安全协议。
 
 Login Adapter 在成功返回后复制 secret 至 Registry，并尽力清零自己的局部副本。它不得把 `VerifiedLogin` 或 secret 作为 LoginService Command payload。
+
+首版 TCP Login Adapter 同样必须提供连接资源边界；零值分别使用 `1024` 和 `10s`：
+
+| 配置 | 约束 |
+|-|-|
+| `MaxConnections` | 同时处理的登录连接上限。超过上限的连接返回 `ERR busy` 并关闭。 |
+| `HandshakeTimeout` | 单个 `Handshake.Accept` 与 ticket 签发共用的最长时间。超时返回 `ERR timeout` 并关闭。 |
 
 首版 TCP Login Adapter 成功后写入下列单行响应；其中 `uid`、`subid`、`server` 为无填充 base64url，`generation` 为非零十进制 `uint64`，`expires_unix_ms` 为过期时间的十进制 Unix 毫秒：
 
@@ -187,6 +196,16 @@ Gateway 以 Registry 中对应 ticket 的明文 secret 计算 `HMAC-SHA-256(secr
 
 Gateway Adapter 在认证成功后持有连接、读写循环、帧大小、空闲超时、基础限流和断线清理。它不能解释游戏 Command，也不能持有玩家、房间、对局或钱包的权威状态。
 
+首版 TCP `GatewayAdapterConfig` 必须提供以下资源边界；零值分别使用 `1024`、`30s` 和 `100`：
+
+| 配置 | 约束 |
+|-|-|
+| `MaxConnections` | 同时容纳认证前和认证后连接的上限。超过上限的连接返回 `ERR busy` 并关闭。 |
+| `IdleTimeout` | 等待 `AUTH` 和每个后续业务包的最长空闲时间。超时返回 `ERR timeout` 并关闭。 |
+| `MaxPacketsPerSecond` | 每个已认证连接、固定一秒窗口内允许的业务包数。超过上限返回 `ERR rate_limited` 并关闭。 |
+
+`MaxPacketBytes` 继续限制 `AUTH` 和业务行。Adapter 在读取超时、限流、认证失败或 Route/Command 失败后终止该连接；这些错误不进入 Runtime Command。每次开始映射业务包前，Gateway 必须以 `IsBound` 再确认连接仍是当前绑定；失败时返回 `ERR session_revoked` 并关闭，既不调用 mapper，也不进入 Runtime。
+
 ProtocolMapper 是 Business Layer 的窄接口：
 
 ```go
@@ -206,9 +225,9 @@ Gateway 验证 `Route.Target` 与 `Route.Command` 的基本形状后，用 `Runt
 
 ## 错误与可观测性
 
-Tooling 对外返回稳定分类：`ErrUnauthorized`、`ErrTicketExpired`、`ErrInvalidProof`、`ErrProofReplay`、`ErrDuplicateLogin`、`ErrSessionCapacity` 和 `ErrSessionRevoked`。具体认证、解析、HMAC 或 Registry 内部错误可以保留为 wrapped cause，但客户端响应不得包含 cause。
+Tooling 对外返回稳定分类：`ErrUnauthorized`、`ErrTicketExpired`、`ErrInvalidProof`、`ErrProofReplay`、`ErrDuplicateLogin`、`ErrSessionCapacity` 和 `ErrSessionRevoked`。TCP Adapter 的拒绝行使用 `ERR unauthorized`、`ERR unavailable`、`ERR invalid_proof`、`ERR session_revoked`、`ERR busy`、`ERR timeout`、`ERR rate_limited`、`ERR protocol` 或 `ERR command`；具体认证、解析、HMAC 或 Registry 内部错误可以保留为 wrapped cause，但客户端响应不得包含 cause。
 
-Adapter 至少记录：登录成功/失败、ticket 签发失败、proof 成功/失败/重放、连接替换、过期清理与 ProtocolMapper 拒绝。记录中不得包含 token、secret、完整 proof 或未脱敏的身份材料。Core Metrics 与 `Runtime.Inspect()` 不因入口适配器新增专用 getter。
+Phase 7F 不在入口库中冻结通用 logger、metrics 或 callback 接口；部署组合根可以在 Handshake、Adapter 生命周期和 ProtocolMapper seam 外围记录登录成功/失败、ticket 签发失败、proof 成功/失败/重放、连接替换、过期清理与 ProtocolMapper 拒绝。记录中不得包含 token、secret、完整 proof 或未脱敏的身份材料。若后续需要统一观测，应以独立 Tooling seam 定义，而不是向 Core Metrics 或 `Runtime.Inspect()` 增加入口专用 getter。
 
 ## 验收
 
@@ -218,9 +237,12 @@ Phase 7F 必须覆盖以下可重复行为：
 2. proof 的任一字段、格式、HMAC 或 ticket 过期失败时，Gateway 不投递业务 Command。
 3. 同一或更小 Sequence 被拒绝；更大 Sequence 可以重连；迟到 `Unbind` 不能删掉新连接。
 4. 新的 SingleSession 登录撤销旧代际，旧 proof 和旧 Gateway 连接不能重新成为当前绑定。
-5. Handshake、Registry 或 LoginService 任一步失败时不向客户端签发成功 ticket，且 secret 不进入 Command、日志或测试错误文本。
-6. LoginService 不创建 goroutine；Login/Gateway Adapter 的连接任务由 Adapter 生命周期 owner 等待真实返回。
-7. TCP 示例和全量 `go test ./...`、`go vet ./...`、`go test -race ./...` 通过。
+5. LoginService 在同一 SessionRegistry 上重建后，下一次同 identity 登录继续递增 Generation 并撤销旧 ticket/连接。
+6. Handshake、Registry 或 LoginService 任一步失败时不向客户端签发成功 ticket，且 secret 不进入 Command、日志或测试错误文本。
+7. Login Adapter 拒绝超过 `MaxConnections` 的连接，并在 `HandshakeTimeout` 内完成握手和 ticket 签发；Gateway 拒绝超过 `MaxConnections` 的连接，对认证前和认证后空闲连接按 `IdleTimeout` 关闭，并拒绝超过 `MaxPacketsPerSecond` 的业务包；这些包不得进入 mapper 或 Runtime。
+8. Registry 撤销或替换当前 ticket 后，旧 Gateway 连接的后续业务包返回 `ERR session_revoked`，不进入 mapper 或 Runtime。
+9. LoginService 不创建 goroutine；Login/Gateway Adapter 的连接任务由 Adapter 生命周期 owner 等待真实返回。
+10. TCP 示例和全量 `go test ./...`、`go vet ./...`、`go test -race ./...` 通过。
 
 ## 非目标
 

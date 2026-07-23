@@ -3,9 +3,15 @@ package entry
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"strconv"
 	"time"
+)
+
+const (
+	defaultLoginMaxConnections = 1024
+	defaultHandshakeTimeout    = 10 * time.Second
 )
 
 // Handshake authenticates one Login Adapter connection and returns its derived secret material.
@@ -43,20 +49,31 @@ type LoginAdapterConfig struct {
 	Registry         SecretRegistry
 	Issuer           LoginIssuer
 	ConnectionCloser ConnectionCloser
+	// MaxConnections limits concurrent Login Adapter connections. Zero defaults to 1024.
+	MaxConnections int
+	// HandshakeTimeout bounds Handshake and ticket issuance for one Login Adapter connection. Zero defaults to 10 seconds.
+	HandshakeTimeout time.Duration
 }
 
 // LoginAdapter owns TCP login connections and writes short-lived ticket lines after successful issuance.
 type LoginAdapter struct {
-	server *tcpServer
-	config LoginAdapterConfig
+	server          *tcpServer
+	config          LoginAdapterConfig
+	connectionSlots chan struct{}
 }
 
 // NewLoginAdapter creates a TCP Login Adapter without starting its listener loop.
 func NewLoginAdapter(config LoginAdapterConfig) (*LoginAdapter, error) {
-	if nilInterface(config.Listener) || nilInterface(config.Handshake) || nilInterface(config.Registry) || nilInterface(config.Issuer) || nilInterface(config.ConnectionCloser) {
+	if nilInterface(config.Listener) || nilInterface(config.Handshake) || nilInterface(config.Registry) || nilInterface(config.Issuer) || nilInterface(config.ConnectionCloser) || config.MaxConnections < 0 || config.HandshakeTimeout < 0 {
 		return nil, ErrInvalidConfig
 	}
-	adapter := &LoginAdapter{config: config}
+	if config.MaxConnections == 0 {
+		config.MaxConnections = defaultLoginMaxConnections
+	}
+	if config.HandshakeTimeout == 0 {
+		config.HandshakeTimeout = defaultHandshakeTimeout
+	}
+	adapter := &LoginAdapter{config: config, connectionSlots: make(chan struct{}, config.MaxConnections)}
 	adapter.server = newTCPServer(config.Listener, adapter.handle)
 	return adapter, nil
 }
@@ -68,9 +85,23 @@ func (a *LoginAdapter) Start() error { return a.server.start() }
 func (a *LoginAdapter) Close(ctx context.Context) error { return a.server.close(ctx) }
 
 func (a *LoginAdapter) handle(ctx context.Context, connection net.Conn) {
-	verified, err := a.config.Handshake.Accept(ctx, connection)
+	select {
+	case a.connectionSlots <- struct{}{}:
+		defer func() { <-a.connectionSlots }()
+	default:
+		writeEntryError(connection, "busy")
+		return
+	}
+	deadline := time.Now().Add(a.config.HandshakeTimeout)
+	if err := connection.SetDeadline(deadline); err != nil {
+		return
+	}
+	handshakeContext, cancel := context.WithTimeout(ctx, a.config.HandshakeTimeout)
+	defer cancel()
+	verified, err := a.config.Handshake.Accept(handshakeContext, connection)
 	if err != nil || !validIdentity(verified.Identity) || len(verified.Secret) < 32 || verified.ExpiresAt.IsZero() {
-		writeEntryError(connection, "unauthorized")
+		_ = connection.SetDeadline(time.Time{})
+		writeEntryError(connection, handshakeErrorCode(handshakeContext, err))
 		return
 	}
 	secret := append([]byte(nil), verified.Secret...)
@@ -80,10 +111,11 @@ func (a *LoginAdapter) handle(ctx context.Context, connection net.Conn) {
 		writeEntryError(connection, "unavailable")
 		return
 	}
-	issue, err := a.config.Issuer.IssueTicket(ctx, IssueTicket{Identity: verified.Identity, SecretRef: ref, ExpiresAt: verified.ExpiresAt})
+	issue, err := a.config.Issuer.IssueTicket(handshakeContext, IssueTicket{Identity: verified.Identity, SecretRef: ref, ExpiresAt: verified.ExpiresAt})
 	if err != nil {
 		a.config.Registry.DiscardSecret(ref)
-		writeEntryError(connection, "unauthorized")
+		_ = connection.SetDeadline(time.Time{})
+		writeEntryError(connection, handshakeErrorCode(handshakeContext, err))
 		return
 	}
 	if issue.ReplacedConnectionID != "" {
@@ -95,6 +127,13 @@ func (a *LoginAdapter) handle(ctx context.Context, connection net.Conn) {
 		return
 	}
 	_, _ = connection.Write([]byte(line))
+}
+
+func handshakeErrorCode(ctx context.Context, err error) string {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || isTimeout(err) {
+		return "timeout"
+	}
+	return "unauthorized"
 }
 
 func formatTicketLine(ticket LoginTicket) (string, error) {

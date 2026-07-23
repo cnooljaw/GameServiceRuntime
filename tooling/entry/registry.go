@@ -87,6 +87,23 @@ func (r *InMemorySessionRegistry) Issue(ticket LoginTicket, identity AuthIdentit
 	return err
 }
 
+// Current returns the newest unexpired ticket for identity's AccountID and Server without exposing secret material.
+func (r *InMemorySessionRegistry) Current(identity AuthIdentity) (LoginTicket, bool) {
+	if !validIdentity(identity) {
+		return LoginTicket{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pruneExpiredLocked(r.now())
+	var current LoginTicket
+	for _, record := range r.sessions {
+		if record.identity.AccountID == identity.AccountID && record.identity.Server == identity.Server && (current.Generation == 0 || record.ticket.Generation > current.Generation) {
+			current = record.ticket
+		}
+	}
+	return current, current.Generation != 0
+}
+
 // Replace atomically issues ticket and revokes previous when it is still the current ticket.
 func (r *InMemorySessionRegistry) Replace(ticket LoginTicket, identity AuthIdentity, previous *LoginTicket) (ConnectionID, error) {
 	if !validTicket(ticket) || !validIdentity(identity) || ticket.Server != identity.Server {
@@ -150,6 +167,18 @@ func (r *InMemorySessionRegistry) VerifyAndBind(proof GatewayProof, connectionID
 	record.connection = connectionID
 	r.sessions[key] = record
 	return SessionBinding{Identity: SessionIdentity{UID: record.ticket.UID, SubID: record.ticket.SubID, PlayerID: record.identity.PlayerID, Server: record.ticket.Server, Generation: record.ticket.Generation}, ReplacedConnectionID: replaced}, nil
+}
+
+// IsBound reports whether identity is still the current ticket bound to connectionID.
+func (r *InMemorySessionRegistry) IsBound(identity SessionIdentity, connectionID ConnectionID) bool {
+	if !validText(identity.UID) || !validText(identity.SubID) || !validText(identity.PlayerID) || !validText(identity.Server) || identity.Generation == 0 || !validText(string(connectionID)) {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pruneExpiredLocked(r.now())
+	record, exists := r.sessions[sessionKey{uid: identity.UID, server: identity.Server}]
+	return exists && record.ticket.SubID == identity.SubID && record.ticket.Generation == identity.Generation && record.identity.PlayerID == identity.PlayerID && record.connection == connectionID
 }
 
 // Unbind clears a connection only when it still belongs to the supplied generation and connection ID.

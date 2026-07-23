@@ -10,8 +10,10 @@ import (
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
-// TicketRegistry atomically issues a ticket and, when supplied, revokes its preceding generation.
+// TicketRegistry recovers the current ticket and atomically replaces it with a new generation.
+// Implementations must be local and non-blocking because LoginService calls them from Handle.
 type TicketRegistry interface {
+	Current(AuthIdentity) (LoginTicket, bool)
 	Replace(LoginTicket, AuthIdentity, *LoginTicket) (ConnectionID, error)
 }
 
@@ -85,6 +87,9 @@ func (s *loginService) issue(request IssueTicket) (TicketIssue, error) {
 	}
 	key := accountServerKey{account: request.Identity.AccountID, server: request.Identity.Server}
 	previous, hasPrevious := s.current[key]
+	if !hasPrevious {
+		previous, hasPrevious = s.registry.Current(request.Identity)
+	}
 	generation := uint64(1)
 	if hasPrevious {
 		generation = previous.Generation + 1

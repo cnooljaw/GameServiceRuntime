@@ -12,6 +12,8 @@
 - 新增由组合根持有的 TCP Login/Gateway Adapter。它们跟踪 listener 和连接任务，`Close(ctx)` 会等待任务真实返回；Adapter 通过窄 Handshake、Registry、Issuer、ConnectionCloser、ProtocolMapper 和 Runtime dispatch seam 组合。
 - `ProtocolMapper` 仅接收 `SessionIdentity` 和业务包；Call 结果必须由 `CallResponseMapper` 编码，Gateway 不解释业务协议或持有业务状态。
 - 新增 TCP 端到端示例，以及 proof 并发重放、迟到 Unbind、SingleSession 旧连接关闭、Call 响应和 Adapter 关闭竞争测试。
+- LoginService 重建时从 SessionRegistry 按 `AccountID + Server` 恢复当前 ticket，继续递增 Generation 并撤销旧 ticket；不再因 Service 重建或切换 PlayerID 留下旧已认证连接。
+- Login/Gateway Adapter 新增连接上限与握手、认证/业务包空闲超时；Gateway 另有每连接固定窗口包率限制。撤销提交后的旧连接在 mapper 前被 fencing，拒绝路径不会进入 `ProtocolMapper` 或 Runtime。
 
 ### Supervisor
 
