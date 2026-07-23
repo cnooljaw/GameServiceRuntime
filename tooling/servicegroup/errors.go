@@ -19,6 +19,12 @@ var (
 	ErrVersionExhausted = errors.New("servicegroup: version exhausted")
 	// ErrUnauthorized reports a Publish from a node other than the configured publisher.
 	ErrUnauthorized = errors.New("servicegroup: unauthorized")
+	// ErrInvalidWatch reports a malformed subscriber or Watch lease.
+	ErrInvalidWatch = errors.New("servicegroup: invalid watch")
+	// ErrWatchExpired reports a missing, expired, stale-generation, or stale-authority Watch lease.
+	ErrWatchExpired = errors.New("servicegroup: watch expired")
+	// ErrWatchOwnerMismatch reports a Watch operation attempted by another ServiceRef.
+	ErrWatchOwnerMismatch = errors.New("servicegroup: watch owner mismatch")
 	// ErrInvalidResponse reports a malformed Directory response or wire payload.
 	ErrInvalidResponse = errors.New("servicegroup: invalid response")
 	// ErrUnsupportedCommand reports a payload not owned by the ServiceGroup Codec.

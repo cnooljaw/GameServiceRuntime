@@ -68,6 +68,89 @@ func (c *Client) Get(ctx context.Context, name GroupName) (ServiceSet, error) {
 	return serviceSetFromResponse(value, name)
 }
 
+// Watch registers subscriber for complete ServiceSetChanged snapshots.
+func (c *Client) Watch(ctx context.Context, name GroupName, subscriber gsr.ServiceRef) (WatchResult, error) {
+	if !validGroup(name) || !validServiceRef(subscriber) {
+		return WatchResult{}, ErrInvalidWatch
+	}
+	value, err := c.caller.Call(ctx, c.target, commandWatchServiceGroup, watchServiceGroupRequest{
+		Name:       name,
+		Subscriber: newWireServiceRef(subscriber),
+	})
+	if err != nil {
+		return WatchResult{}, err
+	}
+	response, ok := value.(watchResultResponse)
+	if !ok {
+		return WatchResult{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return WatchResult{}, err
+	}
+	if !validWireWatchResult(response) {
+		return WatchResult{}, ErrInvalidResponse
+	}
+	lease := response.Lease.watchLease()
+	if lease.Group != name || lease.Subscriber != subscriber {
+		return WatchResult{}, ErrInvalidResponse
+	}
+	result := WatchResult{Lease: lease, Found: response.Found}
+	if response.Found {
+		result.Current = response.Current.serviceSet()
+	}
+	return cloneWatchResult(result), nil
+}
+
+// RenewWatch extends one current Watch lease without changing its identity.
+func (c *Client) RenewWatch(ctx context.Context, lease WatchLease) (WatchLease, error) {
+	if !validWatchLease(lease) {
+		return WatchLease{}, ErrInvalidWatch
+	}
+	value, err := c.caller.Call(ctx, c.target, commandRenewServiceGroupWatch, renewServiceGroupWatchRequest{
+		Lease: newWireWatchLease(lease),
+	})
+	if err != nil {
+		return WatchLease{}, err
+	}
+	response, ok := value.(watchLeaseResponse)
+	if !ok {
+		return WatchLease{}, ErrInvalidResponse
+	}
+	if err := errorFromCode(response.Error); err != nil {
+		return WatchLease{}, err
+	}
+	if !validWireWatchLease(response.Lease) {
+		return WatchLease{}, ErrInvalidResponse
+	}
+	renewed := response.Lease.watchLease()
+	if renewed.Group != lease.Group ||
+		renewed.Subscriber != lease.Subscriber ||
+		renewed.AuthorityEpoch != lease.AuthorityEpoch ||
+		renewed.Generation != lease.Generation ||
+		renewed.ExpiresAt.Before(lease.ExpiresAt) {
+		return WatchLease{}, ErrInvalidResponse
+	}
+	return renewed, nil
+}
+
+// Unwatch removes one exact current Watch lease.
+func (c *Client) Unwatch(ctx context.Context, lease WatchLease) error {
+	if !validWatchLease(lease) {
+		return ErrInvalidWatch
+	}
+	value, err := c.caller.Call(ctx, c.target, commandUnwatchServiceGroup, unwatchServiceGroupRequest{
+		Lease: newWireWatchLease(lease),
+	})
+	if err != nil {
+		return err
+	}
+	response, ok := value.(emptyResponse)
+	if !ok {
+		return ErrInvalidResponse
+	}
+	return errorFromCode(response.Error)
+}
+
 func serviceSetFromResponse(value any, name GroupName) (ServiceSet, error) {
 	response, ok := value.(serviceSetResponse)
 	if !ok {

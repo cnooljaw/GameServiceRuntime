@@ -20,3 +20,11 @@ func cloneTags(tags map[string]string) map[string]string {
 	}
 	return result
 }
+
+func cloneWatchResult(result WatchResult) WatchResult {
+	copy := WatchResult{Lease: result.Lease, Found: result.Found}
+	if result.Found {
+		copy.Current = cloneServiceSet(result.Current)
+	}
+	return copy
+}

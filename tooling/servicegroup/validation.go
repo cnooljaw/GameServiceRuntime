@@ -104,6 +104,33 @@ func validWireServiceSet(set wireServiceSet) bool {
 	return validServiceSet(set.serviceSet())
 }
 
+func validWatchLease(lease WatchLease) bool {
+	return validGroup(lease.Group) &&
+		validServiceRef(lease.Subscriber) &&
+		lease.AuthorityEpoch != 0 &&
+		lease.Generation != 0 &&
+		!lease.ExpiresAt.IsZero()
+}
+
+func validWireWatchLease(lease wireWatchLease) bool {
+	return validWatchLease(lease.watchLease())
+}
+
+func validWireWatchResult(response watchResultResponse) bool {
+	if !validWireWatchLease(response.Lease) {
+		return false
+	}
+	if !response.Found {
+		return response.Current.Name == "" &&
+			response.Current.Version == (ServiceSetVersion{}) &&
+			response.Current.Refs == nil &&
+			response.Current.Tags == nil
+	}
+	return validWireServiceSet(response.Current) &&
+		response.Current.Name == response.Lease.Group &&
+		response.Current.Version.AuthorityEpoch == response.Lease.AuthorityEpoch
+}
+
 func sameServiceSetContent(left, right ServiceSet) bool {
 	if left.Name != right.Name || len(left.Refs) != len(right.Refs) || len(left.Tags) != len(right.Tags) {
 		return false

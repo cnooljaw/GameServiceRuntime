@@ -28,7 +28,28 @@ type ServiceSet struct {
 	Tags    map[string]string `json:"tags"`
 }
 
-// DirectoryConfig configures the trusted publisher and future Watch lease cleanup.
+// WatchLease identifies one subscriber generation from one Directory authority.
+type WatchLease struct {
+	Group          GroupName      `json:"group"`
+	Subscriber     gsr.ServiceRef `json:"subscriber"`
+	AuthorityEpoch uint64         `json:"authority_epoch"`
+	Generation     uint64         `json:"generation"`
+	ExpiresAt      time.Time      `json:"expires_at"`
+}
+
+// WatchResult combines a new Watch lease with the current same-mailbox snapshot.
+type WatchResult struct {
+	Lease   WatchLease
+	Current ServiceSet
+	Found   bool
+}
+
+// ServiceSetChanged is the complete snapshot delivered to a Watch subscriber.
+type ServiceSetChanged struct {
+	Set ServiceSet
+}
+
+// DirectoryConfig configures the trusted publisher and Watch lease cleanup.
 type DirectoryConfig struct {
 	// PublisherNode is the trusted cluster node allowed to publish ServiceSets.
 	PublisherNode gsr.NodeID

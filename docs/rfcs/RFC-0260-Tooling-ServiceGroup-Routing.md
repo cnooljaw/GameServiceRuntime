@@ -102,11 +102,11 @@ ServiceGroup 表示一组承担同一职责的 Service。`Tags` 是整组元数�
 
 一个有效 ServiceSet 满足：
 
-1. Name 去除首尾空白后非空。
+1. Name 非空且不允许首尾空白。
 2. Version 的 AuthorityEpoch 和 Revision 均非零。
 3. 每个 ServiceRef 的 Node 非空、ID 非零。
 4. Refs 按 `NodeID`、`ServiceID` 升序排列且不重复。
-5. Tags 的 key 去除首尾空白后非空。
+5. Tags 的 key 非空且不允许首尾空白。
 6. 查询、发布结果、Watch 结果和通知互不共享 Refs 或 Tags 的可变底层存储。
 
 空 Refs 是有效事实，表示“该组当前存在，但没有可路由成员”。第一版不提供删除 Group 的命令；需要暂时切断新流量时发布空集合，从而保留连续版本历史并避免删除后重建的歧义。

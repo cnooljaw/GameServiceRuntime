@@ -23,6 +23,20 @@ func (c *codec) Encode(command gsr.CommandID, response bool, value any) ([]byte,
 	if command == commandSweepExpiredWatches {
 		return nil, ErrUnsupportedCommand
 	}
+	if command == ServiceSetChangedCommand {
+		if response {
+			return nil, ErrUnsupportedCommand
+		}
+		change, ok := value.(ServiceSetChanged)
+		if !ok || !validServiceSet(change.Set) {
+			return nil, ErrInvalidResponse
+		}
+		payload, err := json.Marshal(wireServiceSetChanged{Set: newWireServiceSet(change.Set)})
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
+		}
+		return payload, nil
+	}
 	prototype, handled := serviceGroupPayload(command, response)
 	if !handled {
 		if c.fallback == nil {
@@ -44,6 +58,19 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 	if command == commandSweepExpiredWatches {
 		return nil, ErrUnsupportedCommand
 	}
+	if command == ServiceSetChangedCommand {
+		if response {
+			return nil, ErrUnsupportedCommand
+		}
+		var changed wireServiceSetChanged
+		if err := decodeJSON(payload, &changed); err != nil {
+			return nil, err
+		}
+		if !validWireServiceSet(changed.Set) {
+			return nil, ErrInvalidResponse
+		}
+		return ServiceSetChanged{Set: changed.Set.serviceSet()}, nil
+	}
 	prototype, handled := serviceGroupPayload(command, response)
 	if !handled {
 		if c.fallback == nil {
@@ -52,15 +79,11 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 		return c.fallback.Decode(command, response, payload)
 	}
 	target := reflect.New(reflect.TypeOf(prototype))
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	if err := decoder.Decode(target.Interface()); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
-	}
-	if err := requireJSONEnd(decoder); err != nil {
+	if err := decodeJSON(payload, target.Interface()); err != nil {
 		return nil, err
 	}
 	value := target.Elem().Interface()
-	if response && !validWireResponse(value) {
+	if response && !validWireResponse(command, value) {
 		return nil, ErrInvalidResponse
 	}
 	return value, nil
@@ -78,17 +101,49 @@ func serviceGroupPayload(command gsr.CommandID, response bool) (any, bool) {
 			return serviceSetResponse{}, true
 		}
 		return getServiceSetRequest{}, true
+	case commandWatchServiceGroup:
+		if response {
+			return watchResultResponse{}, true
+		}
+		return watchServiceGroupRequest{}, true
+	case commandRenewServiceGroupWatch:
+		if response {
+			return watchLeaseResponse{}, true
+		}
+		return renewServiceGroupWatchRequest{}, true
+	case commandUnwatchServiceGroup:
+		if response {
+			return emptyResponse{}, true
+		}
+		return unwatchServiceGroupRequest{}, true
 	default:
 		return nil, false
 	}
 }
 
-func validWireResponse(value any) bool {
-	response, ok := value.(serviceSetResponse)
-	if !ok || !validResponseCode(response.Error) {
+func validWireResponse(command gsr.CommandID, value any) bool {
+	switch command {
+	case commandPublishServiceSet, commandGetServiceSet:
+		response, ok := value.(serviceSetResponse)
+		return ok &&
+			validResponseCode(response.Error) &&
+			(response.Error != responseOK || validWireServiceSet(response.Set))
+	case commandWatchServiceGroup:
+		response, ok := value.(watchResultResponse)
+		return ok &&
+			validResponseCode(response.Error) &&
+			(response.Error != responseOK || validWireWatchResult(response))
+	case commandRenewServiceGroupWatch:
+		response, ok := value.(watchLeaseResponse)
+		return ok &&
+			validResponseCode(response.Error) &&
+			(response.Error != responseOK || validWireWatchLease(response.Lease))
+	case commandUnwatchServiceGroup:
+		response, ok := value.(emptyResponse)
+		return ok && validResponseCode(response.Error)
+	default:
 		return false
 	}
-	return response.Error != responseOK || validWireServiceSet(response.Set)
 }
 
 func validResponseCode(code errorCode) bool {
@@ -100,11 +155,22 @@ func validResponseCode(code errorCode) bool {
 		responseVersionConflict,
 		responseVersionExhausted,
 		responseUnauthorized,
+		responseInvalidWatch,
+		responseWatchExpired,
+		responseWatchOwnerMismatch,
 		responseInvalidRequest:
 		return true
 	default:
 		return false
 	}
+}
+
+func decodeJSON(payload []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidResponse, err)
+	}
+	return requireJSONEnd(decoder)
 }
 
 func requireJSONEnd(decoder *json.Decoder) error {

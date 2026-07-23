@@ -1,6 +1,8 @@
 package servicegroup
 
 import (
+	"time"
+
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
@@ -11,19 +13,24 @@ const (
 	commandRenewServiceGroupWatch gsr.CommandID = 0x02600104
 	commandUnwatchServiceGroup    gsr.CommandID = 0x02600105
 	commandSweepExpiredWatches    gsr.CommandID = 0x026001fe
+	// ServiceSetChangedCommand is the Command a Watch subscriber declares for complete snapshots.
+	ServiceSetChangedCommand gsr.CommandID = 0x02600201
 )
 
 type errorCode string
 
 const (
-	responseOK                errorCode = ""
-	responseInvalidGroup      errorCode = "invalid_group"
-	responseInvalidServiceSet errorCode = "invalid_service_set"
-	responseGroupNotFound     errorCode = "group_not_found"
-	responseVersionConflict   errorCode = "version_conflict"
-	responseVersionExhausted  errorCode = "version_exhausted"
-	responseUnauthorized      errorCode = "unauthorized"
-	responseInvalidRequest    errorCode = "invalid_request"
+	responseOK                 errorCode = ""
+	responseInvalidGroup       errorCode = "invalid_group"
+	responseInvalidServiceSet  errorCode = "invalid_service_set"
+	responseGroupNotFound      errorCode = "group_not_found"
+	responseVersionConflict    errorCode = "version_conflict"
+	responseVersionExhausted   errorCode = "version_exhausted"
+	responseUnauthorized       errorCode = "unauthorized"
+	responseInvalidWatch       errorCode = "invalid_watch"
+	responseWatchExpired       errorCode = "watch_expired"
+	responseWatchOwnerMismatch errorCode = "watch_owner_mismatch"
+	responseInvalidRequest     errorCode = "invalid_request"
 )
 
 type wireServiceRef struct {
@@ -86,4 +93,67 @@ type getServiceSetRequest struct {
 type serviceSetResponse struct {
 	Set   wireServiceSet `json:"set"`
 	Error errorCode      `json:"error"`
+}
+
+type wireWatchLease struct {
+	Group          GroupName      `json:"group"`
+	Subscriber     wireServiceRef `json:"subscriber"`
+	AuthorityEpoch uint64         `json:"authority_epoch"`
+	Generation     uint64         `json:"generation"`
+	ExpiresAt      time.Time      `json:"expires_at"`
+}
+
+func newWireWatchLease(lease WatchLease) wireWatchLease {
+	return wireWatchLease{
+		Group:          lease.Group,
+		Subscriber:     newWireServiceRef(lease.Subscriber),
+		AuthorityEpoch: lease.AuthorityEpoch,
+		Generation:     lease.Generation,
+		ExpiresAt:      lease.ExpiresAt,
+	}
+}
+
+func (lease wireWatchLease) watchLease() WatchLease {
+	return WatchLease{
+		Group:          lease.Group,
+		Subscriber:     lease.Subscriber.serviceRef(),
+		AuthorityEpoch: lease.AuthorityEpoch,
+		Generation:     lease.Generation,
+		ExpiresAt:      lease.ExpiresAt,
+	}
+}
+
+type watchServiceGroupRequest struct {
+	Name       GroupName      `json:"name"`
+	Subscriber wireServiceRef `json:"subscriber"`
+}
+
+type renewServiceGroupWatchRequest struct {
+	Lease wireWatchLease `json:"lease"`
+}
+
+type unwatchServiceGroupRequest struct {
+	Lease wireWatchLease `json:"lease"`
+}
+
+type sweepExpiredWatchesRequest struct{}
+
+type watchResultResponse struct {
+	Lease   wireWatchLease `json:"lease"`
+	Current wireServiceSet `json:"current"`
+	Found   bool           `json:"found"`
+	Error   errorCode      `json:"error"`
+}
+
+type watchLeaseResponse struct {
+	Lease wireWatchLease `json:"lease"`
+	Error errorCode      `json:"error"`
+}
+
+type emptyResponse struct {
+	Error errorCode `json:"error"`
+}
+
+type wireServiceSetChanged struct {
+	Set wireServiceSet `json:"set"`
 }

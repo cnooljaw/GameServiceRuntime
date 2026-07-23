@@ -2,7 +2,9 @@ package servicegroup
 
 import (
 	"errors"
+	"reflect"
 	"testing"
+	"time"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -53,6 +55,74 @@ func TestCodecRejectsInvalidPayloadPrivateCommandAndMalformedResponse(t *testing
 	}
 	if _, err := codec.Encode(99, false, nil); !errors.Is(err, ErrUnsupportedCommand) {
 		t.Fatalf("Encode(unsupported) error = %v, want ErrUnsupportedCommand", err)
+	}
+}
+
+func TestCodecEncodesPublicServiceSetChangedPayload(t *testing.T) {
+	codec := NewCodec(nil)
+	change := ServiceSetChanged{Set: ServiceSet{
+		Name:    "match",
+		Version: ServiceSetVersion{AuthorityEpoch: 1, Revision: 2},
+		Refs:    []gsr.ServiceRef{{Node: "node-a", ID: 1}},
+		Tags:    map[string]string{"version": "blue"},
+	}}
+	payload, err := codec.Encode(ServiceSetChangedCommand, false, change)
+	if err != nil {
+		t.Fatalf("Encode(ServiceSetChanged) error = %v", err)
+	}
+	decoded, err := codec.Decode(ServiceSetChangedCommand, false, payload)
+	if err != nil {
+		t.Fatalf("Decode(ServiceSetChanged) error = %v", err)
+	}
+	got, ok := decoded.(ServiceSetChanged)
+	if !ok || !reflect.DeepEqual(got, change) {
+		t.Fatalf("Decode(ServiceSetChanged) = %#v, want %#v", decoded, change)
+	}
+	if _, err := codec.Encode(ServiceSetChangedCommand, true, change); !errors.Is(err, ErrUnsupportedCommand) {
+		t.Fatalf("Encode(ServiceSetChanged response) error = %v, want ErrUnsupportedCommand", err)
+	}
+}
+
+func TestCodecValidatesWatchResponses(t *testing.T) {
+	codec := NewCodec(nil)
+	lease := wireWatchLease{
+		Group:          "match",
+		Subscriber:     wireServiceRef{Node: "node-a", ID: 1},
+		AuthorityEpoch: 2,
+		Generation:     3,
+		ExpiresAt:      time.Now().Add(time.Minute),
+	}
+	response := watchResultResponse{Lease: lease}
+	payload, err := codec.Encode(commandWatchServiceGroup, true, response)
+	if err != nil {
+		t.Fatalf("Encode(Watch response) error = %v", err)
+	}
+	decoded, err := codec.Decode(commandWatchServiceGroup, true, payload)
+	if err != nil {
+		t.Fatalf("Decode(Watch response) error = %v", err)
+	}
+	got, ok := decoded.(watchResultResponse)
+	if !ok || !got.Lease.ExpiresAt.Equal(response.Lease.ExpiresAt) {
+		t.Fatalf("Decode(Watch response) = %#v, want %#v", decoded, response)
+	}
+	got.Lease.ExpiresAt = response.Lease.ExpiresAt
+	if !reflect.DeepEqual(got, response) {
+		t.Fatalf("Decode(Watch response) = %#v, want %#v", decoded, response)
+	}
+
+	response.Found = true
+	response.Current = wireServiceSet{
+		Name:    "match",
+		Version: ServiceSetVersion{AuthorityEpoch: 99, Revision: 1},
+		Refs:    make([]wireServiceRef, 0),
+		Tags:    make(map[string]string),
+	}
+	payload, err = codec.Encode(commandWatchServiceGroup, true, response)
+	if err != nil {
+		t.Fatalf("Encode(invalid Watch response) error = %v", err)
+	}
+	if _, err := codec.Decode(commandWatchServiceGroup, true, payload); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode(invalid Watch response) error = %v, want ErrInvalidResponse", err)
 	}
 }
 
