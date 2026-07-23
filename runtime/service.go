@@ -17,6 +17,12 @@ type Service interface {
 	Close() error
 }
 
+// StartupCommandDeclarer optionally declares one Command Runtime enqueues after the Service enters Running.
+// The returned Command must also be declared by Commands.
+type StartupCommandDeclarer interface {
+	StartupCommand() (Command, bool)
+}
+
 // ServiceContext exposes Runtime capabilities to a Service.
 type ServiceContext interface {
 	Self() ServiceRef

@@ -111,6 +111,10 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 	if err != nil {
 		return ServiceRef{}, err
 	}
+	startup, hasStartup := startupCommandFor(spec.Service)
+	if hasStartup && !commands.supports(startup.ID) {
+		return ServiceRef{}, ErrInvalidServiceSpec
+	}
 	if spec.Policy.StopTimeout <= 0 {
 		spec.Policy.StopTimeout = 5 * time.Second
 	}
@@ -147,9 +151,26 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 		r.finalize(instance, ServiceClosed, result)
 		return ServiceRef{}, result
 	}
+	if hasStartup {
+		if err := r.sendFrom(instance.ref, instance.ref, startup.ID, startup.Payload); err != nil {
+			r.createMu.Unlock()
+			closeErr := r.runClose(instance)
+			result := errors.Join(err, closeErr)
+			r.finalize(instance, ServiceFailed, result)
+			return ServiceRef{}, result
+		}
+	}
 	r.createMu.Unlock()
 	r.metrics.Inc("service_created_total")
 	return ref, nil
+}
+
+func startupCommandFor(service Service) (Command, bool) {
+	declarer, ok := service.(StartupCommandDeclarer)
+	if !ok {
+		return Command{}, false
+	}
+	return declarer.StartupCommand()
 }
 
 // Resolve resolves a long-lived ServiceName to its current ServiceRef.
