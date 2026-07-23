@@ -81,7 +81,11 @@ type LedgerRunnerConfig struct {
 func NewLedgerRunner(LedgerRuntime, LedgerRunnerConfig) (*LedgerRunner, error)
 func (*LedgerRunner) Submit(LedgerTask) error
 func (*LedgerRunner) Close(context.Context) error
-type WalletConfig struct { Executor LedgerExecutor; MaxPending int }
+type WalletConfig struct {
+    Executor   LedgerExecutor
+    MaxPending int
+    RunnerNode gsr.NodeID // LedgerRunner 以该节点的 Runtime source（ID=0）回报私有结果
+}
 func NewWalletService(WalletConfig) (*WalletService, error)
 func NewMemoryLedgerStore() *MemoryLedgerStore
 ```
@@ -98,7 +102,7 @@ func NewMemoryLedgerStore() *MemoryLedgerStore
 0x030005ff RecoverSettlement（私有启动/人工查询）
 ```
 
-Commit/ GetSettlement 的 Call 返回 SettlementResult。Commit 首次接受时返回 pending，并将任务送给 Executor；提交失败（队列满/关闭）返回 rejected。GetBalance 只在 Store/内存投影已知时返回；它不是高吞吐读模型。LedgerRunner 通过私有 ApplyLedgerResult 将 Store 的 committed/rejected/lookup 结果送回 Wallet；Wallet 再向 Request.Source 发送约定的 `ApplySettlementResult` Command。Source 必须是可控业务 Service，不能是 Gateway 连接。
+Commit/ GetSettlement 的 Call 返回 SettlementResult。Commit 首次接受时返回 pending，并将任务送给 Executor；提交失败（队列满/关闭）返回 rejected。GetBalance 只在 Store/内存投影已知时返回；它不是高吞吐读模型。LedgerRunner 通过私有 ApplyLedgerResult 将 Store 的 committed/rejected/lookup 结果送回 Wallet；Wallet 只接受 `RunnerNode` 的 Runtime source（Node 匹配且 ID=0），再向 Request.Source 发送约定的 `ApplySettlementResult` Command。Source 必须是可控业务 Service，不能是 Gateway 连接。
 
 ## 状态与生命周期
 

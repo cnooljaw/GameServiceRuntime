@@ -311,4 +311,5 @@ type LedgerRunnerConfig struct {
 type WalletConfig struct {
 	Executor   LedgerExecutor
 	MaxPending int
+	RunnerNode gsr.NodeID
 }

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"context"
 	"reflect"
 	"sort"
 	"strings"
@@ -163,4 +164,11 @@ func isNil(value any) bool {
 	default:
 		return false
 	}
+}
+
+func usableContext(ctx context.Context) error {
+	if isNil(ctx) {
+		return ErrInvalidConfig
+	}
+	return context.Cause(ctx)
 }
