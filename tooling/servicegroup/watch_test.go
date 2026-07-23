@@ -93,6 +93,9 @@ func TestWatchGenerationFencesLateRenewAndUnwatch(t *testing.T) {
 	if renewed.AuthorityEpoch != second.AuthorityEpoch || renewed.Generation != second.Generation || !renewed.ExpiresAt.After(second.ExpiresAt) {
 		t.Fatalf("RenewWatch(current) = %#v, want identity %#v with later expiry", renewed, second)
 	}
+	if err := fixture.unwatch(t, second); !errors.Is(err, ErrWatchExpired) {
+		t.Fatalf("Unwatch(pre-renew expiry) error = %v, want ErrWatchExpired", err)
+	}
 	if err := fixture.unwatch(t, renewed); err != nil {
 		t.Fatalf("Unwatch(current) error = %v", err)
 	}
@@ -168,6 +171,9 @@ func TestWatchNotificationFailureDoesNotRollbackPublish(t *testing.T) {
 
 func TestWatchRejectsSpoofedSubscriberAndInvalidLease(t *testing.T) {
 	fixture := newWatchFixture(t, DirectoryConfig{PublisherNode: "publisher-node"})
+	if _, err := fixture.directory.Watch(context.Background(), " ", fixture.subscriberRef); !errors.Is(err, ErrInvalidGroup) {
+		t.Fatalf("Watch(invalid group) error = %v, want ErrInvalidGroup", err)
+	}
 	if _, err := fixture.directory.Watch(context.Background(), "match", fixture.subscriberRef); !errors.Is(err, ErrWatchOwnerMismatch) {
 		t.Fatalf("Watch(spoofed source) error = %v, want ErrWatchOwnerMismatch", err)
 	}
@@ -179,9 +185,28 @@ func TestWatchRejectsSpoofedSubscriberAndInvalidLease(t *testing.T) {
 	}
 }
 
+func TestDirectoryStopClearsGroupAndWatcherGauges(t *testing.T) {
+	fixture := newWatchFixture(t, DirectoryConfig{PublisherNode: "publisher-node"})
+	fixture.watch(t, "match")
+	if _, err := fixture.directory.Publish(context.Background(), "match", ServiceSetVersion{}, nil, nil); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.runtime.Stop(context.Background(), fixture.directoryRef); err != nil {
+		t.Fatalf("Stop(directory) error = %v", err)
+	}
+	metrics := fixture.runtime.Inspect().Metrics
+	if groups := metrics.Gauge("servicegroup_groups"); groups != 0 {
+		t.Fatalf("servicegroup_groups = %d, want 0", groups)
+	}
+	if watchers := metrics.Gauge("servicegroup_watchers"); watchers != 0 {
+		t.Fatalf("servicegroup_watchers = %d, want 0", watchers)
+	}
+}
+
 type watchFixture struct {
 	runtime       *gsr.Runtime
 	directory     *Client
+	directoryRef  gsr.ServiceRef
 	subscriberRef gsr.ServiceRef
 	changes       chan ServiceSetChanged
 }
@@ -213,6 +238,7 @@ func newWatchFixture(t *testing.T, config DirectoryConfig) watchFixture {
 	return watchFixture{
 		runtime:       runtime,
 		directory:     client,
+		directoryRef:  directoryRef,
 		subscriberRef: subscriberRef,
 		changes:       changes,
 	}

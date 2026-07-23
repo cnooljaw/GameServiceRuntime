@@ -185,6 +185,12 @@ func TestDirectoryRejectsUnauthorizedAndInvalidRequests(t *testing.T) {
 	if _, err := authorized.Publish(context.Background(), "match", ServiceSetVersion{}, nil, map[string]string{" ": "value"}); !errors.Is(err, ErrInvalidServiceSet) {
 		t.Fatalf("Publish(invalid tags) error = %v, want ErrInvalidServiceSet", err)
 	}
+	if _, err := authorized.Publish(context.Background(), GroupName("match\xff"), ServiceSetVersion{}, nil, nil); !errors.Is(err, ErrInvalidGroup) {
+		t.Fatalf("Publish(invalid UTF-8 group) error = %v, want ErrInvalidGroup", err)
+	}
+	if _, err := authorized.Publish(context.Background(), "match", ServiceSetVersion{}, nil, map[string]string{"version": "\xff"}); !errors.Is(err, ErrInvalidServiceSet) {
+		t.Fatalf("Publish(invalid UTF-8 tag) error = %v, want ErrInvalidServiceSet", err)
+	}
 	if _, err := authorized.Publish(context.Background(), "match", ServiceSetVersion{AuthorityEpoch: 1}, nil, nil); !errors.Is(err, ErrInvalidServiceSet) {
 		t.Fatalf("Publish(partial version) error = %v, want ErrInvalidServiceSet", err)
 	}
@@ -223,6 +229,25 @@ func TestClientRejectsMalformedSuccessfulResponse(t *testing.T) {
 	}
 	if _, err := client.Get(context.Background(), "match"); !errors.Is(err, ErrInvalidResponse) {
 		t.Fatalf("Get(malformed response) error = %v, want ErrInvalidResponse", err)
+	}
+}
+
+func TestClientRejectsPublishResponseThatChangesEmptyValuedTagKey(t *testing.T) {
+	client, err := NewClient(commandCallerStub{
+		value: serviceSetResponse{
+			Set: wireServiceSet{
+				Name:    "match",
+				Version: ServiceSetVersion{AuthorityEpoch: 1, Revision: 1},
+				Refs:    make([]wireServiceRef, 0),
+				Tags:    map[string]string{"other": ""},
+			},
+		},
+	}, gsr.ServiceRef{Node: "node-a", ID: 1})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if _, err := client.Publish(context.Background(), "match", ServiceSetVersion{}, nil, map[string]string{"expected": ""}); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Publish(changed tag key) error = %v, want ErrInvalidResponse", err)
 	}
 }
 

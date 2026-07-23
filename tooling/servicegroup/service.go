@@ -151,6 +151,8 @@ func (s *directoryService) Stop(context.Context) error {
 	s.watchers = make(map[GroupName]map[gsr.ServiceRef]WatchLease)
 	s.watcherCount = 0
 	s.sweepScheduled = false
+	s.context.Metrics().SetGauge("servicegroup_groups", 0)
+	s.context.Metrics().SetGauge("servicegroup_watchers", 0)
 	return nil
 }
 
@@ -221,7 +223,10 @@ func newAuthorityEpoch() (uint64, error) {
 }
 
 func (s *directoryService) watch(now time.Time, source gsr.ServiceRef, name GroupName, subscriber gsr.ServiceRef) (WatchResult, error) {
-	if !validGroup(name) || !validServiceRef(subscriber) {
+	if !validGroup(name) {
+		return WatchResult{}, ErrInvalidGroup
+	}
+	if !validServiceRef(subscriber) {
 		return WatchResult{}, ErrInvalidWatch
 	}
 	if source != subscriber {
@@ -273,7 +278,7 @@ func (s *directoryService) renewWatch(now time.Time, source gsr.ServiceRef, leas
 	}
 	groupWatchers := s.watchers[lease.Group]
 	current, exists := groupWatchers[lease.Subscriber]
-	if !exists || current != lease {
+	if !exists || !sameWatchLease(current, lease) {
 		return WatchLease{}, ErrWatchExpired
 	}
 	current.ExpiresAt = now.Add(s.config.WatchTTL)
@@ -293,7 +298,7 @@ func (s *directoryService) unwatch(source gsr.ServiceRef, lease WatchLease) erro
 	}
 	groupWatchers := s.watchers[lease.Group]
 	current, exists := groupWatchers[lease.Subscriber]
-	if !exists || current != lease {
+	if !exists || !sameWatchLease(current, lease) {
 		return ErrWatchExpired
 	}
 	delete(groupWatchers, lease.Subscriber)

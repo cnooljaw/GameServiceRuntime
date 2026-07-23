@@ -117,12 +117,8 @@ func TestCodecValidatesWatchResponses(t *testing.T) {
 		Refs:    make([]wireServiceRef, 0),
 		Tags:    make(map[string]string),
 	}
-	payload, err = codec.Encode(commandWatchServiceGroup, true, response)
-	if err != nil {
-		t.Fatalf("Encode(invalid Watch response) error = %v", err)
-	}
-	if _, err := codec.Decode(commandWatchServiceGroup, true, payload); !errors.Is(err, ErrInvalidResponse) {
-		t.Fatalf("Decode(invalid Watch response) error = %v, want ErrInvalidResponse", err)
+	if _, err := codec.Encode(commandWatchServiceGroup, true, response); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Encode(invalid Watch response) error = %v, want ErrInvalidResponse", err)
 	}
 }
 

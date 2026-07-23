@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sync/atomic"
+	"unicode/utf8"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -17,7 +18,7 @@ func (Hash) Pick(set ServiceSet, key RoutingKey) ([]gsr.ServiceRef, error) {
 	if err := validateRoutingSet(set); err != nil {
 		return nil, err
 	}
-	if key == "" {
+	if key == "" || !utf8.ValidString(string(key)) {
 		return nil, ErrInvalidRoutingKey
 	}
 	hash := fnv.New64a()

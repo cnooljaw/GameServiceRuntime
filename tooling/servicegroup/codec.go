@@ -47,6 +47,9 @@ func (c *codec) Encode(command gsr.CommandID, response bool, value any) ([]byte,
 	if reflect.TypeOf(value) != reflect.TypeOf(prototype) {
 		return nil, fmt.Errorf("%w: command %d response=%t has payload %T, want %T", ErrInvalidResponse, command, response, value, prototype)
 	}
+	if response && !validWireResponse(command, value) {
+		return nil, ErrInvalidResponse
+	}
 	payload, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)

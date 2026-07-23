@@ -29,6 +29,9 @@ func TestHashUsesFNV1aAndStableServiceSetOrder(t *testing.T) {
 	if _, err := policy.Pick(set, ""); !errors.Is(err, ErrInvalidRoutingKey) {
 		t.Fatalf("Hash.Pick(empty key) error = %v, want ErrInvalidRoutingKey", err)
 	}
+	if _, err := policy.Pick(set, RoutingKey("player-\xff")); !errors.Is(err, ErrInvalidRoutingKey) {
+		t.Fatalf("Hash.Pick(invalid UTF-8 key) error = %v, want ErrInvalidRoutingKey", err)
+	}
 	empty := set
 	empty.Refs = make([]gsr.ServiceRef, 0)
 	if _, err := policy.Pick(empty, "player-1"); !errors.Is(err, ErrNoRoute) {

@@ -70,7 +70,10 @@ func (c *Client) Get(ctx context.Context, name GroupName) (ServiceSet, error) {
 
 // Watch registers subscriber for complete ServiceSetChanged snapshots.
 func (c *Client) Watch(ctx context.Context, name GroupName, subscriber gsr.ServiceRef) (WatchResult, error) {
-	if !validGroup(name) || !validServiceRef(subscriber) {
+	if !validGroup(name) {
+		return WatchResult{}, ErrInvalidGroup
+	}
+	if !validServiceRef(subscriber) {
 		return WatchResult{}, ErrInvalidWatch
 	}
 	value, err := c.caller.Call(ctx, c.target, commandWatchServiceGroup, watchServiceGroupRequest{

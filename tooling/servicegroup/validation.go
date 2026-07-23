@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -22,12 +23,13 @@ func isNil(value any) bool {
 }
 
 func validNode(node gsr.NodeID) bool {
-	return strings.TrimSpace(string(node)) != ""
+	value := string(node)
+	return utf8.ValidString(value) && strings.TrimSpace(value) != ""
 }
 
 func validGroup(name GroupName) bool {
 	value := string(name)
-	return value != "" && strings.TrimSpace(value) == value
+	return utf8.ValidString(value) && value != "" && strings.TrimSpace(value) == value
 }
 
 func validServiceRef(ref gsr.ServiceRef) bool {
@@ -43,8 +45,11 @@ func validVersion(version ServiceSetVersion) bool {
 }
 
 func validTags(tags map[string]string) bool {
-	for key := range tags {
-		if key == "" || strings.TrimSpace(key) != key {
+	for key, value := range tags {
+		if !utf8.ValidString(key) || key == "" || strings.TrimSpace(key) != key {
+			return false
+		}
+		if !utf8.ValidString(value) {
 			return false
 		}
 	}
@@ -116,6 +121,14 @@ func validWireWatchLease(lease wireWatchLease) bool {
 	return validWatchLease(lease.watchLease())
 }
 
+func sameWatchLease(left, right WatchLease) bool {
+	return left.Group == right.Group &&
+		left.Subscriber == right.Subscriber &&
+		left.AuthorityEpoch == right.AuthorityEpoch &&
+		left.Generation == right.Generation &&
+		left.ExpiresAt.Equal(right.ExpiresAt)
+}
+
 func validWireWatchResult(response watchResultResponse) bool {
 	if !validWireWatchLease(response.Lease) {
 		return false
@@ -141,7 +154,8 @@ func sameServiceSetContent(left, right ServiceSet) bool {
 		}
 	}
 	for key, value := range left.Tags {
-		if right.Tags[key] != value {
+		rightValue, exists := right.Tags[key]
+		if !exists || rightValue != value {
 			return false
 		}
 	}
