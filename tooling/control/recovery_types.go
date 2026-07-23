@@ -1,7 +1,6 @@
 package control
 
 import (
-	"context"
 	"time"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
@@ -150,11 +149,6 @@ type RecoveryReceipt struct {
 	UpdatedAt time.Time           `json:"updated_at"`
 }
 
-// RecoveryFactory is retained as the minimal application-side creation seam.
-type RecoveryFactory interface {
-	CreateService(gsr.ServiceSpec) (gsr.ServiceRef, error)
-}
-
 // recoveryCreateResult is the private Runner-to-NodeAgent result payload.
 type recoveryCreateResult struct {
 	RequestID RequestID
@@ -164,6 +158,3 @@ type recoveryCreateResult struct {
 	State     RecoveryTargetState
 	Failure   RecoveryFailure
 }
-
-var _ RecoveryFactory = (RecoveryRuntime)(nil)
-var _ = context.Canceled
