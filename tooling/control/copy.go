@@ -12,6 +12,12 @@ func cloneReport(report monitor.Report) monitor.Report {
 	return copy
 }
 
+func cloneNodeDetail(detail NodeDetail) NodeDetail {
+	copy := detail
+	copy.Report = cloneReport(detail.Report)
+	return copy
+}
+
 func copyUint64Map(source map[string]uint64) map[string]uint64 {
 	copy := make(map[string]uint64, len(source))
 	for key, value := range source {

@@ -1,8 +1,6 @@
 package control
 
 import (
-	"time"
-
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 	"github.com/lijiawang/GameServiceRuntime/tooling/monitor"
 )
@@ -52,9 +50,4 @@ type nodeDetailResponse struct {
 type nodesResponse struct {
 	Nodes []NodeDetail `json:"nodes"`
 	Error errorCode    `json:"error"`
-}
-
-type controlRefreshResult struct {
-	Detail    NodeDetail
-	Completed time.Time
 }
