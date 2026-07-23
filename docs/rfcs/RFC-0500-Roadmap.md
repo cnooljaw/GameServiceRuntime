@@ -300,7 +300,7 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 状态：待实现。
 
-实现 [RFC-0274](RFC-0274-Tooling-Manual-Recovery-Compensation.md)：由 Gateway + Principal 创建审计化 RecoveryOperation，组合根 Blueprint Runner 创建替代实例，操作者显式 Confirm 后以 Directory CAS 发布更高 ServiceSet。它不得 Resume Guard、重新发布旧 Ref、自动补偿或引入 Desired State/Reconcile。
+实现 [RFC-0274](RFC-0274-Tooling-Manual-Recovery-Compensation.md)：由 Gateway + Principal 创建审计化 RecoveryOperation，组合根 Blueprint Runner 创建替代实例，操作者显式 Confirm 后以 Directory CAS 在保留当前成员的基础上追加新 Ref 并发布更高 ServiceSet。它不得 Resume Guard、重新发布旧 Ref、自动补偿或引入 Desired State/Reconcile。
 
 ## Phase 11：Command Record 与 Replay
 

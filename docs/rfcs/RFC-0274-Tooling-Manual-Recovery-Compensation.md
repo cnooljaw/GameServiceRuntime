@@ -151,7 +151,7 @@ func (*DrainClient) AbandonRecovery(context.Context, RequestID, Principal) (Reco
 
 BeginRecovery 仅接受已由同 Principal 创建且 `StopCompleted`、`StopFailed` 或 `StopSuperseded` 的 StopOperation 的 Removed 集合；请求的 `Expected` 必须是当前 Directory 的完整快照，且不能含任何 Removed Ref。不同输入复用同一 RequestID 返回 `ErrRecoveryRequestConflict`；相同规范化输入返回已有 Operation 而不再次创建。Coordinator 在提交每个创建任务前读取 Directory 并要求仍等于 Expected。
 
-Runner 为每个任务仅尝试一次 Blueprint.Build + Runtime.CreateService；成功后以私有 Command 报告 Created Ref，失败后报告稳定 Failure。它不得自行 Stop 已创建 Ref、不得发布 Directory、不得重试。Confirm 只在所有 Target 已 Created 时有效，并以 Expected.Version 的 CAS 发布把 Removed 替换为 Created 的 ServiceSet；成功后 `Published.Version > Expected.Version`。CAS 未知、目录变化或发布失败均不猜测结果：Operation 保持 Publishing，操作者必须 Resolve。Abandon 只允许尚未 Published 的 Operation；它记录放弃事实，不调用 Stop。
+Runner 为每个任务仅尝试一次 Blueprint.Build + Runtime.CreateService；成功后以私有 Command 报告 Created Ref，失败后报告稳定 Failure。它不得自行 Stop 已创建 Ref、不得发布 Directory、不得重试。Confirm 只在所有 Target 已 Created 时有效，并以 Expected.Version 的 CAS 发布 **保留 Expected 全部成员、追加所有 Created Ref** 的更高 ServiceSet；`Removed` 只是本次恢复所对应的已 Guard/Stopped 旧 Ref，绝不要求、也绝不允许重新写回当前 Directory。成功后 `Published.Version > Expected.Version`。CAS 未知、目录变化或发布失败均不猜测结果：Operation 保持 Publishing，操作者必须 Resolve。Abandon 只允许尚未 Published 的 Operation；它记录放弃事实，不调用 Stop。
 
 Command ID 固定为：
 
