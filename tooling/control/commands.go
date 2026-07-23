@@ -7,6 +7,7 @@ import (
 
 const (
 	commandGetNodeReport         gsr.CommandID = 0x02500101
+	commandRecordNodeStopResult  gsr.CommandID = 0x025001fd
 	commandRegisterNodeLease     gsr.CommandID = 0x025001fe
 	commandHeartbeatNodeLease    gsr.CommandID = 0x025001ff
 	commandListNodes             gsr.CommandID = 0x02500201

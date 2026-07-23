@@ -156,6 +156,8 @@ func (*DrainClient) ResolveStop(context.Context, RequestID, Principal) (StopOper
 func (*DrainClient) GetStop(context.Context, RequestID, Principal) (StopOperation, error)
 ```
 
+`NodeStopRunnerConfig.Workers` 与 `QueueSize` 必须为正数；`Directory` 必须是具体 ServiceRef；负 timeout 无效，零值 `CallTimeout` 与 `StopTimeout` 均默认为三秒。
+
 `NodeAgentConfig` 新增可选、成对出现的字段：
 
 ```go
@@ -225,7 +227,7 @@ drain_stop_operations_superseded_total
 drain_stop_operations_denied_total
 ```
 
-NodeAgent 记录 `node_stop_queued_total`、`node_stop_completed_total`、`node_stop_failed_total`、`node_stop_superseded_total`；Runner 记录 `node_stop_runner_queue_full_total`、`node_stop_runner_directory_unavailable_total`。它们只能经 `Runtime.Inspect().Metrics` 读取。
+NodeAgent 记录 `node_stop_queued_total`、`node_stop_completed_total`、`node_stop_failed_total`、`node_stop_superseded_total`。队列满和 Directory 不可用分别通过 receipt 的 `queue_full` 与 `directory_unavailable` 归入 NodeAgent 的失败事实；Runner 是组合根持有的外置 adapter，不能绕过 `Runtime.Inspect().Metrics` 写入 Runtime 指标。
 
 ## 验收
 

@@ -31,4 +31,8 @@ var (
 	ErrInvalidResponse = errors.New("control: invalid response")
 	// ErrUnsupportedCommand reports a payload not owned by the Control Plane codec.
 	ErrUnsupportedCommand = errors.New("control: unsupported command")
+	// ErrNodeStopQueueFull reports that the bounded Node Stop runner queue has no capacity.
+	ErrNodeStopQueueFull = errors.New("control: node stop queue full")
+	// ErrNodeStopRunnerClosed reports a submission after its composition-root-owned runner was closed.
+	ErrNodeStopRunnerClosed = errors.New("control: node stop runner closed")
 )
