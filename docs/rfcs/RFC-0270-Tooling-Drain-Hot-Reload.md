@@ -122,7 +122,7 @@ Target ServiceRef -> Visitor ServiceRef -> VisitorLease
 
 Generation 在同一个 AuthorityEpoch 内全局单调分配，跳过零值；回绕返回 `ErrLeaseExhausted`，不得覆盖现有 lease。Registry 不持久化状态；重建后的 AuthorityEpoch 不同，来自旧实例的 lease 一律失效。
 
-`LeaseTTL=0` 默认 30 秒，`SweepInterval=0` 默认 5 秒；负值无效。每个 Command 开始时先以 `ServiceContext.Now()` 清理 `now >= ExpiresAt` 的 lease。首个有效 Acquire 在提交前通过 `ServiceContext.After` 安排一个私有 sweep Command。只有仍存在 lease 时，sweep 成功后才安排下一次；Registry 没有 lease 时不得保留 Timer。
+`LeaseTTL=0` 默认 30 秒，`SweepInterval=0` 默认 5 秒；负值无效。每个 Command 开始时先以 `ServiceContext.Now()` 清理 `now >= ExpiresAt` 的 lease。首个有效 Acquire 在提交前通过 `ServiceContext.After` 安排一个私有 sweep Command。只有仍存在 lease 时，sweep 成功后才安排下一次；Registry 为空时不得安排下一次 Timer。已经入队的 sweep Timer 由 Core 在触发或目标停止时清理。
 
 Acquire、Renew、Release 的来源约束如下：
 
@@ -191,7 +191,7 @@ visitor_expired_total
 3. Renew 只延长当前 lease；迟到 Release 不能删除已续订 lease。
 4. 强、弱访问者同时存在时都能列出；后续 Drain 只需等待强访问者。
 5. Acquire、Renew、Release 精确校验 Command Source；节点级和其它 Service source 不能修改 lease。
-6. lease 过期、Timer sweep、空 registry 不保留 Timer、停止取消 Timer 均正确。
+6. lease 过期、Timer sweep、空 registry 不再安排下一次 Timer、停止取消目标 Timer 均正确。
 7. AuthorityEpoch 变化、Generation 回绕、非法输入、错误响应和 Timer 安排失败不破坏已有状态。
 8. Codec 拒绝私有 Command、畸形 JSON、尾随 JSON、类型错误和无效成功响应，并正确委托 fallback。
 9. 本地与双节点 TCP 的 Service caller 可完成 Acquire、Renew、List 和 Release；远程领域错误可类型化识别。

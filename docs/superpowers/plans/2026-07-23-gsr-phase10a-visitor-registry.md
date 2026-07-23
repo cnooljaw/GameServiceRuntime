@@ -14,7 +14,7 @@
 - Registry 是唯一状态 owner。关系、Generation 和 Timer 调度状态都只在它的 Mailbox Handler 中修改。
 - `Visitor` 就是 lease owner。Acquire、Renew、Release 必须精确匹配 `CommandContext.Source()`；节点级 caller 只能查询，不能修改。
 - 重 Acquire 生成新 Generation；Renew 保持 Generation、用新的过期时间 fence 迟到 Release；过期与旧 AuthorityEpoch 都返回稳定错误。
-- Timer 只投递私有 sweep Command。创建首个 Timer 失败时 Acquire 不提交状态；空 Registry 不保留 Timer。
+- Timer 只投递私有 sweep Command。创建首个 Timer 失败时 Acquire 不提交状态；空 Registry 不安排下一次 Timer。
 - Client、Codec 和 Service 不创建 goroutine；公开查询和成功响应均返回独立副本。
 - 本切片不加入 Drain guard、ServiceGroup 版本发布、`Runtime.Stop`、Desired State、Controller、Reconcile、NodeAgent 动作或外部 Admin API。
 
