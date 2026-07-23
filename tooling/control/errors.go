@@ -13,8 +13,20 @@ var (
 	ErrNodeNotFound = errors.New("control: node not found")
 	// ErrNodeDisabled reports a refresh requested for a disabled node.
 	ErrNodeDisabled = errors.New("control: node disabled")
-	// ErrUnauthorized reports an Agent request from a non-ControlService source.
+	// ErrUnauthorized reports a Control Plane request from an untrusted source or principal.
 	ErrUnauthorized = errors.New("control: unauthorized")
+	// ErrInvalidPrincipal reports a malformed authenticated control-plane principal.
+	ErrInvalidPrincipal = errors.New("control: invalid principal")
+	// ErrInvalidRequestID reports a malformed idempotency key.
+	ErrInvalidRequestID = errors.New("control: invalid request id")
+	// ErrInvalidDrainRequest reports an invalid Drain operation input.
+	ErrInvalidDrainRequest = errors.New("control: invalid drain request")
+	// ErrRequestConflict reports a reused RequestID with different immutable inputs.
+	ErrRequestConflict = errors.New("control: request conflict")
+	// ErrDrainOperationNotFound reports an unknown Drain operation RequestID.
+	ErrDrainOperationNotFound = errors.New("control: drain operation not found")
+	// ErrOperationOwnerMismatch reports an operation read or resolve by another principal.
+	ErrOperationOwnerMismatch = errors.New("control: drain operation owner mismatch")
 	// ErrInvalidResponse reports malformed Control Plane domain responses.
 	ErrInvalidResponse = errors.New("control: invalid response")
 	// ErrUnsupportedCommand reports a payload not owned by the Control Plane codec.

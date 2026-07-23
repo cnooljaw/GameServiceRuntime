@@ -223,6 +223,18 @@ func errorFromCode(code errorCode) error {
 		return ErrNodeDisabled
 	case responseUnauthorized:
 		return ErrUnauthorized
+	case responseInvalidPrincipal:
+		return ErrInvalidPrincipal
+	case responseInvalidRequestID:
+		return ErrInvalidRequestID
+	case responseInvalidDrainRequest:
+		return ErrInvalidDrainRequest
+	case responseRequestConflict:
+		return ErrRequestConflict
+	case responseOperationNotFound:
+		return ErrDrainOperationNotFound
+	case responseOperationOwnerMismatch:
+		return ErrOperationOwnerMismatch
 	case responseInvalidRequest:
 		return ErrInvalidResponse
 	default:
@@ -242,6 +254,18 @@ func codeFromError(err error) errorCode {
 		return responseNodeDisabled
 	case errors.Is(err, ErrUnauthorized):
 		return responseUnauthorized
+	case errors.Is(err, ErrInvalidPrincipal):
+		return responseInvalidPrincipal
+	case errors.Is(err, ErrInvalidRequestID):
+		return responseInvalidRequestID
+	case errors.Is(err, ErrInvalidDrainRequest):
+		return responseInvalidDrainRequest
+	case errors.Is(err, ErrRequestConflict):
+		return responseRequestConflict
+	case errors.Is(err, ErrDrainOperationNotFound):
+		return responseOperationNotFound
+	case errors.Is(err, ErrOperationOwnerMismatch):
+		return responseOperationOwnerMismatch
 	default:
 		return responseInvalidRequest
 	}

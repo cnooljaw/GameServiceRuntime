@@ -30,6 +30,9 @@ func (c *codec) Encode(command gsr.CommandID, response bool, value any) ([]byte,
 	if reflect.TypeOf(value) != reflect.TypeOf(prototype) {
 		return nil, fmt.Errorf("%w: command %d response=%t has payload %T, want %T", ErrInvalidResponse, command, response, value, prototype)
 	}
+	if response && !validWireResponse(command, value) {
+		return nil, ErrInvalidResponse
+	}
 	payload, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
@@ -82,6 +85,26 @@ func controlPayload(command gsr.CommandID, response bool) (any, bool) {
 			return nodeDetailResponse{}, true
 		}
 		return refreshNodeRequest{}, true
+	case commandStartDrainOperation:
+		if response {
+			return drainOperationResponse{}, true
+		}
+		return startDrainOperationRequest{}, true
+	case commandResolveDrainOperation:
+		if response {
+			return drainOperationResponse{}, true
+		}
+		return resolveDrainOperationRequest{}, true
+	case commandGetDrainOperation:
+		if response {
+			return drainOperationResponse{}, true
+		}
+		return getDrainOperationRequest{}, true
+	case commandListDrainAudit:
+		if response {
+			return drainAuditsResponse{}, true
+		}
+		return listDrainAuditRequest{}, true
 	default:
 		return nil, false
 	}
@@ -106,6 +129,12 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandGetNodeDetail, commandRefreshNode:
 		response, ok := value.(nodeDetailResponse)
 		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validDetail(response.Detail))
+	case commandStartDrainOperation, commandResolveDrainOperation, commandGetDrainOperation:
+		response, ok := value.(drainOperationResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validDrainOperation(response.Operation))
+	case commandListDrainAudit:
+		response, ok := value.(drainAuditsResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validDrainAudits(response.Audits))
 	default:
 		return false
 	}
@@ -113,7 +142,18 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 
 func validResponseCode(code errorCode) bool {
 	switch code {
-	case responseOK, responseInvalidNode, responseNodeNotFound, responseNodeDisabled, responseUnauthorized, responseInvalidRequest:
+	case responseOK,
+		responseInvalidNode,
+		responseNodeNotFound,
+		responseNodeDisabled,
+		responseUnauthorized,
+		responseInvalidRequest,
+		responseInvalidPrincipal,
+		responseInvalidRequestID,
+		responseInvalidDrainRequest,
+		responseRequestConflict,
+		responseOperationNotFound,
+		responseOperationOwnerMismatch:
 		return true
 	default:
 		return false
