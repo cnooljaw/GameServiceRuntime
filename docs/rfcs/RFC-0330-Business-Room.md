@@ -52,11 +52,14 @@ type BattleCreateRequest struct {
     Room      RoomID
     Players   []PlayerID
 }
+type BattleCreatedResult struct { RequestID RequestID; Battle BattleID; Ref gsr.ServiceRef }
+type BattleFinishedNotice struct { Battle BattleID; Ref gsr.ServiceRef }
 type RoomFactory interface { RequestBattle(BattleCreateRequest) error }
 type RoomConfig struct {
-    ID        RoomID
-    Capacity  int
-    Factory   RoomFactory
+    ID         RoomID
+    Capacity   int
+    Factory    RoomFactory
+    FactoryRef gsr.ServiceRef // required when Factory is non-nil
 }
 func NewRoomService(RoomConfig) (*RoomService, error)
 ```
@@ -72,7 +75,7 @@ func NewRoomService(RoomConfig) (*RoomService, error)
 0x03000306 GetRoomSnapshot
 ```
 
-Join/Leave payload 使用 PlayerID；Start 使用 `BattleCreateRequest`；ApplyBattleCreated 使用 `{RequestID, BattleID, Ref}`；ApplyBattleFinished 使用 `{BattleID, Ref}`。ID/Capacity/Factory、成员重复、未加入玩家、重复 BattleID、零 Ref、超容量与不一致 RequestID 都是稳定错误。Factory 为 nil 时 Room 不支持 Start，但 Join/Leave/Query 仍可用。
+Join/Leave payload 使用 PlayerID；Start 使用 `BattleCreateRequest`；ApplyBattleCreated 使用 `BattleCreatedResult`；ApplyBattleFinished 使用 `BattleFinishedNotice`。`Factory` 非 nil 时必须同时配置精确 `FactoryRef`，ApplyBattleCreated 只接受该 source；ID/Capacity/Factory、成员重复、未加入玩家、重复 BattleID、零 Ref、超容量与不一致 RequestID 都是稳定错误。Factory 为 nil 时 Room 不支持 Start，但 Join/Leave/Query 仍可用。
 
 ## 状态与生命周期
 

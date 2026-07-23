@@ -128,8 +128,9 @@ func cloneSettlementResult(result SettlementResult) SettlementResult {
 }
 
 func cloneBattleSnapshot(snapshot BattleSnapshot) BattleSnapshot {
-	snapshot.Participants = make(map[PlayerID]ParticipantStatus, len(snapshot.Participants))
-	for player, status := range snapshot.Participants {
+	participants := snapshot.Participants
+	snapshot.Participants = make(map[PlayerID]ParticipantStatus, len(participants))
+	for player, status := range participants {
 		snapshot.Participants[player] = status
 	}
 	snapshot.Timeline = cloneTimelineSnapshot(snapshot.Timeline)
