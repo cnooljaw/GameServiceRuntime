@@ -49,6 +49,25 @@ type ServiceSetChanged struct {
 	Set ServiceSet
 }
 
+// RoutingKey is the caller-provided key consumed by a RoutingPolicy.
+type RoutingKey string
+
+// RoutingPolicy maps one complete ServiceSet to one or more member ServiceRefs.
+type RoutingPolicy interface {
+	Pick(ServiceSet, RoutingKey) ([]gsr.ServiceRef, error)
+}
+
+// CommandDispatcher is the narrow Runtime capability required by Router.
+type CommandDispatcher interface {
+	Send(gsr.ServiceRef, gsr.CommandID, any) error
+	Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error)
+}
+
+// Router dispatches Commands to targets selected from an explicit ServiceSet.
+type Router struct {
+	dispatcher CommandDispatcher
+}
+
 // DirectoryConfig configures the trusted publisher and Watch lease cleanup.
 type DirectoryConfig struct {
 	// PublisherNode is the trusted cluster node allowed to publish ServiceSets.

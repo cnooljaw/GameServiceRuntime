@@ -29,4 +29,12 @@ var (
 	ErrInvalidResponse = errors.New("servicegroup: invalid response")
 	// ErrUnsupportedCommand reports a payload not owned by the ServiceGroup Codec.
 	ErrUnsupportedCommand = errors.New("servicegroup: unsupported command")
+	// ErrInvalidRoutingKey reports a missing key required by a routing policy.
+	ErrInvalidRoutingKey = errors.New("servicegroup: invalid routing key")
+	// ErrNoRoute reports a valid ServiceSet with no routable members.
+	ErrNoRoute = errors.New("servicegroup: no route")
+	// ErrInvalidRoutingResult reports empty, duplicate, invalid, or out-of-group policy targets.
+	ErrInvalidRoutingResult = errors.New("servicegroup: invalid routing result")
+	// ErrMultipleTargets reports a Call policy that selected more than one target.
+	ErrMultipleTargets = errors.New("servicegroup: multiple call targets")
 )

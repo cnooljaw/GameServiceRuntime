@@ -335,6 +335,7 @@ ErrWatchExpired
 ErrWatchOwnerMismatch
 ErrInvalidResponse
 ErrUnsupportedCommand
+ErrInvalidRoutingKey
 ErrNoRoute
 ErrInvalidRoutingResult
 ErrMultipleTargets
