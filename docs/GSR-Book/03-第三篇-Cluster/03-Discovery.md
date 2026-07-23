@@ -169,7 +169,7 @@ Service 停止时，Runtime 会取消绑定到该 ServiceRef 的 Timer。
 ## 当前限制
 
 - 单一内存权威，没有复制、选主或持久化。
-- Heartbeat 由部署编排调用，没有自动 NodeAgent。
+- 部署编排仍可直接 Heartbeat；Phase 8 的 `NodeAgentService` 也会自动注册并续租自己的节点 lease。
 - 节点地址不会自动修改 TCP peer。
 - 不表达 Desired State、Observed State 或“配置存在但未连接”。
 - 不提供 ServiceGroup、Hash、RoundRobin 或 Broadcast。

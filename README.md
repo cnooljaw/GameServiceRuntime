@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 7F 客户端入口，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor 和客户端入口 Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 8 节点观测，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口和 Control Plane Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -26,8 +26,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - Handler panic 的不可变失败通知、稳定 Key/Generation fencing 和 typed Supervisor 状态查询。
 - 有界恢复 Runner、尝试/窗口/退避策略，以及 Prepare/Commit/Abort 两阶段新实例发布。
 - 内存 SessionRegistry、Mailbox 串行的 SingleSession LoginService、固定 HMAC proof 线格式和 TCP Login/Gateway Adapter。
+- `NodeAgentService` 自动 Discovery lease、`ClusterObserverService` 的静态 NodeConfig、只读 Observed State 和类型化节点刷新。
 
-远程 NodeAgent、ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -58,11 +59,19 @@ go run ./examples/discovery-runtime
 
 预期输出：`.config -> node-b/2`。
 
-当前 Discovery 是单一内存权威。部署配置只提供权威节点的 `NodeID`、TCP 地址和稳定名字 `.discovery`，调用方通过 `Runtime.ResolveRemote` 获取当前动态 `ServiceRef`。Heartbeat 由部署编排调用；Discovery 不会动态修改 TCP peer。
+当前 Discovery 是单一内存权威。部署配置只提供权威节点的 `NodeID`、TCP 地址和稳定名字 `.discovery`，调用方通过 `Runtime.ResolveRemote` 获取当前动态 `ServiceRef`。部署编排可以直接 Heartbeat；`NodeAgentService` 也会自动维护自己的节点 lease。Discovery 不会动态修改 TCP peer。
 
 只有调用方不应知道服务所在节点，或者需要动态迁移、节点目录和控制面时才启用 Discovery。普通业务 Service 不应仅为跨节点调用而依赖它。
 
 GSR 信任可信内网中的集群节点，但不信任错误的程序状态。`Source`、租约 owner 和 AuthorityEpoch 用于状态约束，不是身份认证或安全令牌。
+
+## 节点观测示例
+
+```bash
+go run ./examples/control-runtime
+```
+
+预期输出：`node=node-b status=healthy services=2`。示例由 node-b 的 NodeAgent 自动注册并续租 lease，node-a 的 ClusterObserver 通过远程 Call 获取独立 Monitor report。它只读，不包含 Controller、Service Desired State 或运维动作。
 
 ## 本地 Monitor 示例
 

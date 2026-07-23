@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Cluster Control Plane
+
+- 新增 `tooling/control`：NodeAgent 在进入 `Running` 后通过 Startup Command 注册自己的 Discovery lease，再由 Timer Command 自动续租；租约失效会重新注册，Stop 最多注销当前 lease 一次。
+- 新增 `ClusterObserverService` 与 typed Client，冻结静态 `NodeConfig`，缓存并独立返回 `Observed State`；节点刷新通过受限远程 Call 获取 NodeAgent 的 Monitor report。
+- 新增可组合 Control Plane Codec、双节点 TCP 验收和 `examples/control-runtime`。控制面仍只读，不提供外部 Admin API、认证、授权、审计、Controller、Desired State 或修改型运维。
+
+### Core Runtime
+
+- 新增可选 `StartupCommandDeclarer`：Runtime 在 Service 进入 `Running` 后，以自身为 Source 投递声明的启动 Command；长期启动、注册和重试不再被迫放入 `Init` 或裸 goroutine。
+
 ### 客户端入口
 
 - 新增 `tooling/entry`：内存 `SessionRegistry` 在一个私有同步边界内保存 secret、ticket、严格递增 proof Sequence 和 Gateway 连接绑定。

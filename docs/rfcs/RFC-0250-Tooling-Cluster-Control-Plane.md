@@ -1,7 +1,7 @@
 # RFC-0250：Cluster Control Plane
 
-> 状态：待实现
-> 目标阶段：Phase 8
+> 状态：已接受
+> 接受日期：2026-07-23
 > 范围：Runtime Tooling、Cluster Control Plane
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)、[RFC-0191](RFC-0191-Core-Cluster-Transport.md)、[RFC-0200](RFC-0200-Tooling-Discovery.md)、[RFC-0230](RFC-0230-Tooling-Monitor.md)
 > 依据：Skynet debug_console、hanxi/skynet-admin 的观测分层

@@ -135,7 +135,7 @@ type NodeRecord struct {
 10. `ListNodes` 按 `NodeID` 排序并返回独立副本。
 11. 节点注销、过期或被新租约替换时，删除它拥有的全部名字。
 
-Phase 7B 由部署编排代码调用 `RegisterNode` 和 `Heartbeat`。自动续租的 NodeAgent 留到 Phase 8；不能用 Service 裸 goroutine 维持租约。
+Phase 7B 允许部署编排代码调用 `RegisterNode` 和 `Heartbeat`。Phase 8 的 `NodeAgentService` 已在进入 `Running` 后自动注册和续租自己的 lease；它只通过启动 Command 和 Timer Command 推进，不能用 Service 裸 goroutine 维持租约。
 
 Discovery 保存节点地址事实，但不据此修改 TCP peer。动态 peer reload 由后续 Control Plane 和 Transport adapter 负责。
 

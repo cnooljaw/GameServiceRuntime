@@ -47,6 +47,9 @@ func TestCodecRejectsInvalidPayloadAndTrailingJSON(t *testing.T) {
 	if _, err := codec.Encode(99, false, nil); !errors.Is(err, ErrUnsupportedCommand) {
 		t.Fatalf("Encode(no fallback) error = %v, want ErrUnsupportedCommand", err)
 	}
+	if _, err := codec.Encode(commandRegisterNodeLease, false, nil); !errors.Is(err, ErrUnsupportedCommand) {
+		t.Fatalf("Encode(private lease command) error = %v, want ErrUnsupportedCommand", err)
+	}
 }
 
 func TestControlConfigRejectsInvalidTargetsAndClient(t *testing.T) {

@@ -234,4 +234,4 @@ Phase 7C 已完成：
 - `tooling/monitor` 已实现本地 Report、稳定状态字符串和 JSON writer。
 - `examples/monitor-runtime` 已提供可执行示例。
 
-远程 NodeAgent、HTTP/CLI、Prometheus exporter 和管理命令仍按本文边界留到后续阶段。
+远程 NodeAgent 已由 Phase 8 的 `tooling/control` 消费本地 Monitor report 实现；HTTP/CLI、Prometheus exporter 和修改型管理命令仍按本文边界留到后续阶段。

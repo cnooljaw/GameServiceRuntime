@@ -107,7 +107,7 @@ go run ./examples/monitor-runtime
 - 告警、历史时序、聚合和持久化。
 - Battle、Player 等业务专用指标规范。
 
-Phase 8 可以由 `NodeAgentService` 在本节点调用 Monitor，再通过白名单 Command 返回报告。远程管理仍不能直接读取 Runtime 私有结构。
+Phase 8 已由 `NodeAgentService` 在本节点调用 Monitor，再通过白名单 Command 返回报告。远程管理仍不能直接读取 Runtime 私有结构。
 
 ## 验证重点
 
