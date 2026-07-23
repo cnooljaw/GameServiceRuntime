@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### ServiceGroup
+
+- 新增 `tooling/servicegroup`：独立 `DirectoryService` 以 compare-and-set 发布完整 ServiceSet，版本由随机 AuthorityEpoch 和组内单调 Revision 组成；Directory 重建后旧版本不能修改新权威。
+- 新增 typed Client、稳定错误和可组合 JSON Codec；Refs 会去重并稳定排序，查询、发布结果、Watch 结果和通知均返回独立 Refs/Tags。
+- 新增带 owner、authority、generation 和 TTL 的 Watch lease。订阅 Service 通过公共 `ServiceSetChangedCommand` 在自己的 Mailbox 内接收完整快照；Timer 只投递私有过期清理 Command。
+- 新增 FNV-1a Hash、并发安全 RoundRobin 和顺序 Broadcast，以及只对调用方显式 ServiceSet 路由的 Router；Broadcast 部分失败通过 `BroadcastError` 保留目标明细，Call 拒绝多目标。
+- 新增双节点 TCP Publish/Get/Watch/Route 验收和 `examples/servicegroup-runtime`。Core Runtime 与 Discovery 均未增加 ServiceGroup 概念。
+
 ### Cluster Control Plane
 
 - 新增 `tooling/control`：NodeAgent 在进入 `Running` 后通过 Startup Command 注册自己的 Discovery lease，再由 Timer Command 自动续租；租约失效会重新注册，Stop 最多注销当前 lease 一次。
@@ -47,6 +55,9 @@
 
 ### 限制
 
+- Directory 当前是单一内存权威，不提供复制、选主、持久化或自动 Service 注册；通知是 best-effort 完整快照，不是可靠事件日志。
+- Hash 第一版使用普通取模，不是一致性哈希；成员变化可能重新映射大量 key。Router 不维护后台缓存，订阅 Service 自己决定快照切换时点。
+- ServiceGroup 不包含 Desired State、Controller、Reconcile、健康检查、自动扩缩容、Drain 或回滚编排。
 - 不修改 Core `Service` 接口，不支持对运行中实例原地 Restore。
 - 当前只提供内存 Snapshot Store，不提供数据库、对象存储、压缩、加密或增量快照。
 - Supervisor 只处理同节点 Handler panic，不提供跨进程恢复、持久故障队列、完整 Supervisor Tree 或远程 Codec。

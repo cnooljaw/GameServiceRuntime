@@ -1,6 +1,6 @@
 # Phase 9：ServiceGroup 与路由策略实施计划
 
-> 状态：执行中
+> 状态：已完成
 > 更新：2026-07-23
 > 权威契约：[RFC-0260](../../rfcs/RFC-0260-Tooling-ServiceGroup-Routing.md)
 
@@ -28,7 +28,7 @@
 
 ## 切片 2：Directory 版本化事实
 
-1. 新增 `tooling/servicegroup/service_test.go`、`client_test.go` 和 `codec_test.go` 的失败测试：新组 revision 1、陈旧 CAS、epoch fencing、空组、权限、稳定排序、去重和深复制。
+1. 新增 `tooling/servicegroup/directory_test.go` 和 `codec_test.go` 的失败测试：新组 revision 1、陈旧 CAS、epoch fencing、空组、权限、稳定排序、去重和深复制。
 2. 新增 `types.go`、`errors.go`、`commands.go`、`validation.go`、`copy.go`，固定公开类型、错误和 wire payload。
 3. 实现 `NewDirectoryService`、Publish、Get、类型化 Client 和可组合 Codec；私有 sweep Command 暂只声明、不进入 Codec。
 4. 检查：`go test ./tooling/servicegroup -run 'Directory|Publish|Get|Codec' -count=100`。

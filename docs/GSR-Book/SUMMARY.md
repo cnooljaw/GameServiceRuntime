@@ -18,6 +18,7 @@
 - 03-第三篇-Cluster/02-Transport.md
 - 03-第三篇-Cluster/03-Discovery.md
 - 03-第三篇-Cluster/04-Session.md
+- 03-第三篇-Cluster/05-ServiceGroup.md
 - 04-第四篇-基础设施/01-Snapshot.md
 - 04-第四篇-基础设施/02-Supervisor.md
 - 04-第四篇-基础设施/03-Monitor.md

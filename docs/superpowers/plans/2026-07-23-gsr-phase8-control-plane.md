@@ -1,6 +1,6 @@
 # Phase 8：节点观测与 Heartbeat 实施计划
 
-> 状态：执行中
+> 状态：已完成
 > 更新：2026-07-23
 > 权威契约：[RFC-0250](../../rfcs/RFC-0250-Tooling-Cluster-Control-Plane.md)
 

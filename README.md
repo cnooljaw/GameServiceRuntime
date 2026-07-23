@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 8 节点观测，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口和 Control Plane Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 9 ServiceGroup，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口、Control Plane 和 ServiceGroup Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -27,8 +27,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 有界恢复 Runner、尝试/窗口/退避策略，以及 Prepare/Commit/Abort 两阶段新实例发布。
 - 内存 SessionRegistry、Mailbox 串行的 SingleSession LoginService、固定 HMAC proof 线格式和 TCP Login/Gateway Adapter。
 - `NodeAgentService` 自动 Discovery lease、`ClusterObserverService` 的静态 NodeConfig、只读 Observed State 和类型化节点刷新。
+- 独立 `DirectoryService`、带 AuthorityEpoch/Revision 的 ServiceSet、Watch lease，以及 Hash、RoundRobin、Broadcast 路由。
 
-ServiceGroup 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Drain、Controller 和 Business Layer 仍在规划中，实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)。当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 
@@ -72,6 +73,14 @@ go run ./examples/control-runtime
 ```
 
 预期输出：`node=node-b status=healthy services=2`。示例由 node-b 的 NodeAgent 自动注册并续租 lease，node-a 的 ClusterObserver 通过远程 Call 获取独立 Monitor report。它只读，不包含 Controller、Service Desired State 或运维动作。
+
+## ServiceGroup 示例
+
+```bash
+go run ./examples/servicegroup-runtime
+```
+
+预期输出：`group=match-worker revision=1 reply=worker-2:ping`。示例由 node-b 的 Directory 保存版本化 ServiceSet，node-a 的订阅 Service 在自己的 Mailbox 中接收完整快照，再用显式缓存执行 Hash 路由。Directory 不进入 Discovery，Router 也不会在 Send/Call 中隐式查询 Directory。
 
 ## 本地 Monitor 示例
 
