@@ -100,3 +100,10 @@ func sameLease(left, right VisitorLease) bool {
 		left.Weak == right.Weak &&
 		left.ExpiresAt.Equal(right.ExpiresAt)
 }
+
+func validDrainStatus(status DrainStatus) bool {
+	if status.Draining {
+		return !status.StartedAt.IsZero()
+	}
+	return status.StartedAt.IsZero()
+}

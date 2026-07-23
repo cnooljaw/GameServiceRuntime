@@ -19,10 +19,9 @@
 
 1. 冻结 `GuardConfig`、`DrainStatus`、控制 Command、精确 source fencing、指标、Codec 和不可逆语义；同步索引、路线图和决策。
 2. 先写失败测试：配置校验、Command 合并、Begin 前后流量、内部 Command、来源、幂等时间、指标、Codec 及双节点 TCP。
-3. 以 decorator 实现最小状态机，并扩展已有 `drain.NewCodec` 与错误码；不触碰 Visitor Registry 行为。
+3. 以 decorator 实现最小状态机，并扩展已有 `drain.NewCodec` 与错误码；不触碰 Visitor Registry 行为。`ErrDraining` 不进入 Core 的远端错误表，跨节点业务响应由目标节点 adapter 自己映射。
 4. 运行质量门禁，回填 README、Book、TODO、Changelog 和路线图；单独提交代码及验收文档。
 
 ## 完成定义
 
 业务组合根现在可以给会直接接收新请求的旧 Service 加上显式入口闸门，保证 Begin 之后缓存旧 `ServiceRef` 也无法继续进入已列出的外部工作。它仍不能切流、等待访问者、恢复旧实例或自动停止 Service；这些能力需要后续受控 Drain 操作。
-

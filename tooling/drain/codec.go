@@ -14,7 +14,7 @@ type codec struct {
 	fallback gsr.ClusterCodec
 }
 
-// NewCodec creates a ClusterCodec that handles Visitor Registry Commands and delegates all others.
+// NewCodec creates a ClusterCodec that handles Drain Tooling Commands and delegates all others.
 func NewCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec {
 	return &codec{fallback: fallback}
 }
@@ -23,7 +23,7 @@ func (c *codec) Encode(command gsr.CommandID, response bool, value any) ([]byte,
 	if command == commandSweepVisitors {
 		return nil, ErrUnsupportedCommand
 	}
-	prototype, handled := visitorPayload(command, response)
+	prototype, handled := drainPayload(command, response)
 	if !handled {
 		if c.fallback == nil {
 			return nil, ErrUnsupportedCommand
@@ -47,7 +47,7 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 	if command == commandSweepVisitors {
 		return nil, ErrUnsupportedCommand
 	}
-	prototype, handled := visitorPayload(command, response)
+	prototype, handled := drainPayload(command, response)
 	if !handled {
 		if c.fallback == nil {
 			return nil, ErrUnsupportedCommand
@@ -65,7 +65,7 @@ func (c *codec) Decode(command gsr.CommandID, response bool, payload []byte) (an
 	return value, nil
 }
 
-func visitorPayload(command gsr.CommandID, response bool) (any, bool) {
+func drainPayload(command gsr.CommandID, response bool) (any, bool) {
 	switch command {
 	case commandAcquireVisitorLease:
 		if response {
@@ -87,6 +87,16 @@ func visitorPayload(command gsr.CommandID, response bool) (any, bool) {
 			return listVisitorsResponse{}, true
 		}
 		return listVisitorsRequest{}, true
+	case BeginDrainCommand:
+		if response {
+			return drainStatusResponse{}, true
+		}
+		return beginDrainRequest{}, true
+	case GetDrainStatusCommand:
+		if response {
+			return drainStatusResponse{}, true
+		}
+		return getDrainStatusRequest{}, true
 	default:
 		return nil, false
 	}
@@ -97,22 +107,27 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandAcquireVisitorLease, commandRenewVisitorLease:
 		response, ok := value.(leaseResponse)
 		return ok &&
-			validResponseCode(response.Error) &&
+			validVisitorResponseCode(response.Error) &&
 			(response.Error != responseOK || validWireLease(response.Lease))
 	case commandReleaseVisitorLease:
 		response, ok := value.(emptyResponse)
-		return ok && validResponseCode(response.Error)
+		return ok && validVisitorResponseCode(response.Error)
 	case commandListVisitors:
 		response, ok := value.(listVisitorsResponse)
 		return ok &&
-			validResponseCode(response.Error) &&
+			validVisitorResponseCode(response.Error) &&
 			(response.Error != responseOK || validWireVisitorRefs(response.Visitors))
+	case BeginDrainCommand, GetDrainStatusCommand:
+		response, ok := value.(drainStatusResponse)
+		return ok &&
+			validGuardResponseCode(response.Error) &&
+			(response.Error != responseOK || validWireDrainStatus(response.Status))
 	default:
 		return false
 	}
 }
 
-func validResponseCode(code errorCode) bool {
+func validVisitorResponseCode(code errorCode) bool {
 	switch code {
 	case responseOK,
 		responseInvalidLease,
@@ -122,6 +137,15 @@ func validResponseCode(code errorCode) bool {
 		responseLeaseOwnerMismatch,
 		responseLeaseExhausted,
 		responseInvalidRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func validGuardResponseCode(code errorCode) bool {
+	switch code {
+	case responseOK, responseInvalidGuard, responseUnauthorized:
 		return true
 	default:
 		return false

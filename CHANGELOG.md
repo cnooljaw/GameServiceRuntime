@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Drain Guard
+
+- 新增 `tooling/drain` 的 `Decorate`、`GuardConfig`、`GuardClient` 和 `DrainStatus`：受信任 Controller 可在目标 Service 的 Mailbox 内开始不可逆 Drain，并只拒绝显式列出的外部 Command；内部清理 Command 继续转交业务 Service。
+- 新增 `BeginDrainCommand`、`GetDrainStatusCommand`、可组合 JSON Codec、来源精确 fencing、重复 Begin 稳定状态和 Guard 指标。本地与双节点 TCP 验收覆盖了状态、Codec 和远程 Controller。
+- Guard 不发布 ServiceSet、不等待 Visitor、不执行 Stop 或 Resume；直接远端业务 Call 的拒绝仍遵循 Core `RemoteError`，目标节点 adapter 负责映射业务重试响应。
+
 ### Visitor lease Registry
 
 - 新增 `tooling/drain`：`VisitorRegistryService` 在自己的 Mailbox 中持有 Target/Visitor lease，并以随机 AuthorityEpoch、单调 Generation、owner 和 expiry fence 迟到 Renew/Release。

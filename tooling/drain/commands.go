@@ -13,6 +13,10 @@ const (
 	commandReleaseVisitorLease gsr.CommandID = 0x02700103
 	commandListVisitors        gsr.CommandID = 0x02700104
 	commandSweepVisitors       gsr.CommandID = 0x027001fe
+	// BeginDrainCommand starts one decorated Service's irreversible Drain Guard.
+	BeginDrainCommand gsr.CommandID = 0x02700201
+	// GetDrainStatusCommand reads one decorated Service's Drain Guard state.
+	GetDrainStatusCommand gsr.CommandID = 0x02700202
 )
 
 type errorCode string
@@ -26,6 +30,8 @@ const (
 	responseLeaseOwnerMismatch errorCode = "lease_owner_mismatch"
 	responseLeaseExhausted     errorCode = "lease_exhausted"
 	responseInvalidRequest     errorCode = "invalid_request"
+	responseInvalidGuard       errorCode = "invalid_guard"
+	responseUnauthorized       errorCode = "unauthorized"
 )
 
 type wireServiceRef struct {
@@ -129,6 +135,32 @@ type emptyResponse struct {
 	Error errorCode `json:"error"`
 }
 
+type wireDrainStatus struct {
+	Draining  bool      `json:"draining"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+func newWireDrainStatus(status DrainStatus) wireDrainStatus {
+	return wireDrainStatus{Draining: status.Draining, StartedAt: status.StartedAt}
+}
+
+func (status wireDrainStatus) drainStatus() DrainStatus {
+	return DrainStatus{Draining: status.Draining, StartedAt: status.StartedAt}
+}
+
+func validWireDrainStatus(status wireDrainStatus) bool {
+	return validDrainStatus(status.drainStatus())
+}
+
+type beginDrainRequest struct{}
+
+type getDrainStatusRequest struct{}
+
+type drainStatusResponse struct {
+	Status wireDrainStatus `json:"status"`
+	Error  errorCode       `json:"error"`
+}
+
 type sweepVisitorsRequest struct{}
 
 func errorFromCode(code errorCode) error {
@@ -152,6 +184,19 @@ func errorFromCode(code errorCode) error {
 	}
 }
 
+func guardErrorFromCode(code errorCode) error {
+	switch code {
+	case responseOK:
+		return nil
+	case responseInvalidGuard:
+		return ErrInvalidGuard
+	case responseUnauthorized:
+		return ErrUnauthorized
+	default:
+		return ErrInvalidResponse
+	}
+}
+
 func codeFromError(err error) errorCode {
 	switch {
 	case err == nil:
@@ -170,5 +215,18 @@ func codeFromError(err error) errorCode {
 		return responseLeaseExhausted
 	default:
 		return responseInvalidRequest
+	}
+}
+
+func guardCodeFromError(err error) errorCode {
+	switch {
+	case err == nil:
+		return responseOK
+	case errors.Is(err, ErrInvalidGuard):
+		return responseInvalidGuard
+	case errors.Is(err, ErrUnauthorized):
+		return responseUnauthorized
+	default:
+		return responseInvalidGuard
 	}
 }

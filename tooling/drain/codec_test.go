@@ -99,6 +99,51 @@ func TestCodecEncodesValidLeaseAndListResponses(t *testing.T) {
 	}
 }
 
+func TestCodecEncodesGuardPayloadAndRejectsInvalidGuardResponse(t *testing.T) {
+	fallback := &recordingDrainCodec{}
+	codec := NewCodec(fallback)
+	payload, err := codec.Encode(BeginDrainCommand, false, beginDrainRequest{})
+	if err != nil {
+		t.Fatalf("Encode(BeginDrain) error = %v", err)
+	}
+	decoded, err := codec.Decode(BeginDrainCommand, false, payload)
+	if err != nil {
+		t.Fatalf("Decode(BeginDrain) error = %v", err)
+	}
+	if _, ok := decoded.(beginDrainRequest); !ok {
+		t.Fatalf("Decode(BeginDrain) = %T, want beginDrainRequest", decoded)
+	}
+	if _, err := codec.Encode(BeginDrainCommand, false, getDrainStatusRequest{}); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Encode(BeginDrain wrong payload) error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := codec.Decode(GetDrainStatusCommand, false, []byte(`{} {}`)); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode(Status trailing JSON) error = %v, want ErrInvalidResponse", err)
+	}
+
+	response := drainStatusResponse{Status: newWireDrainStatus(DrainStatus{
+		Draining:  true,
+		StartedAt: time.Date(2026, 7, 23, 13, 0, 0, 0, time.UTC),
+	})}
+	payload, err = codec.Encode(GetDrainStatusCommand, true, response)
+	if err != nil {
+		t.Fatalf("Encode(Status response) error = %v", err)
+	}
+	decoded, err = codec.Decode(GetDrainStatusCommand, true, payload)
+	if !reflect.DeepEqual(decoded, response) {
+		t.Fatalf("Decode(Status response) = %#v, want %#v", decoded, response)
+	}
+
+	if _, err := codec.Decode(BeginDrainCommand, true, []byte(`{"status":{"draining":true,"started_at":"0001-01-01T00:00:00Z"},"error":""}`)); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode(invalid draining status) error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := codec.Decode(GetDrainStatusCommand, true, []byte(`{"status":{"draining":false,"started_at":"0001-01-01T00:00:00Z"},"error":"unknown"}`)); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Decode(unknown guard code) error = %v, want ErrInvalidResponse", err)
+	}
+	if _, err := codec.Encode(99, false, "fallback"); err != nil || fallback.encoded != 1 {
+		t.Fatalf("Encode(fallback) = %v, calls=%d", err, fallback.encoded)
+	}
+}
+
 type recordingDrainCodec struct {
 	encoded int
 }

@@ -29,8 +29,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - `NodeAgentService` 自动 Discovery lease、`ClusterObserverService` 的静态 NodeConfig、只读 Observed State 和类型化节点刷新。
 - 独立 `DirectoryService`、带 AuthorityEpoch/Revision 的 ServiceSet、Watch lease，以及 Hash、RoundRobin、Broadcast 路由。
 - 独立 `VisitorRegistryService`、带 AuthorityEpoch/Generation/owner/expiry 的访问者 lease，以及显式强弱访问者、可组合 Codec 和双节点 TCP 验收。
+- 可组合的 `Drain Guard` decorator：由精确 `ServiceRef` Controller 在旧实例 Mailbox 内开始不可逆 Drain，显式外部 Command 被拒绝，内部清理 Command 保持可用。
 
-Phase 10A 的 Visitor lease Registry 已完成。Drain guard、切换编排、Controller 和 Business Layer 仍未实现；实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Phase 10A 的 Visitor lease Registry 与 Phase 10B 的 Drain Guard 已完成。ServiceGroup 切换编排、回滚、Controller 和 Business Layer 仍未实现；实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 

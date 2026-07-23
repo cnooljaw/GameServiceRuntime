@@ -23,4 +23,10 @@ var (
 	ErrInvalidResponse = errors.New("drain: invalid response")
 	// ErrUnsupportedCommand reports a payload not owned by the Drain Codec.
 	ErrUnsupportedCommand = errors.New("drain: unsupported command")
+	// ErrInvalidGuard reports invalid Drain Guard configuration or control payload.
+	ErrInvalidGuard = errors.New("drain: invalid guard")
+	// ErrUnauthorized reports a Drain Begin attempt from a Service other than the configured controller.
+	ErrUnauthorized = errors.New("drain: unauthorized")
+	// ErrDraining reports an external Command rejected by a started Drain Guard.
+	ErrDraining = errors.New("drain: draining")
 )

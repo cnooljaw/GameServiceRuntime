@@ -3,6 +3,7 @@
 > 状态：已接受
 > 目标阶段：Phase 10B
 > 接受日期：2026-07-23
+> 实现日期：2026-07-23
 > 范围：Runtime Tooling
 > 依赖：[RFC-0100](RFC-0100-Core-Service.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)、[RFC-0270](RFC-0270-Tooling-Drain-Hot-Reload.md)
 > 依据：Skynet 的旧 Service 下线边界，以及 GSR 的 Service decorator 和 Mailbox 串行规则
@@ -104,7 +105,7 @@ startedAt time.Time
 
 这两个字段与被包装 Service 的 handler 共用同一个目标 Mailbox。`BeginDrain` 到达前已经排在该 Mailbox 中的外部 Command 仍依原顺序交给内层；它处理完成后，后续到达的、位于 `ExternalCommands` 的 Command 在调用内层之前返回 `ErrDraining`。因此 Guard 不承诺跨多个目标的全局线性顺序，只提供单个旧实例入口的串行边界。
 
-`Begin` 要求 `CommandContext.Source()` 与 `GuardConfig.Controller` 完全相等。来源或 payload 无效时不得改变状态；首次有效 Begin 记录状态并返回成功快照，后续有效 Begin 不改变 `StartedAt`、仍返回同一成功快照。`GetDrainStatus` 不检查来源，只返回独立值快照。Guard 对 Call 使用 `Reply`；受信任协调者必须通过 `GuardClient.Begin` 获取结果，不能把成功投递误当成成功开始。
+`Begin` 要求 `CommandContext.Source()` 与 `GuardConfig.Controller` 完全相等。来源或 payload 无效时不得改变状态；首次有效 Begin 在 Reply 前记录状态，后续有效 Begin 不改变 `StartedAt`、仍返回同一成功快照。因而 Reply 投递失败、远端调用超时或受信任控制者使用 Send 时，状态是否已开始可能未知，控制者必须用 `Status` 重新判定；它不能把成功投递误当成成功开始。`GetDrainStatus` 不检查来源，只返回独立值快照。
 
 当 Guard 正在 Drain 时，声明为外部的 Command 必须在转交内层前返回 `ErrDraining`，并且不得触碰内层业务状态。未列出的 Command 仍转交内层，用于完成已存在的会话、释放 Visitor lease、状态快照或后续受控退出。Guard 不尝试推断这些内部 Command 是否安全。
 
@@ -121,6 +122,8 @@ ErrDraining
 ```
 
 `ErrInvalidGuard` 表示无效 Guard 配置、控制 Command 碰撞或无效 Begin payload；`ErrUnauthorized` 表示 Begin 的精确来源不匹配；`ErrDraining` 表示 Guard 已拒绝一个已声明的外部 Command。Client 发现无效响应或 Codec 发现无效 wire 值时继续返回既有 `ErrInvalidResponse`。Runtime、Transport 和 context 取消/超时错误保持原语义。
+
+Core 只稳定编码自己的错误；因此目标所在节点的业务入口或同节点调用方可以用 `errors.Is(err, ErrDraining)` 进行类型化处理，而对任意远端外部 Command 的直接 Call 会按现有 Cluster 规则收到 `*gsr.RemoteError`。业务协议 adapter 应在目标节点把 `ErrDraining` 映射为其自身的可重试响应，不能把 Guard 错误加入 Core 的稳定远端错误表。`GuardClient.Begin` 和 `Status` 则通过自身的类型化响应，在跨节点时保持 `ErrUnauthorized`、`ErrInvalidGuard` 与 `ErrInvalidResponse` 的语义。
 
 Guard 使用 `ServiceContext.Metrics()` 记录：
 
@@ -148,6 +151,9 @@ drain_guard_rejected_total
 4. Begin 只接受精确 Controller `ServiceRef`；错误 source、节点级 caller 和错误 payload 不改变状态。
 5. Begin 幂等地保留首次 `StartedAt`；Status 在前后返回满足不变量的独立快照；开始和拒绝指标正确。
 6. Guard Command 的 Codec 正确组合 Visitor/fallback Codec，拒绝私有或错误 payload、畸形 JSON、尾随 JSON、类型错误、未知响应码和无效成功响应。
-7. 双节点 TCP 下，Controller Service 可通过 `GuardClient.Begin` 使远端旧实例拒绝外部 Command；远端 `ErrDraining` 可类型化识别。
+7. 双节点 TCP 下，Controller Service 可通过 `GuardClient.Begin` 使远端旧实例进入 Drain；Guard Client 的领域错误可类型化识别。外部 Command 的拒绝由目标节点业务入口映射，跨节点直接 Call 继续遵循 Core `RemoteError` 语义。
 8. Core、Discovery 和 ServiceGroup 不导入 `tooling/drain`；Guard、Client、Codec 和被包装 Service 不创建 goroutine；`go test ./...`、`go vet ./...`、`go test -race ./...` 通过。
 
+## 实现结论
+
+Phase 10B 使业务组合根能够把会直接接收新请求的旧 Service 包装为显式入口闸门：协调 Service Begin 成功后，即使调用方缓存了旧 `ServiceRef`，也不能进入已列出的外部 Command。它明确不执行 ServiceGroup 切换、不等待 Visitor、不恢复旧实例，也不停止 Service；这些跨节点操作仍必须由下一阶段具有操作记录、授权和人工恢复边界的控制面完成。

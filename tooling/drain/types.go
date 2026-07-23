@@ -35,6 +35,18 @@ type VisitorRegistryConfig struct {
 	SweepInterval time.Duration
 }
 
+// GuardConfig binds a wrapped Service to its trusted Drain controller and external work Commands.
+type GuardConfig struct {
+	Controller       gsr.ServiceRef
+	ExternalCommands []gsr.CommandID
+}
+
+// DrainStatus is an independent snapshot of one Drain Guard state.
+type DrainStatus struct {
+	Draining  bool
+	StartedAt time.Time
+}
+
 // CommandCaller is the narrow Runtime capability required by Client.
 type CommandCaller interface {
 	Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error)
@@ -42,6 +54,12 @@ type CommandCaller interface {
 
 // Client provides typed access to one VisitorRegistryService.
 type Client struct {
+	caller CommandCaller
+	target gsr.ServiceRef
+}
+
+// GuardClient provides typed access to one decorated Drain Guard Service.
+type GuardClient struct {
 	caller CommandCaller
 	target gsr.ServiceRef
 }
