@@ -56,6 +56,7 @@ Layer 3: Business Layer
 | RFC-0270 Drain | 10A | 已接受 | 已实现 VisitorRegistryService 的 lease、代际、owner、过期、Codec、双节点 TCP 和本地示例；Drain 编排、回滚、Controller 与 Reconcile 仍需后续独立契约。 |
 | RFC-0271 Drain Guard | 10B | 已接受 | 已实现旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec、本地与双节点 TCP 验收；跨节点业务拒绝继续由目标节点 adapter 映射。 |
 | RFC-0272 Controlled Drain Operation | 10C1 | 已接受 | 已实现 Gateway+Principal 授权、RequestID 幂等、有界审计、Directory/Guard 未知结果确认、Visitor 刷新、ReadyToStop、本地和双节点 TCP 验收；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
+| RFC-0273 Node Stop Execution | 10C2A | 待实现 | 已冻结 Coordinator 授权、NodeAgent receipt、Directory 再确认、外部有界 Stop Runner 与显式 Resolve；恢复、补偿和 Reconcile 仍后置。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
 | RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
 | RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
@@ -283,14 +284,20 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 - Runtime Stop、NodeAgent 修改型动作、自动恢复或后台 Reconcile。
 - Desired State、扩缩容、放置、外部认证协议或持久化审计。
 
-## 后续 Phase 10C2：节点 Stop 与恢复操作
+## Phase 10C2A：节点 Stop 执行
 
-在 Operation 已经能够审计地给出 ReadyToStop 后，才冻结 NodeAgent 执行 Stop、节点级权限、超时、执行结果、补偿和人工恢复。它不得重新发布已经 Guard 的原旧 Ref，也不得把 NodeID source fencing 充当用户认证。
+状态：待实现（2026-07-23）。
+
+在 Operation 已经能够审计地给出 ReadyToStop 后，冻结 Gateway 授权、Coordinator Directory 再确认、NodeAgent receipt 与组合根 Runner 调用 Runtime.Stop。它不得重新发布已经 Guard 的原旧 Ref，也不得把 NodeID source fencing 充当用户认证。
 
 不实现：
 
-- 任意代码热替换。
-- Go 进程内危险热补丁。
+- 创建替代实例、自动恢复、补偿、Desired State 或 Reconcile。
+- 任意代码热替换或 Go 进程内危险热补丁。
+
+## 后续 Phase 10C2B：人工恢复与补偿
+
+在 StopOperation 已能完整记录执行结果后，才冻结新实例创建、发布更高 ServiceSet、人工确认和恢复审计。它不得 Resume Guard 或重新发布已停止的旧 Ref。
 
 ## Phase 11：Command Record 与 Replay
 

@@ -49,6 +49,7 @@
 - [RFC-0270：Drain、热更新与访问者追踪](rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md)
 - [RFC-0271：Drain Guard](rfcs/RFC-0271-Tooling-Drain-Guard.md)
 - [RFC-0272：受控 Drain 操作](rfcs/RFC-0272-Tooling-Controlled-Drain-Operation.md)
+- [RFC-0273：受控 Node Stop 执行](rfcs/RFC-0273-Tooling-Node-Stop-Execution.md)
 - [RFC-0280：Command Record 与 Replay](rfcs/RFC-0280-Tooling-Command-Record-Replay.md)
 - [RFC-0290：LoginService 与 Gateway 入口](rfcs/RFC-0290-Tooling-LoginService-Gateway.md)
 
