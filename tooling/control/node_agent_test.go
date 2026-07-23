@@ -9,7 +9,7 @@ import (
 
 func TestNodeAgentRejectsUnauthorizedSourceBeforeCapture(t *testing.T) {
 	reporter := &countingReporter{report: testReport("node-b")}
-	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ControlNode: "node-a"})
+	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ObserverNode: "node-a"})
 	if err != nil {
 		t.Fatalf("NewNodeAgentService() error = %v", err)
 	}
@@ -29,7 +29,7 @@ func TestNodeAgentRejectsUnauthorizedSourceBeforeCapture(t *testing.T) {
 
 func TestNodeAgentReturnsIndependentReport(t *testing.T) {
 	reporter := &countingReporter{report: testReport("node-b")}
-	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ControlNode: "node-a"})
+	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ObserverNode: "node-a"})
 	if err != nil {
 		t.Fatalf("NewNodeAgentService() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestNodeAgentReturnsIndependentReport(t *testing.T) {
 
 func TestNodeAgentRejectsInvalidPayload(t *testing.T) {
 	reporter := &countingReporter{report: testReport("node-b")}
-	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ControlNode: "node-a"})
+	service, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ObserverNode: "node-a"})
 	if err != nil {
 		t.Fatalf("NewNodeAgentService() error = %v", err)
 	}

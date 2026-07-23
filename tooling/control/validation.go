@@ -26,13 +26,13 @@ func validAgent(node gsr.NodeID, agent gsr.ServiceRef) bool {
 	return agent.Node == node && agent.ID != 0
 }
 
-func validDesired(desired NodeDesiredState) bool {
-	return validNode(desired.ID) && strings.TrimSpace(desired.Address) != ""
+func validNodeConfig(config NodeConfig) bool {
+	return validNode(config.ID) && strings.TrimSpace(config.Address) != ""
 }
 
 func validTarget(target NodeTarget) bool {
-	if !validDesired(target.Desired) {
+	if !validNodeConfig(target.Config) {
 		return false
 	}
-	return !target.Desired.Enabled || validAgent(target.Desired.ID, target.Agent)
+	return !target.Config.Enabled || validAgent(target.Config.ID, target.Agent)
 }

@@ -40,7 +40,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor 和客户端入口已完成。当前进入 Phase 8A Cluster Control Plane 的只读 NodeAgent 与节点观测汇总切片。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor 和客户端入口已完成。当前进入 Phase 8：NodeAgent、自动租约 Heartbeat 与节点观测切片。
 
 ## 后续 RFC 审核结果
 
@@ -51,7 +51,7 @@ Layer 3: Business Layer
 | RFC-0210 Snapshot | 7D | 已接受 | 已实现 Capture Command、外部 Store、Revision 冲突保护、Cluster Codec 和组合根恢复。 |
 | RFC-0220 Supervisor | 7E | 已接受 | 已实现 panic Decorator、Source/Generation fencing、有界 Runner、恢复预算、两阶段发布和 Snapshot 纵向切片。 |
 | RFC-0290 客户端入口 | 7F | 已接受 | 已实现内存 SessionRegistry、SingleSession LoginService、固定 proof 线格式、TCP Login/Gateway Adapter、ProtocolMapper seam 与端到端验收。 |
-| RFC-0250 Control Plane | 8A | 待实现 | 已冻结可信集群内只读 NodeAgent、Desired/Observed State、单节点刷新和 Codec；外部认证、授权、审计及修改型运维明确后置。 |
+| RFC-0250 Control Plane | 8 | 待实现 | 已冻结可信集群内 NodeAgent、自动 Heartbeat、节点配置与 Observed State；Service Desired State、Reconcile 和修改型运维明确后置。 |
 | RFC-0260 ServiceGroup | 9 | 草案 | ServiceGroup 不进入现有 Discovery；需要独立 DirectoryService，Watch 使用 ServiceRef + Command。 |
 | RFC-0270 Drain | 10 | 草案 | Visitor 状态改由 Service + Command 持有；需要租约、代际和失败回滚契约。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
@@ -195,13 +195,13 @@ Phase 7 拆成六个可独立验收的子阶段，避免一次把所有外层能
 
 已实现内存 `SessionRegistry`、`Login Adapter`、`LoginService`、最小 TCP `Gateway Adapter` 和 `ProtocolMapper` seam。会话 Generation、proof 线格式、原子绑定、SingleSession 的旧连接关闭，以及 Adapter 失败交接由 RFC-0290 冻结。生产 Handshake、TLS、跨节点或持久化会话不在本阶段。
 
-## Phase 8A：Cluster Control Plane（只读）
+## Phase 8：节点观测与 Heartbeat
 
 实现：
 
-- `ClusterControlService`。
+- `ClusterObserverService`。
 - `NodeAgentService`。
-- 静态节点 Desired State / 缓存 Observed State。
+- 自动 Discovery Heartbeat、节点配置 / 缓存 Observed State。
 - 节点状态列表、节点详情与单节点刷新。
 - 只读 Agent 的 Cluster Codec 与双节点示例。
 
@@ -209,9 +209,9 @@ Phase 7 拆成六个可独立验收的子阶段，避免一次把所有外层能
 
 - 远程任意代码执行。
 - 外部 Admin API、认证、授权、审计和生产环境危险运维命令。
-- reload、Drain、ServiceGroup 切换和动态 peer 更新。
+- Service Desired State、Reconcile、扩缩容、故障迁移、reload、Drain、ServiceGroup 切换和动态 peer 更新。
 
-后续 Phase 8B 才能在独立 RFC 中冻结修改型控制面；不得把 NodeID 来源检查当作用户身份认证。
+Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reconcile 与修改型执行命令；不得把 NodeID 来源检查当作用户身份认证。
 
 ## Phase 9：Runtime Tooling 扩展
 
@@ -239,6 +239,7 @@ Phase 7 拆成六个可独立验收的子阶段，避免一次把所有外层能
 - `Weak Visitor`
 - ServiceGroup 版本切换。
 - 切换失败回滚。
+- Service Desired State、Controller、Reconcile 与 NodeAgent 执行动作。
 
 不实现：
 

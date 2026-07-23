@@ -12,8 +12,8 @@ import (
 // DefaultNodeAgentName is the stable local name normally assigned to NodeAgentService.
 const DefaultNodeAgentName gsr.ServiceName = ".node-agent"
 
-// DefaultControlName is the stable local name normally assigned to ClusterControlService.
-const DefaultControlName gsr.ServiceName = ".cluster-control"
+// DefaultObserverName is the stable local name normally assigned to ClusterObserverService.
+const DefaultObserverName gsr.ServiceName = ".cluster-observer"
 
 // Reporter captures one independent local Monitor report.
 type Reporter interface {
@@ -22,22 +22,23 @@ type Reporter interface {
 
 // NodeAgentConfig configures the local NodeAgentService read boundary.
 type NodeAgentConfig struct {
-	Reporter    Reporter
-	ControlNode gsr.NodeID
+	Reporter     Reporter
+	ObserverNode gsr.NodeID
 }
 
-// NodeDesiredState is static deployment configuration for one cluster node.
-type NodeDesiredState struct {
+// NodeConfig is static deployment configuration for one cluster node.
+// It is an observation target, not a reconcilable Desired State.
+type NodeConfig struct {
 	ID      gsr.NodeID `json:"id"`
 	Address string     `json:"address"`
 	Role    string     `json:"role"`
 	Enabled bool       `json:"enabled"`
 }
 
-// NodeTarget joins desired state to the current NodeAgent ServiceRef used by ClusterControlService.
+// NodeTarget joins node configuration to the current NodeAgent ServiceRef used by ClusterObserverService.
 type NodeTarget struct {
-	Desired NodeDesiredState
-	Agent   gsr.ServiceRef
+	Config NodeConfig
+	Agent  gsr.ServiceRef
 }
 
 // NodeStatus describes the latest Control Plane observation of one desired node.
@@ -63,16 +64,16 @@ type NodeObservedState struct {
 	LastError  string        `json:"last_error"`
 }
 
-// NodeDetail combines deployment desired state with the latest independent observation.
+// NodeDetail combines deployment node configuration with the latest independent observation.
 type NodeDetail struct {
-	Desired   NodeDesiredState  `json:"desired"`
+	Config    NodeConfig        `json:"config"`
 	Observed  NodeObservedState `json:"observed"`
 	Report    monitor.Report    `json:"report"`
 	HasReport bool              `json:"has_report"`
 }
 
-// ControlConfig configures static desired nodes and per-node refresh calls.
-type ControlConfig struct {
+// ObserverConfig configures static node observation targets and per-node refresh calls.
+type ObserverConfig struct {
 	Nodes       []NodeTarget
 	CallTimeout time.Duration
 	Now         func() time.Time

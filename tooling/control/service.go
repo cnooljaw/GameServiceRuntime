@@ -10,11 +10,11 @@ import (
 const defaultCallTimeout = 3 * time.Second
 
 type controlService struct {
-	config ControlConfig
+	config ObserverConfig
 }
 
 // NewClusterControlService creates a ClusterControlService with frozen static desired nodes.
-func NewClusterControlService(config ControlConfig) (gsr.Service, error) {
+func NewClusterObserverService(config ObserverConfig) (gsr.Service, error) {
 	if config.CallTimeout < 0 {
 		return nil, ErrInvalidConfig
 	}
@@ -30,10 +30,10 @@ func NewClusterControlService(config ControlConfig) (gsr.Service, error) {
 		if !validTarget(target) {
 			return nil, ErrInvalidConfig
 		}
-		if _, exists := seen[target.Desired.ID]; exists {
+		if _, exists := seen[target.Config.ID]; exists {
 			return nil, ErrInvalidConfig
 		}
-		seen[target.Desired.ID] = struct{}{}
+		seen[target.Config.ID] = struct{}{}
 	}
 	return &controlService{config: config}, nil
 }

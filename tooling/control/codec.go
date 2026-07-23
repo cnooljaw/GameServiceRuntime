@@ -121,7 +121,7 @@ func validResponseCode(code errorCode) bool {
 }
 
 func validDetail(detail NodeDetail) bool {
-	if !validDesired(detail.Desired) || detail.Observed.ID != detail.Desired.ID {
+	if !validNodeConfig(detail.Config) || detail.Observed.ID != detail.Config.ID {
 		return false
 	}
 	switch detail.Observed.Status {
@@ -132,7 +132,7 @@ func validDetail(detail NodeDetail) bool {
 	if detail.HasReport && !validNode(detail.Report.Node) {
 		return false
 	}
-	return !detail.HasReport || detail.Report.Node == detail.Desired.ID
+	return !detail.HasReport || detail.Report.Node == detail.Config.ID
 }
 
 func requireJSONEnd(decoder *json.Decoder) error {

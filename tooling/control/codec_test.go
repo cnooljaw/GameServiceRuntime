@@ -50,17 +50,17 @@ func TestCodecRejectsInvalidPayloadAndTrailingJSON(t *testing.T) {
 }
 
 func TestControlConfigRejectsInvalidTargetsAndClient(t *testing.T) {
-	validTarget := NodeTarget{Desired: NodeDesiredState{ID: "node-b", Address: "127.0.0.1:9000", Enabled: true}, Agent: gsr.ServiceRef{Node: "node-b", ID: 1}}
-	if _, err := NewClusterControlService(ControlConfig{Nodes: []NodeTarget{validTarget, validTarget}}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("NewClusterControlService(duplicate) error = %v, want ErrInvalidConfig", err)
+	validTarget := NodeTarget{Config: NodeConfig{ID: "node-b", Address: "127.0.0.1:9000", Enabled: true}, Agent: gsr.ServiceRef{Node: "node-b", ID: 1}}
+	if _, err := NewClusterObserverService(ObserverConfig{Nodes: []NodeTarget{validTarget, validTarget}}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewClusterObserverService(duplicate) error = %v, want ErrInvalidConfig", err)
 	}
 	invalidAgent := validTarget
 	invalidAgent.Agent = gsr.ServiceRef{Node: "node-a", ID: 1}
-	if _, err := NewClusterControlService(ControlConfig{Nodes: []NodeTarget{invalidAgent}}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("NewClusterControlService(wrong agent node) error = %v, want ErrInvalidConfig", err)
+	if _, err := NewClusterObserverService(ObserverConfig{Nodes: []NodeTarget{invalidAgent}}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewClusterObserverService(wrong agent node) error = %v, want ErrInvalidConfig", err)
 	}
-	if _, err := NewClusterControlService(ControlConfig{Nodes: []NodeTarget{validTarget}, CallTimeout: -time.Second}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("NewClusterControlService(negative timeout) error = %v, want ErrInvalidConfig", err)
+	if _, err := NewClusterObserverService(ObserverConfig{Nodes: []NodeTarget{validTarget}, CallTimeout: -time.Second}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewClusterObserverService(negative timeout) error = %v, want ErrInvalidConfig", err)
 	}
 	if _, err := NewClient((*nilCaller)(nil), gsr.ServiceRef{Node: "node-a", ID: 1}); !errors.Is(err, ErrInvalidCaller) {
 		t.Fatalf("NewClient(nil caller) error = %v, want ErrInvalidCaller", err)

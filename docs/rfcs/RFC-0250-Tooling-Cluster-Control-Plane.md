@@ -1,32 +1,32 @@
 # RFC-0250：Cluster Control Plane
 
 > 状态：待实现
-> 目标阶段：Phase 8A
+> 目标阶段：Phase 8
 > 范围：Runtime Tooling、Cluster Control Plane
 > 依赖：[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0190](RFC-0190-Core-Cluster-Data-Plane.md)、[RFC-0191](RFC-0191-Core-Cluster-Transport.md)、[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)、[RFC-0230](RFC-0230-Tooling-Monitor.md)
 > 依据：Skynet debug_console、hanxi/skynet-admin 的观测分层
 
 ## 目的
 
-本文冻结 Phase 8A 的最小 Cluster Control Plane：可信集群内的只读节点观测与汇总。
+本文冻结 Phase 8 的最小节点观测面：可信集群内的只读节点观测与自动租约 Heartbeat。
 
-它让一个 ClusterControlService 保存静态节点期望，并经由远端 NodeAgentService 取得本地 Monitor 报告。调用继续使用 ServiceRef、Command、Call 和 Cluster Data Plane；Control Plane 不新增 RPC、Transport 协议或 Core getter。
+它让一个 ClusterObserverService 保存静态节点配置，并经由远端 NodeAgentService 取得本地 Monitor 报告。调用继续使用 ServiceRef、Command、Call 和 Cluster Data Plane；本阶段不新增 RPC、Transport 协议或 Core getter。
 
 ## 目标
 
-Phase 8A 必须交付：
+Phase 8 必须交付：
 
 - 每个节点一个只读 NodeAgentService，只消费本地 monitor.Monitor 的独立 Report。
-- 一个 ClusterControlService，保存配置期望状态、刷新单节点观测并返回稳定的节点详情副本。
+- 一个 ClusterObserverService，保存节点配置、刷新单节点观测并返回稳定的节点详情副本。
+- 自动 Discovery Heartbeat；它只续租 NodeAgent 自己的租约，不创建 Service 或执行调度策略。
 - 通过现有远程 Call 查询 NodeAgent 的 Codec、Client 和双节点 TCP 验收。
-- 节点期望状态和观测状态的明确区分，以及不可用、超时和坏响应的稳定观测结果。
 
 ## 非目标
 
 Phase 8A 不实现：
 
 - HTTP、CLI、Web Console、外部 Admin API、用户认证、授权 token 或人类操作者身份。
-- reload、启停节点、Drain、ServiceGroup 切换、回滚、远程代码执行或直接 Runtime.Stop。
+- Service Desired State、Reconcile、扩缩容、故障迁移、reload、启停节点、Drain、ServiceGroup 切换、回滚、远程代码执行或直接 Runtime.Stop。
 - 自动 Discovery 心跳、动态 TCP peer 更新、配置持久化、选主、跨 ControlService 同步或后台轮询。
 - Transport 连接对象、进程内存、Service 指针、业务领域指标或业务状态。
 - 通用审计日志接口。修改型命令尚未存在，不能伪造“已审计”的能力；后续引入高危命令时必须先冻结认证、授权、二次确认和审计记录格式。
@@ -79,7 +79,7 @@ type NodeAgentConfig struct {
     ControlNode gsr.NodeID
 }
 
-type NodeDesiredState struct {
+type NodeConfig struct {
     ID      gsr.NodeID
     Address string
     Role    string
@@ -87,7 +87,7 @@ type NodeDesiredState struct {
 }
 
 type NodeTarget struct {
-    Desired NodeDesiredState
+    Config  NodeConfig
     Agent   gsr.ServiceRef
 }
 
@@ -109,13 +109,13 @@ type NodeObservedState struct {
 }
 
 type NodeDetail struct {
-    Desired   NodeDesiredState
+    Config    NodeConfig
     Observed  NodeObservedState
     Report    monitor.Report
     HasReport bool
 }
 
-type ControlConfig struct {
+type ObserverConfig struct {
     Nodes       []NodeTarget
     CallTimeout time.Duration
     Now         func() time.Time
@@ -126,14 +126,14 @@ type CommandCaller interface {
 }
 
 func NewNodeAgentService(NodeAgentConfig) (gsr.Service, error)
-func NewClusterControlService(ControlConfig) (gsr.Service, error)
+func NewClusterObserverService(ObserverConfig) (gsr.Service, error)
 func NewClient(CommandCaller, gsr.ServiceRef) (*Client, error)
 func NewCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec
 ~~~
 
 DefaultNodeAgentName 与 DefaultControlName 只是节点内稳定名字，不能被当作跨节点动态 ServiceID。远端调用方应由组合根在已知节点上调用 Runtime.ResolveRemote，再把得到的 ServiceRef 作为 NodeTarget.Agent 创建 ControlService。
 
-ControlConfig.Nodes 是本阶段唯一的 Desired State owner。NodeID 必须唯一；Address 和 ID 必须非空；Role 可以为空；Enabled 节点必须提供 Node 相同且 ID 非零的 Agent ref。Disabled 节点可以省略 Agent ref，且永不发起远程 Call。Config 在创建时深复制，调用方后续修改不影响 Service。
+ObserverConfig.Nodes 是本阶段的静态节点配置 owner，不是可收敛的 Desired State。NodeID 必须唯一；Address 和 ID 必须非空；Role 可以为空；Enabled 节点必须提供 Node 相同且 ID 非零的 Agent ref。Disabled 节点可以省略 Agent ref，且永不发起远程 Call。Config 在创建时深复制，调用方后续修改不影响 Service。
 
 CallTimeout 零值默认 3 秒；负值、nil Now、nil Reporter、空 ControlNode、非法 Agent ref、重复 NodeID 和 nil CommandCaller 返回 ErrInvalidConfig 或 ErrInvalidCaller。Now 为 nil 时默认 time.Now。
 
@@ -210,7 +210,7 @@ control_refresh_latency
 
 ## 与后续阶段的关系
 
-Discovery 仍只保存活动租约和长期名字；Phase 8A 不自动续租，也不以 Observed State 回写 Discovery。配置 reload、动态 Agent ref 更新、启停、Drain 和 ServiceGroup 编排留待后续兼容扩展。
+Discovery 仍只保存活动租约和长期名字；Phase 8 自动 Heartbeat 只续租 NodeAgent 自己的节点租约，不以 Observed State 回写 Discovery。Service Desired State、Reconcile、配置 reload、动态 Agent ref 更新、启停、Drain 和 ServiceGroup 编排留待后续阶段。
 
 后续高危命令至少必须补充：外部 Admin adapter 的认证 principal、动作级授权、请求 ID、不可变审计记录、二次确认、超时/部分成功语义和失败回滚。它们不能复用 Phase 8A 的 NodeID 来源检查作为用户授权。
 

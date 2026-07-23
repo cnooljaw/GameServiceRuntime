@@ -12,7 +12,7 @@ type nodeAgent struct {
 
 // NewNodeAgentService creates a read-only NodeAgentService for one local Monitor reporter.
 func NewNodeAgentService(config NodeAgentConfig) (gsr.Service, error) {
-	if isNil(config.Reporter) || !validNode(config.ControlNode) {
+	if isNil(config.Reporter) || !validNode(config.ObserverNode) {
 		return nil, ErrInvalidConfig
 	}
 	return &nodeAgent{config: config}, nil
@@ -30,7 +30,7 @@ func (a *nodeAgent) Handle(commandContext gsr.CommandContext, command gsr.Comman
 		return commandContext.Reply(nodeReportResponse{Error: responseInvalidRequest})
 	}
 	source := commandContext.Source()
-	if source.Node != a.config.ControlNode || source.ID == 0 {
+	if source.Node != a.config.ObserverNode || source.ID == 0 {
 		return commandContext.Reply(nodeReportResponse{Error: responseUnauthorized})
 	}
 	return commandContext.Reply(nodeReportResponse{Report: cloneReport(a.config.Reporter.Capture())})
