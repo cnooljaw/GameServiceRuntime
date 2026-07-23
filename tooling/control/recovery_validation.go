@@ -213,5 +213,15 @@ func validRecoveryCreateResult(result recoveryCreateResult) bool {
 }
 
 func validRecoveryReceipt(receipt RecoveryReceipt) bool {
-	return !receipt.UpdatedAt.IsZero() && validRecoveryCreateResult(recoveryCreateResult{RequestID: receipt.RequestID, Removed: receipt.Removed, Blueprint: receipt.Blueprint, Created: receipt.Created, State: receipt.State, Failure: receipt.Failure})
+	if receipt.UpdatedAt.IsZero() || !validRequestID(receipt.RequestID) || !validServiceRef(receipt.Removed) || !validBlueprintID(receipt.Blueprint) {
+		return false
+	}
+	switch receipt.State {
+	case RecoveryTargetCreating:
+		return receipt.Created == (gsr.ServiceRef{}) && receipt.Failure == RecoveryFailureNone
+	case RecoveryTargetCreated, RecoveryTargetFailed:
+		return validRecoveryCreateResult(recoveryCreateResult{RequestID: receipt.RequestID, Removed: receipt.Removed, Blueprint: receipt.Blueprint, Created: receipt.Created, State: receipt.State, Failure: receipt.Failure})
+	default:
+		return false
+	}
 }

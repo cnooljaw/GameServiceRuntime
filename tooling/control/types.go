@@ -40,6 +40,12 @@ type NodeAgentConfig struct {
 	// StopExecutor queues local Runtime.Stop work outside this Service handler.
 	// It must be set together with StopCoordinator.
 	StopExecutor NodeStopExecutor
+	// RecoveryCoordinator is the exact Coordinator ServiceRef authorized for local replacement creation.
+	// It must be set together with RecoveryExecutor.
+	RecoveryCoordinator gsr.ServiceRef
+	// RecoveryExecutor queues local Runtime.CreateService work outside this Service handler.
+	// It must be set together with RecoveryCoordinator.
+	RecoveryExecutor RecoveryExecutor
 }
 
 // NodeConfig is static deployment configuration for one cluster node.
