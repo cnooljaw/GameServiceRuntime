@@ -247,6 +247,16 @@ func errorFromCode(code errorCode) error {
 		return ErrStopNotReady
 	case responseStopTargetMismatch:
 		return ErrStopTargetMismatch
+	case responseInvalidRecoveryRequest:
+		return ErrInvalidRecoveryRequest
+	case responseRecoveryNotFound:
+		return ErrRecoveryOperationNotFound
+	case responseRecoveryRequestConflict:
+		return ErrRecoveryRequestConflict
+	case responseRecoveryNotReady:
+		return ErrRecoveryNotReady
+	case responseRecoveryDisabled:
+		return ErrRecoveryNotReady
 	case responseInvalidRequest:
 		return ErrInvalidResponse
 	default:
@@ -290,6 +300,14 @@ func codeFromError(err error) errorCode {
 		return responseStopNotReady
 	case errors.Is(err, ErrStopTargetMismatch):
 		return responseStopTargetMismatch
+	case errors.Is(err, ErrInvalidRecoveryRequest):
+		return responseInvalidRecoveryRequest
+	case errors.Is(err, ErrRecoveryOperationNotFound):
+		return responseRecoveryNotFound
+	case errors.Is(err, ErrRecoveryRequestConflict):
+		return responseRecoveryRequestConflict
+	case errors.Is(err, ErrRecoveryNotReady):
+		return responseRecoveryNotReady
 	default:
 		return responseInvalidRequest
 	}

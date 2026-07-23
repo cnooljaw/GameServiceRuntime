@@ -80,6 +80,16 @@ func controlPayload(command gsr.CommandID, response bool) (any, bool) {
 			return nodeStopReceiptResponse{}, true
 		}
 		return getNodeStopReceiptRequest{}, true
+	case commandBeginRecoveryCreate:
+		if response {
+			return recoveryReceiptResponse{}, true
+		}
+		return beginRecoveryCreateRequest{}, true
+	case commandGetRecoveryReceipt:
+		if response {
+			return recoveryReceiptResponse{}, true
+		}
+		return getRecoveryReceiptRequest{}, true
 	case commandListNodes:
 		if response {
 			return nodesResponse{}, true
@@ -130,6 +140,16 @@ func controlPayload(command gsr.CommandID, response bool) (any, bool) {
 			return stopOperationResponse{}, true
 		}
 		return getDrainStopRequest{}, true
+	case commandBeginRecovery:
+		if response {
+			return recoveryOperationResponse{}, true
+		}
+		return beginRecoveryRequest{}, true
+	case commandConfirmRecovery, commandResolveRecovery, commandGetRecovery, commandAbandonRecovery:
+		if response {
+			return recoveryOperationResponse{}, true
+		}
+		return recoveryOperationRequest{}, true
 	default:
 		return nil, false
 	}
@@ -143,6 +163,9 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandBeginNodeStop, commandGetNodeStopReceipt:
 		response, ok := value.(nodeStopReceiptResponse)
 		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validNodeStopReceipt(response.Receipt))
+	case commandBeginRecoveryCreate, commandGetRecoveryReceipt:
+		response, ok := value.(recoveryReceiptResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validRecoveryReceipt(response.Receipt))
 	case commandListNodes:
 		response, ok := value.(nodesResponse)
 		if !ok || !validResponseCode(response.Error) {
@@ -166,6 +189,9 @@ func validWireResponse(command gsr.CommandID, value any) bool {
 	case commandBeginDrainStop, commandResolveDrainStop, commandGetDrainStop:
 		response, ok := value.(stopOperationResponse)
 		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validStopOperation(response.Operation))
+	case commandBeginRecovery, commandConfirmRecovery, commandResolveRecovery, commandGetRecovery, commandAbandonRecovery:
+		response, ok := value.(recoveryOperationResponse)
+		return ok && validResponseCode(response.Error) && (response.Error != responseOK || validRecoveryOperation(response.Operation))
 	default:
 		return false
 	}
@@ -190,7 +216,12 @@ func validResponseCode(code errorCode) bool {
 		responseStopDisabled,
 		responseStopRequestConflict,
 		responseStopNotReady,
-		responseStopTargetMismatch:
+		responseStopTargetMismatch,
+		responseInvalidRecoveryRequest,
+		responseRecoveryNotFound,
+		responseRecoveryRequestConflict,
+		responseRecoveryNotReady,
+		responseRecoveryDisabled:
 		return true
 	default:
 		return false

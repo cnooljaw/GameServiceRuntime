@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+	"github.com/lijiawang/GameServiceRuntime/tooling/servicegroup"
 )
 
 func TestCodecEncodesControlPayloadAndDelegatesFallback(t *testing.T) {
@@ -95,6 +96,35 @@ func TestCodecEncodesStopOperationRequestsAndResponses(t *testing.T) {
 	operation := StopOperation{RequestID: request.Request.RequestID, Principal: request.Request.Principal, Group: target.Group, Published: target.Published, Targets: []StopTarget{{Target: target.Target, Agent: target.Agent, State: StopTargetQueued}}, Phase: StopWaiting, CreatedAt: now, UpdatedAt: now}
 	if _, err := codec.Encode(commandResolveDrainStop, true, stopOperationResponse{Operation: operation}); err != nil {
 		t.Fatalf("Encode(ResolveDrainStop response) error = %v", err)
+	}
+}
+
+func TestCodecEncodesRecoveryRequestsAndKeepsRunnerResultPrivate(t *testing.T) {
+	codec := NewCodec(nil)
+	request := beginRecoveryRequest{Request: BeginRecoveryRequest{
+		RequestID: "recovery-1", Principal: "ops", Group: "match",
+		Expected: servicegroup.ServiceSet{Name: "match", Version: servicegroup.ServiceSetVersion{AuthorityEpoch: 1, Revision: 2}, Refs: []gsr.ServiceRef{{Node: "node-b", ID: 7}}, Tags: map[string]string{}},
+		Targets:  []RecoveryTargetRequest{{Removed: gsr.ServiceRef{Node: "node-b", ID: 9}, Agent: gsr.ServiceRef{Node: "node-b", ID: 1}, Blueprint: "match-v2"}},
+	}}
+	payload, err := codec.Encode(commandBeginRecovery, false, request)
+	if err != nil {
+		t.Fatalf("Encode(BeginRecovery) error = %v", err)
+	}
+	decoded, err := codec.Decode(commandBeginRecovery, false, payload)
+	if err != nil {
+		t.Fatalf("Decode(BeginRecovery) error = %v", err)
+	}
+	got, ok := decoded.(beginRecoveryRequest)
+	if !ok || !sameBeginRecoveryRequest(got.Request, request.Request) {
+		t.Fatalf("decoded request = %#v, want %#v", decoded, request)
+	}
+	now := time.Now()
+	operation := RecoveryOperation{RequestID: request.Request.RequestID, Principal: request.Request.Principal, Group: request.Request.Group, Expected: request.Request.Expected, Targets: []RecoveryTarget{{Removed: request.Request.Targets[0].Removed, Agent: request.Request.Targets[0].Agent, Blueprint: request.Request.Targets[0].Blueprint, Created: gsr.ServiceRef{Node: "node-b", ID: 10}, State: RecoveryTargetCreated}}, Phase: RecoveryAwaitingConfirmation, CreatedAt: now, UpdatedAt: now}
+	if _, err := codec.Encode(commandConfirmRecovery, true, recoveryOperationResponse{Operation: operation}); err != nil {
+		t.Fatalf("Encode(ConfirmRecovery response) error = %v", err)
+	}
+	if _, err := codec.Encode(commandRecordRecoveryCreate, false, recoveryCreateResult{}); !errors.Is(err, ErrUnsupportedCommand) {
+		t.Fatalf("Encode(private recovery result) error = %v, want ErrUnsupportedCommand", err)
 	}
 }
 

@@ -47,4 +47,16 @@ var (
 	ErrStopNotReady = errors.New("control: stop not ready")
 	// ErrStopTargetMismatch reports a Stop target set that does not exactly match the drained targets.
 	ErrStopTargetMismatch = errors.New("control: stop target mismatch")
+	// ErrInvalidRecoveryRequest reports malformed manual recovery input or result facts.
+	ErrInvalidRecoveryRequest = errors.New("control: invalid recovery request")
+	// ErrRecoveryOperationNotFound reports an unknown manual recovery operation or local receipt.
+	ErrRecoveryOperationNotFound = errors.New("control: recovery operation not found")
+	// ErrRecoveryRequestConflict reports a reused recovery RequestID with different immutable inputs.
+	ErrRecoveryRequestConflict = errors.New("control: recovery request conflict")
+	// ErrRecoveryNotReady reports an operation that is not ready for the requested recovery transition.
+	ErrRecoveryNotReady = errors.New("control: recovery not ready")
+	// ErrRecoveryQueueFull reports that the bounded Recovery runner queue has no capacity.
+	ErrRecoveryQueueFull = errors.New("control: recovery queue full")
+	// ErrRecoveryRunnerClosed reports a submission after its composition-root-owned runner was closed.
+	ErrRecoveryRunnerClosed = errors.New("control: recovery runner closed")
 )

@@ -52,6 +52,16 @@ func cloneStopOperation(operation StopOperation) StopOperation {
 	return cloned
 }
 
+func cloneRecoveryOperation(operation RecoveryOperation) RecoveryOperation {
+	cloned := operation
+	cloned.Expected = cloneDrainServiceSet(operation.Expected)
+	cloned.Published = cloneDrainServiceSet(operation.Published)
+	if operation.Targets != nil {
+		cloned.Targets = append([]RecoveryTarget(nil), operation.Targets...)
+	}
+	return cloned
+}
+
 func drainTargets(original, published servicegroup.ServiceSet) []DrainTarget {
 	publishedRefs := make(map[gsr.ServiceRef]struct{}, len(published.Refs))
 	for _, ref := range published.Refs {
