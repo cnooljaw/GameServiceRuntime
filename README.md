@@ -6,7 +6,7 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 
 ## 当前状态
 
-当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 9 ServiceGroup，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口、Control Plane 和 ServiceGroup Tooling：
+当前最新发布标签为 `v0.3.0`，当前源码已经完成 Phase 10C1 受控 Drain Operation，待下一个 minor 版本发布；变更与限制见 [`CHANGELOG.md`](CHANGELOG.md)。已经实现 Core Runtime、Cluster Data Plane，以及可选的 Discovery、Monitor、Snapshot、Supervisor、客户端入口、Control Plane 和 ServiceGroup Tooling：
 
 - Service、ServiceRef、Command 和私有 Registry。
 - Mailbox、Scheduler 和固定执行许可池。
@@ -30,8 +30,9 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - 独立 `DirectoryService`、带 AuthorityEpoch/Revision 的 ServiceSet、Watch lease，以及 Hash、RoundRobin、Broadcast 路由。
 - 独立 `VisitorRegistryService`、带 AuthorityEpoch/Generation/owner/expiry 的访问者 lease，以及显式强弱访问者、可组合 Codec 和双节点 TCP 验收。
 - 可组合的 `Drain Guard` decorator：由精确 `ServiceRef` Controller 在旧实例 Mailbox 内开始不可逆 Drain，显式外部 Command 被拒绝，内部清理 Command 保持可用。
+- `DrainCoordinatorService`：仅接受认证 Gateway 断言的 Principal，以 RequestID 保存 Directory 切换、Guard、Visitor 和有界审计事实，并给出不执行 Stop 的 `ReadyToStop` 结论。
 
-Phase 10A 的 Visitor lease Registry 与 Phase 10B 的 Drain Guard 已完成。ServiceGroup 切换编排、回滚、Controller 和 Business Layer 仍未实现；实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
+Phase 10A 的 Visitor lease Registry、Phase 10B 的 Drain Guard 与 Phase 10C1 的受控切换已完成。Coordinator 不创建实例、不执行 Runtime Stop、不恢复或重新发布已经 Guard 的旧 Ref；NodeAgent Stop、恢复、Controller、Reconcile 和 Business Layer 仍未实现。实施顺序见 [`RFC-0500`](docs/rfcs/RFC-0500-Roadmap.md)，当前工程欠账见 [`docs/TODO.md`](docs/TODO.md)。
 
 ## 本地 Runtime 示例
 

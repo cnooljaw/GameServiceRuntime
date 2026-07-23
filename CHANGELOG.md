@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Controlled Drain Operation
+
+- 新增 `tooling/control` 的 `DrainCoordinatorService`、`DrainClient`、`Principal`、`RequestID`、`DrainOperation` 和有界 `DrainAudit`。只有精确 Gateway ServiceRef 代表白名单 Principal 才能 Start、Resolve、Get 或读取审计；同一 RequestID 的规范化输入稳定幂等，不同输入得到 `ErrRequestConflict`。
+- Coordinator 在自身 Mailbox 串行执行 Directory CAS、被移除旧 Ref 的 Guard 与 Visitor 强 lease 刷新。Publish Reply 丢失不会自动重发，只能以显式 Resolve 的 Directory Get 确认；Guard Reply 丢失以 Status 确认；Directory 被更高版本替代时停止继续 Guard。
+- 新增 Control Codec 的 Drain payload、独立快照、本地失败路径和双节点 TCP 验收。`ReadyToStop` 只记录事实，不调用 Runtime Stop、不创建实例、不做后台重试、NodeAgent 动作或自动恢复。
+
 ### Drain Guard
 
 - 新增 `tooling/drain` 的 `Decorate`、`GuardConfig`、`GuardClient` 和 `DrainStatus`：受信任 Controller 可在目标 Service 的 Mailbox 内开始不可逆 Drain，并只拒绝显式列出的外部 Command；内部清理 Command 继续转交业务 Service。

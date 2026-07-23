@@ -1,6 +1,7 @@
 # RFC-0272：受控 Drain 操作
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-23
 > 目标阶段：Phase 10C1
 > 范围：Runtime Tooling、Cluster Control Plane
 > 依赖：[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0250](RFC-0250-Tooling-Cluster-Control-Plane.md)、[RFC-0260](RFC-0260-Tooling-ServiceGroup-Routing.md)、[RFC-0270](RFC-0270-Tooling-Drain-Hot-Reload.md)、[RFC-0271](RFC-0271-Tooling-Drain-Guard.md)
@@ -47,6 +48,8 @@ runtime         -X-> tooling/control / tooling/drain / tooling/servicegroup
 ```
 
 `DrainCoordinatorService` 是操作事实的唯一 owner；Directory 仍是 ServiceSet 的唯一 owner，VisitorRegistryService 仍是 lease 的唯一 owner，Guard 仍是各目标入口状态的唯一 owner。Coordinator 不持有这些 Service 的指针，也不复制它们的内部 map。
+
+部署必须使 Directory 的 `PublisherNode` 等于 Coordinator 所在 NodeID；Directory 的 NodeID 来源检查只是这条部署约束，不能替代 Gateway+Principal 授权。若配置不匹配，Directory 会确认拒绝 Publish，操作不会开始 Guard，运维者必须修正部署后创建新的 RequestID。
 
 ## 公开契约
 
@@ -155,10 +158,10 @@ Resolve 是唯一的显式推进动作，不启动 Timer 或 goroutine：
 1. `DrainPreparing` 重新读取并尝试首次 Publish；它尚未发出 Publish，所以可安全继续。
 2. `DrainPublishUnknown` 只 Get Directory。只有当前完整 ServiceSet 的 Version 与预期的下一个 Revision 相符且 Refs/Tags 与请求的 Next 内容相等时，才确认 Published 并进入 Guarding；当前 Version 仍等于 Expected 或 Get 不确定时保留 PublishUnknown，供人工稍后再次 Resolve。若当前 Version 已高于 Expected，则该 Expected 的迟到 CAS 已不可能再提交，进入 `DrainSuperseded`；即使本操作曾提交也已被更高版本取代。Get 不能在仍见 Expected 时证明超时的 Publish 永远不会迟到。
 3. Guarding 先 Get 并确认 Directory 仍等于 Published；否则进入 `DrainSuperseded`，不再 Begin 新 Guard。它随后对每个尚未确认的 Original.Ref 调用 GuardClient.Begin。成功或 Status 已为 Draining 时标记 Guarded；超时、断线或无效响应保持 Guarding，供下一次 Resolve 重试。Begin 可幂等重试；它已经提交但 Reply 丢失时，Status 用于确认。
-4. 全部 Target Guarded 后，Coordinator List 每个 Target 的 Visitor lease 并统计 `Weak=false`。任一 List 不确定时保持 DrainWaitingVisitors；存在强访问者时也保持 DrainWaitingVisitors；全部为零时进入 DrainReadyToStop。
+4. 全部 Target Guarded 后，Coordinator List 每个 Target 的 Visitor lease 并统计 `Weak=false`。每次 `DrainWaitingVisitors` 的 Resolve 也先确认 Directory 仍等于 Published；任一 List 不确定时保持 DrainWaitingVisitors；存在强访问者时也保持 DrainWaitingVisitors；全部为零时进入 DrainReadyToStop。
 5. ReadyToStop、Conflict 与 Superseded 是终态；Resolve 只返回独立快照，不再调用下游。
 
-`DrainReadyToStop` 只是可执行 Stop 的审计结论。它不授予任何 Runtime Stop 权限；后续 NodeAgent 动作必须以相同 RequestID 再次检查这一状态，且在独立契约中记录执行结果。
+`DrainReadyToStop` 只是可执行 Stop 的审计结论。它不授予任何 Runtime Stop 权限；后续 NodeAgent 动作必须以相同 RequestID 检查 Operation，并重新确认 Directory 仍等于 Operation.Published，且在独立契约中记录执行结果。
 
 如果在任何 Begin 成功前必须取消切换，人工操作可以把 Original 内容作为更高 Revision 发布，且必须创建新的 RequestID 和操作记录。一旦任一 Target Guarded，Original Refs 不可重新发布；恢复必须准备新的可接流实例。Coordinator 不为两类恢复自动执行 Publish。
 
@@ -184,7 +187,7 @@ ErrUnsupportedCommand
 
 输入、来源或授权失败不得调用 Directory、Guard 或 Visitor Registry，也不得创建 Operation；可信 Gateway 携带但不在 AllowedPrincipals 的 Principal 必须产生一条 `denied` 审计。下游 Runtime、Transport 和 context 错误不会伪装成成功：Coordinator 将它们归入相应非终态 Phase 和审计 outcome，再向调用方返回当前 Operation，使同 RequestID 的人工 Resolve 可见。
 
-Directory VersionConflict 是可确认的 Conflict；Directory Get 的任意其它结果不能否定一次超时 Publish。Guard Begin 的 ErrUnauthorized 表示部署配置与 Guard Controller 不匹配，仍保持 Guarding，不能跳过该 Target。Visitor lease 的 Weak=true 永不阻止 ReadyToStop；过期 lease 已由 Registry 的 List 语义排除。
+Directory VersionConflict 是可确认的 Conflict；Directory Get 在仍见 Expected 时不能否定一次超时 Publish，但更高 Version 已排除迟到 CAS 并使 Operation Superseded。此类未确认后直接发现更高 Version 的 Operation 没有可确认的 Published/Targets 快照。Guard Begin 的 ErrUnauthorized 表示部署配置与 Guard Controller 不匹配，仍保持 Guarding，不能跳过该 Target。Visitor lease 的 Weak=true 永不阻止 ReadyToStop；过期 lease 已由 Registry 的 List 语义排除。
 
 ## 并发、所有权与可观测性
 
@@ -213,7 +216,7 @@ drain_audit_evicted_total
 2. Start 精确校验 Gateway Source 与 Principal；拒绝不触碰下游，可信 Gateway 的 denied 请求留下有界审计。
 3. 相同 RequestID 的相同 Start 不重复 Publish/Begin；任一输入差异返回 ErrRequestConflict；不同 Principal 不能读取或 Resolve 操作。Next 保留的 Original Ref 不得被 Guard，只有被移除的 Ref 进入 Targets。
 4. 成功 Start 以 Expected CAS 发布更高 Version、记录 Original/Published、依次 Begin 全部旧 Target，并在强 Visitor 清零后 ReadyToStop。
-5. 版本冲突不 Begin Guard；Publish 超时后不自动重发，Resolve 只能通过完全匹配的 Get 确认，其他结果保持 PublishUnknown。
+5. 版本冲突不 Begin Guard；Publish 超时后不自动重发，Resolve 只能通过完全匹配的 Get 确认，仍见 Expected 或 Get 不确定时保持 PublishUnknown，更高 Version 时进入 Superseded。
 6. Guard Reply 丢失、未授权或暂时不可达时不遗漏 Target；Resolve 用 Status/幂等 Begin 收敛。Directory 被其它发布者改变时进入 Superseded，不再 Begin。
 7. 强 Visitor 阻止 ReadyToStop，Weak/过期 Visitor 不阻止；Resolve 不轮询、不创建 Timer 或 goroutine。
 8. Codec 正确组合现有 Control、Drain 与 ServiceGroup Codec，拒绝类型、JSON、响应不变量错误；双节点 TCP 中 Gateway Service 可 Start/Resolve，节点级 caller 被拒绝。

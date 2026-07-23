@@ -26,15 +26,15 @@
 - Create: `docs/superpowers/plans/2026-07-23-gsr-phase10c1-controlled-drain.md`
 - Modify: `docs/SUMMARY.md`, `docs/DECISIONS.md`, `docs/rfcs/RFC-0000-Foundation-Glossary.md`, `docs/rfcs/RFC-0260-Tooling-ServiceGroup-Routing.md`, `docs/rfcs/RFC-0270-Tooling-Drain-Hot-Reload.md`, `docs/rfcs/RFC-0500-Roadmap.md`
 
-- [ ] **Step 1: 写入 RFC 的 Phase、Operation owner、Gateway+Principal 授权、RequestID 幂等、未知发布、不可逆 Guard、Visitor 和 ReadyToStop 语义。**
+- [x] **Step 1: 写入 RFC 的 Phase、Operation owner、Gateway+Principal 授权、RequestID 幂等、未知发布、不可逆 Guard、Visitor 和 ReadyToStop 语义。**
 
-- [ ] **Step 2: 运行文档一致性测试。**
+- [x] **Step 2: 运行文档一致性测试。**
 
 Run: `go test ./...`
 
 Expected: PASS；代码尚未使用 RFC-0272 的公开类型。
 
-- [ ] **Step 3: 提交契约。**
+- [x] **Step 3: 提交契约。**
 
 ```bash
 git add docs
@@ -47,7 +47,7 @@ git commit -m 'docs(control): 冻结 Phase 10C1 受控 Drain 操作契约'
 - Create: `tooling/control/drain_test.go`
 - Modify: `tooling/control/codec_test.go`
 
-- [ ] **Step 1: 写配置、Gateway source、Principal、RequestID 和所有权失败测试。**
+- [x] **Step 1: 写配置、Gateway source、Principal、RequestID 和所有权失败测试。**
 
 ```go
 func TestDrainCoordinatorRejectsUnauthorizedRequestWithoutDownstreamCall(t *testing.T) {
@@ -57,7 +57,7 @@ func TestDrainCoordinatorRejectsUnauthorizedRequestWithoutDownstreamCall(t *test
 }
 ```
 
-- [ ] **Step 2: 写成功 Publish、幂等重复 Start、PublishUnknown、Guard 重试、强/弱 Visitor 与 Superseded 测试。**
+- [x] **Step 2: 写成功 Publish、幂等重复 Start、PublishUnknown、Guard 重试、强/弱 Visitor 与 Superseded 测试。**
 
 ```go
 func TestDrainCoordinatorResolvePublishesGuardsAndWaitsForStrongVisitors(t *testing.T) {
@@ -68,7 +68,7 @@ func TestDrainCoordinatorResolvePublishesGuardsAndWaitsForStrongVisitors(t *test
 }
 ```
 
-- [ ] **Step 3: 运行并确认编译失败。**
+- [x] **Step 3: 运行并确认编译失败。**
 
 Run: `go test ./tooling/control -run DrainCoordinator -count=1`
 
@@ -80,7 +80,7 @@ Expected: FAIL，缺少 `DrainCoordinatorService`、`DrainClient` 和 Phase 10C1
 - Create: `tooling/control/drain_types.go`, `tooling/control/drain_client.go`, `tooling/control/drain_service.go`
 - Modify: `tooling/control/commands.go`, `tooling/control/errors.go`, `tooling/control/validation.go`, `tooling/control/codec.go`
 
-- [ ] **Step 1: 定义并验证 Principal、RequestID、Config、Operation、Audit 和 wire 副本。**
+- [x] **Step 1: 定义并验证 Principal、RequestID、Config、Operation、Audit 和 wire 副本。**
 
 ```go
 type DrainCoordinatorConfig struct {
@@ -93,7 +93,7 @@ type DrainCoordinatorConfig struct {
 }
 ```
 
-- [ ] **Step 2: 实现 Start 和 Resolve 的 Mailbox 状态机。**
+- [x] **Step 2: 实现 Start 和 Resolve 的 Mailbox 状态机。**
 
 ```go
 switch operation.Phase {
@@ -108,15 +108,15 @@ case DrainGuarding, DrainWaitingVisitors:
 
 `prepareAndPublish` 只用 Expected CAS；`confirmPublished` 只 Get，不重发未知 Publish；Guard 通过 Status/幂等 Begin 确认；ReadyToStop 不调用 Runtime.Stop。
 
-- [ ] **Step 3: 扩展 Control Codec，使用 CommandID 分派 Start、Resolve、Get、ListAudit 的请求和响应。**
+- [x] **Step 3: 扩展 Control Codec，使用 CommandID 分派 Start、Resolve、Get、ListAudit 的请求和响应。**
 
-- [ ] **Step 4: 运行本地测试。**
+- [x] **Step 4: 运行本地测试。**
 
 Run: `go test ./tooling/control -run DrainCoordinator -count=1`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交最小操作闭环。**
+- [x] **Step 5: 提交最小操作闭环。**
 
 ```bash
 git add tooling/control
@@ -129,23 +129,23 @@ git commit -m 'feat(control): 增加受控 Drain 操作记录'
 - Create: `tooling/control/drain_remote_test.go`
 - Modify: `README.md`, `CHANGELOG.md`, `docs/TODO.md`, `docs/rfcs/RFC-0272-Tooling-Controlled-Drain-Operation.md`, `docs/rfcs/RFC-0500-Roadmap.md`, `docs/GSR-Book/03-第三篇-Cluster/05-ServiceGroup.md`
 
-- [ ] **Step 1: 写 TCP Gateway Service 通过 Control Codec 远程 Start/Resolve 的测试；节点级 caller 必须得到 ErrUnauthorized。**
+- [x] **Step 1: 写 TCP Gateway Service 通过 Control Codec 远程 Start/Resolve 的测试；节点级 caller 必须得到 ErrUnauthorized。**
 
-- [ ] **Step 2: 运行定向竞态测试。**
+- [x] **Step 2: 运行定向竞态测试。**
 
 Run: `go test -race ./tooling/control -run DrainCoordinator -count=20`
 
 Expected: PASS，无数据竞争、无 goroutine 泄漏。
 
-- [ ] **Step 3: 以实现结果更新 RFC 为“已接受”，说明 ReadyToStop 的业务价值、不会 Stop 的边界和下一阶段 NodeAgent 依赖。**
+- [x] **Step 3: 以实现结果更新 RFC 为“已接受”，说明 ReadyToStop 的业务价值、不会 Stop 的边界和下一阶段 NodeAgent 依赖。**
 
-- [ ] **Step 4: 运行全量门禁和示例。**
+- [x] **Step 4: 运行全量门禁和示例。**
 
 Run: `go test ./... && go vet ./... && go test -race ./... && go run ./examples/drain-runtime`
 
 Expected: PASS；现有 Visitor 示例仍只演示 lease 事实。
 
-- [ ] **Step 5: 提交验收文档。**
+- [x] **Step 5: 提交验收文档。**
 
 ```bash
 git add README.md CHANGELOG.md docs
@@ -157,4 +157,3 @@ git commit -m 'docs(control): 完成 Phase 10C1 Drain 操作验收'
 - RFC 的每项 Phase 10C1 行为分别由 Task 2 的本地失败测试、Task 3 的实现和 Task 4 的 TCP/竞态验证覆盖。
 - Plan 没有让 Coordinator 修改 Directory、Guard 或 Visitor 的内部状态；它只通过现有 Client 调用公开 Command。
 - `Runtime.Stop`、NodeAgent 动作、Desired State 与后台 Reconcile 没有任何实现任务，仍属于下一份契约。
-

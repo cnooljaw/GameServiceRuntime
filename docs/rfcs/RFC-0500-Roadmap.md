@@ -40,7 +40,7 @@ Layer 3: Business Layer
 
 已实现里程碑的工程收口项统一记录在 [`docs/TODO.md`](../TODO.md)，后续新能力仍按本文顺序实施。
 
-首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup、Phase 10A Visitor lease Registry 与 Phase 10B Drain Guard 已完成。Phase 10C1 已冻结受控 Drain 操作契约；后续 ServiceGroup 切换、Stop、Controller 与 Reconcile 必须以带操作身份推进。
+首份性能结果见 [`2026-07-17 Core Runtime 性能基线`](../benchmarks/2026-07-17-core-runtime.md)。Phase 7A、最小 Discovery、本地 Monitor、Snapshot、Supervisor、客户端入口、Phase 8 节点观测、Phase 9 ServiceGroup、Phase 10A Visitor lease Registry、Phase 10B Drain Guard 与 Phase 10C1 受控 Drain Operation 已完成。后续 Stop、节点恢复、Controller 与 Reconcile 必须以带操作身份推进。
 
 ## 后续 RFC 审核结果
 
@@ -55,7 +55,7 @@ Layer 3: Business Layer
 | RFC-0260 ServiceGroup | 9 | 已接受 | 已实现独立 DirectoryService、AuthorityEpoch/Revision、CAS、Watch lease、显式快照 Router、三种策略和双节点验收。 |
 | RFC-0270 Drain | 10A | 已接受 | 已实现 VisitorRegistryService 的 lease、代际、owner、过期、Codec、双节点 TCP 和本地示例；Drain 编排、回滚、Controller 与 Reconcile 仍需后续独立契约。 |
 | RFC-0271 Drain Guard | 10B | 已接受 | 已实现旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec、本地与双节点 TCP 验收；跨节点业务拒绝继续由目标节点 adapter 映射。 |
-| RFC-0272 Controlled Drain Operation | 10C1 | 待实现 | 已冻结 Gateway+Principal 授权、RequestID 幂等、审计、发布/Guard 未知结果、Visitor 刷新和 ReadyToStop；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
+| RFC-0272 Controlled Drain Operation | 10C1 | 已接受 | 已实现 Gateway+Principal 授权、RequestID 幂等、有界审计、Directory/Guard 未知结果确认、Visitor 刷新、ReadyToStop、本地和双节点 TCP 验收；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
 | RFC-0280 Record/Replay | 11 | 草案 | 第一版采用 Service decorator，不增加 Core Envelope 旁路；持久化背压仍需裁决。 |
 | RFC-0300 至 RFC-0370 | 12 | 草案 | 已修正 Service 创建、Timeline 取消、Gateway 和跨 Service 状态推进边界；逐个模板仍需冻结公开 API。 |
 | RFC-0400 示例 | 13 | 草案 | 结算改为 RequestID + 结果 Command，停止由外层生命周期 owner 发起。 |
@@ -270,12 +270,13 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 ## Phase 10C1：受控 Drain 操作
 
-状态：待实现（2026-07-23）。
+状态：已完成（2026-07-23）。
 
 实现：
 
 - Coordinator 保存经 Gateway、Principal 和 RequestID 约束的 Drain Operation 与有界审计。
 - Directory CAS、未知 Publish 的只读确认、Guard 幂等确认、Visitor 刷新和 `ReadyToStop`。
+- 本地与双节点 TCP 验收；节点级 caller 不能绕过 Gateway 调用 Coordinator。
 
 不实现：
 
