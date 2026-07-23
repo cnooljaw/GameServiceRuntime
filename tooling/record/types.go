@@ -71,7 +71,6 @@ type Redactor interface {
 // RecorderConfig configures RecorderService's bounded per-key window and recording clock.
 type RecorderConfig struct {
 	MaxEntries int
-	Now        func() time.Time
 }
 
 // CommandCaller is the narrow Runtime capability used by Client.

@@ -9,7 +9,7 @@ import (
 type client struct{ caller CommandCaller }
 
 // NewClient creates typed RecorderService access through a narrow Runtime caller.
-func NewClient(caller CommandCaller, _ gsr.ServiceRef) (Client, error) {
+func NewClient(caller CommandCaller) (Client, error) {
 	if isNil(caller) {
 		return nil, ErrInvalidConfig
 	}

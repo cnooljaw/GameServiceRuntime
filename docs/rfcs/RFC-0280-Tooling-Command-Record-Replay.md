@@ -80,7 +80,6 @@ type Redactor interface { Redact(gsr.CommandID, []byte) ([]byte, error) }
 
 type RecorderConfig struct {
     MaxEntries int
-    Now        func() time.Time
 }
 func NewRecorderService(RecorderConfig) (*RecorderService, error)
 func NewDecorator(gsr.Service, gsr.ServiceRef, StableKey, CommandCodec, Redactor, bool) (*Decorator, error)
@@ -91,11 +90,14 @@ type Client interface {
     List(context.Context, gsr.ServiceRef, StableKey, Sequence, int) ([]RecordEntry, error)
     Clear(context.Context, gsr.ServiceRef, StableKey) error
 }
+func NewClient(CommandCaller) (Client, error)
 
 type Archive interface {
     Save(context.Context, RecordBundle) error
     Load(context.Context, StableKey) (RecordBundle, error)
 }
+func NewJSONArchive(directory string) (*JSONArchive, error)
+func NewClusterCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec
 
 type ReplayRuntime interface {
     Send(gsr.ServiceRef, gsr.CommandID, any) error
@@ -121,7 +123,7 @@ Decorator 在先 delegate 前编码原 Command，分配其目标 Key 的单调 `
 
 RecorderService 是条目的唯一 owner。每 Key 保存按 Sequence 排序的环形窗口，超过 `MaxEntries` 淘汰最旧条目；List 的 `after` 为排他游标，limit 必须在 `1..MaxEntries`。Clear 仅清空指定 Key，操作结果与 List 均为深拷贝。
 
-Archive 是组合根或外部 adapter 的所有者。它只能消费已经从 RecorderService 取得的 `RecordBundle`；Record Bundle 编码为 UTF-8 JSON，顶层和每条 Entry 都必须带 FormatVersion。第一版由 `JSONArchive` 提供显式 `Save/Load`，调用方决定路径、保留期、加密、访问控制与上传；它不是 Service。
+Archive 是组合根或外部 adapter 的所有者。它只能消费已经从 RecorderService 取得的 `RecordBundle`；Record Bundle 编码为 UTF-8 JSON，顶层和每条 Entry 都必须带 FormatVersion。第一版的 `NewJSONArchive(directory)` 要求调用方提供一个已有目录；它以 StableKey 的不可逆文件名在该目录内原子替换保存、按相同 Key 加载。调用方仍决定目录、保留期、加密、访问控制与上传；它不是 Service。`NewClusterCodec` 只编码三个 Recorder 公开 Command，未识别的 Command 交给可选 fallback。
 
 ## Replay 与确定性
 

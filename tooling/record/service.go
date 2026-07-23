@@ -3,7 +3,6 @@ package record
 import (
 	"context"
 	"fmt"
-	"time"
 
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
@@ -33,7 +32,6 @@ type listRecordsResponse struct {
 // RecorderService owns bounded RecordEntry windows by StableKey.
 type RecorderService struct {
 	maxEntries int
-	now        func() time.Time
 	context    gsr.ServiceContext
 	records    map[StableKey][]RecordEntry
 	last       map[StableKey]Sequence
@@ -44,10 +42,7 @@ func NewRecorderService(config RecorderConfig) (*RecorderService, error) {
 	if config.MaxEntries <= 0 {
 		return nil, ErrInvalidConfig
 	}
-	if config.Now == nil {
-		config.Now = time.Now
-	}
-	return &RecorderService{maxEntries: config.MaxEntries, now: config.Now, records: make(map[StableKey][]RecordEntry), last: make(map[StableKey]Sequence)}, nil
+	return &RecorderService{maxEntries: config.MaxEntries, records: make(map[StableKey][]RecordEntry), last: make(map[StableKey]Sequence)}, nil
 }
 
 // Commands declares RecorderService's typed Command protocol.

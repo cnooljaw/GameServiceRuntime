@@ -35,7 +35,7 @@ func TestRecorderDecoratorRecordsMailboxInputsWithoutChangingDelegate(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(runtime, recorderRef)
+	client, err := NewClient(runtime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestRecorderDecoratorRecordsMailboxInputsWithoutChangingDelegate(t *testing
 func TestRecorderRetainsBoundedWindowAndSupportsCursorAndClear(t *testing.T) {
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "record-node", Workers: 1})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	recorder, err := NewRecorderService(RecorderConfig{MaxEntries: 2, Now: func() time.Time { return time.Unix(100, 0) }})
+	recorder, err := NewRecorderService(RecorderConfig{MaxEntries: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestRecorderRetainsBoundedWindowAndSupportsCursorAndClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(runtime, ref)
+	client, err := NewClient(runtime)
 	if err != nil {
 		t.Fatal(err)
 	}

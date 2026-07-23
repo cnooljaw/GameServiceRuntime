@@ -31,4 +31,6 @@ var (
 	ErrRedaction = errors.New("record: redaction")
 	// ErrReplayTarget indicates a TargetFactory returned an unusable isolated target.
 	ErrReplayTarget = errors.New("record: invalid replay target")
+	// ErrUnsupportedCommand indicates a Cluster Codec cannot encode a Command.
+	ErrUnsupportedCommand = errors.New("record: unsupported command")
 )
