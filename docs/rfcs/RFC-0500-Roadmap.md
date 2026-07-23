@@ -57,7 +57,7 @@ Layer 3: Business Layer
 | RFC-0271 Drain Guard | 10B | 已接受 | 已实现旧实例入口的精确来源 fencing、Mailbox 串行拒绝、不可逆语义、Codec、本地与双节点 TCP 验收；跨节点业务拒绝继续由目标节点 adapter 映射。 |
 | RFC-0272 Controlled Drain Operation | 10C1 | 已接受 | 已实现 Gateway+Principal 授权、RequestID 幂等、有界审计、Directory/Guard 未知结果确认、Visitor 刷新、ReadyToStop、本地和双节点 TCP 验收；Stop、NodeAgent 动作和 Reconcile 仍后置。 |
 | RFC-0273 Node Stop Execution | 10C2A | 已接受 | 已实现 Gateway+Principal 授权的 StopOperation、精确 Coordinator NodeAgent receipt、Directory 双重再确认、组合根有界 Runner、本地与双节点 TCP 验收；恢复、补偿和 Reconcile 仍后置。 |
-| RFC-0274 Manual Recovery | 10C2B | 待实现 | 已冻结 Blueprint Runner 创建替代实例、人工 Confirm、Directory CAS、未知结果 Resolve 与审计；不恢复旧 Ref 或自动 Reconcile。 |
+| RFC-0274 Manual Recovery | 10C2B | 已接受 | 已实现 Blueprint Runner 创建替代实例、NodeAgent receipt、人工 Confirm、Directory CAS、未知结果 Resolve、本地与双节点 TCP 验收；不恢复旧 Ref 或自动 Reconcile。 |
 | RFC-0280 Record/Replay | 11 | 待实现 | 已冻结 Handle decorator、有界 Recorder、版本化 Bundle、外置 Archive 与隔离 Replay；持久化由应用 adapter 注入。 |
 | RFC-0300 至 RFC-0370 | 12 | 待实现 | 已冻结 game 包的领域边界、Battle/Timeline/Room/Player/Module/Wallet API、RequestID 与异步 ledger result；具体游戏规则和生产 Store 外置。 |
 | RFC-0400 示例 | 13 | 待实现 | 已冻结打地鼠的 Room→Battle→Timeline→Kick→Settlement→外层 Stop 验收与确定性 Record/Replay。 |
@@ -298,9 +298,9 @@ Phase 10 才能在独立 RFC 中冻结 Service Desired State、Controller、Reco
 
 ## 后续 Phase 10C2B：人工恢复与补偿
 
-状态：待实现。
+状态：已完成（2026-07-24）。
 
-实现 [RFC-0274](RFC-0274-Tooling-Manual-Recovery-Compensation.md)：由 Gateway + Principal 创建审计化 RecoveryOperation，组合根 Blueprint Runner 创建替代实例，操作者显式 Confirm 后以 Directory CAS 在保留当前成员的基础上追加新 Ref 并发布更高 ServiceSet。它不得 Resume Guard、重新发布旧 Ref、自动补偿或引入 Desired State/Reconcile。
+已实现 [RFC-0274](RFC-0274-Tooling-Manual-Recovery-Compensation.md)：Gateway + Principal 创建审计化 RecoveryOperation，组合根 Blueprint Runner 创建替代实例，操作者显式 Confirm 后以 Directory CAS 在保留当前成员的基础上追加新 Ref 并发布更高 ServiceSet。本地与双节点 TCP 均已验收；它不得 Resume Guard、重新发布旧 Ref、自动补偿或引入 Desired State/Reconcile。
 
 ## Phase 11：Command Record 与 Replay
 

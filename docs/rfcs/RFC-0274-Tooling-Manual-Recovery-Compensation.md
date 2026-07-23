@@ -1,6 +1,8 @@
 # RFC-0274：人工恢复与补偿
 
-> 状态：待实现
+> 状态：已接受
+> 接受日期：2026-07-24
+> 实现日期：2026-07-24
 > 目标阶段：Phase 10C2B
 > 范围：Runtime Tooling、Cluster Control Plane
 > 依赖：[RFC-0250](RFC-0250-Tooling-Cluster-Control-Plane.md)、[RFC-0260](RFC-0260-Tooling-ServiceGroup-Routing.md)、[RFC-0271](RFC-0271-Tooling-Drain-Guard.md)、[RFC-0272](RFC-0272-Tooling-Controlled-Drain-Operation.md)、[RFC-0273](RFC-0273-Tooling-Node-Stop-Execution.md)
@@ -149,7 +151,7 @@ func (*DrainClient) AbandonRecovery(context.Context, RequestID, Principal) (Reco
 
 `NodeAgentConfig` 新增成对出现的 `RecoveryCoordinator gsr.ServiceRef` 与 `RecoveryExecutor RecoveryExecutor`。两者均为零值时保持已有行为；仅设置其一、Registry 为 nil、Workers/QueueSize 非正数、空 Blueprint、重复 Removed Ref 或重复 Agent/Removed 对均为配置/请求错误。
 
-BeginRecovery 仅接受已由同 Principal 创建且 `StopCompleted`、`StopFailed` 或 `StopSuperseded` 的 StopOperation 的 Removed 集合；请求的 `Expected` 必须是当前 Directory 的完整快照，且不能含任何 Removed Ref。不同输入复用同一 RequestID 返回 `ErrRecoveryRequestConflict`；相同规范化输入返回已有 Operation 而不再次创建。Coordinator 在提交每个创建任务前读取 Directory 并要求仍等于 Expected。
+BeginRecovery 的 `RequestID` 必须复用同 Principal 已创建且 `StopCompleted`、`StopFailed` 或 `StopSuperseded` 的 StopOperation RequestID；其 Removed 集合必须与该 StopOperation 的 Target 集合完全相同。请求的 `Expected` 必须是当前 Directory 的完整快照，且不能含任何 Removed Ref。不同输入复用同一 RequestID 返回 `ErrRecoveryRequestConflict`；相同规范化输入返回已有 Operation 而不再次创建。Coordinator 在提交每个创建任务前读取 Directory 并要求仍等于 Expected。
 
 Runner 为每个任务仅尝试一次 Blueprint.Build + Runtime.CreateService；成功后以私有 Command 报告 Created Ref，失败后报告稳定 Failure。它不得自行 Stop 已创建 Ref、不得发布 Directory、不得重试。Confirm 只在所有 Target 已 Created 时有效，并以 Expected.Version 的 CAS 发布 **保留 Expected 全部成员、追加所有 Created Ref** 的更高 ServiceSet；`Removed` 只是本次恢复所对应的已 Guard/Stopped 旧 Ref，绝不要求、也绝不允许重新写回当前 Directory。成功后 `Published.Version > Expected.Version`。CAS 未知、目录变化或发布失败均不猜测结果：Operation 保持 Publishing，操作者必须 Resolve。Abandon 只允许尚未 Published 的 Operation；它记录放弃事实，不调用 Stop。
 

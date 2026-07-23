@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Manual Recovery and Compensation
+
+- 新增 `RecoveryOperation`、`BeginRecovery`、`ResolveRecovery`、`ConfirmRecovery`、`GetRecovery` 与 `AbandonRecovery`：Recovery 必须复用一个已终态 StopOperation 的 RequestID 和完整旧 Target 集合；只有 Gateway 代表允许的 Principal 才能读取或推进它。
+- 新增 NodeAgent Recovery receipt、组合根 `MapBlueprintRegistry` 与有界 `RecoveryRunner`。Runner 只按稳定 BlueprintID 创建新实例并经本地私有 Command 回报；它不发布 Directory、不重试创建，也不 Stop 已创建的实例，Close 会等待已开始创建返回。
+- Confirm 前新 Ref 不进入 Directory；Confirm 后以冻结 Expected 的 CAS 保留当前成员并追加新 Ref。旧 Guard/Stopped Ref 永不重新发布；本地与双节点 TCP 测试覆盖 Gateway fencing、结果 Resolve、人工 Confirm、Runner Close 和 Race Detector。
+
 ### Controlled Node Stop Execution
 
 - 新增 `StopOperation`、`BeginStop`、`ResolveStop` 与 `GetStop`：只有精确 Gateway ServiceRef 代表允许的 Principal 才能把同 RequestID 的 `ReadyToStop` Drain Operation 推进为受控 Stop；Coordinator 在创建和每次向 NodeAgent 投递前都强确认冻结的 Published ServiceSet。
