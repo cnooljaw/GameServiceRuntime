@@ -9,7 +9,7 @@ var (
 	ErrInvalidCaller = errors.New("control: invalid caller")
 	// ErrInvalidNode reports a malformed node identifier or request.
 	ErrInvalidNode = errors.New("control: invalid node")
-	// ErrNodeNotFound reports a node absent from static desired state.
+	// ErrNodeNotFound reports a node absent from static NodeConfig.
 	ErrNodeNotFound = errors.New("control: node not found")
 	// ErrNodeDisabled reports a refresh requested for a disabled node.
 	ErrNodeDisabled = errors.New("control: node disabled")

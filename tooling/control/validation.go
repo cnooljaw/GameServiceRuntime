@@ -26,6 +26,10 @@ func validAgent(node gsr.NodeID, agent gsr.ServiceRef) bool {
 	return agent.Node == node && agent.ID != 0
 }
 
+func validServiceRef(ref gsr.ServiceRef) bool {
+	return validNode(ref.Node) && ref.ID != 0
+}
+
 func validNodeConfig(config NodeConfig) bool {
 	return validNode(config.ID) && strings.TrimSpace(config.Address) != ""
 }

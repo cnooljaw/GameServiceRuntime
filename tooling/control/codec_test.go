@@ -68,6 +68,15 @@ func TestControlConfigRejectsInvalidTargetsAndClient(t *testing.T) {
 	if _, err := NewClient(testCaller{}, gsr.ServiceRef{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("NewClient(invalid target) error = %v, want ErrInvalidConfig", err)
 	}
+	reporter := &countingReporter{report: testReport("node-a")}
+	if _, err := NewNodeAgentService(NodeAgentConfig{Reporter: reporter, ObserverNode: "node-a"}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewNodeAgentService(missing discovery) error = %v, want ErrInvalidConfig", err)
+	}
+	invalidInterval := testNodeAgentConfig(reporter)
+	invalidInterval.HeartbeatInterval = -time.Second
+	if _, err := NewNodeAgentService(invalidInterval); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("NewNodeAgentService(negative interval) error = %v, want ErrInvalidConfig", err)
+	}
 }
 
 type recordingCodec struct{ encoded int }

@@ -20,10 +20,20 @@ type Reporter interface {
 	Capture() monitor.Report
 }
 
-// NodeAgentConfig configures the local NodeAgentService read boundary.
+// NodeAgentConfig configures NodeAgentService discovery and read boundaries.
 type NodeAgentConfig struct {
-	Reporter     Reporter
+	// Reporter captures local Monitor reports for authorized observers.
+	Reporter Reporter
+	// ObserverNode is the trusted node allowed to query reports.
 	ObserverNode gsr.NodeID
+	// Discovery identifies the DiscoveryService that owns this node lease.
+	Discovery gsr.ServiceRef
+	// Address is the deployment address registered with Discovery.
+	Address string
+	// HeartbeatInterval controls registration retry and lease renewal. Zero defaults to ten seconds.
+	HeartbeatInterval time.Duration
+	// CallTimeout bounds each Discovery Call. Zero defaults to three seconds.
+	CallTimeout time.Duration
 }
 
 // NodeConfig is static deployment configuration for one cluster node.
@@ -41,7 +51,7 @@ type NodeTarget struct {
 	Agent  gsr.ServiceRef
 }
 
-// NodeStatus describes the latest Control Plane observation of one desired node.
+// NodeStatus describes the latest Control Plane observation of one configured node.
 type NodeStatus string
 
 const (

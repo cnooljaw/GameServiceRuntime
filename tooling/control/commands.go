@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	commandGetNodeReport gsr.CommandID = 0x02500101
-	commandListNodes     gsr.CommandID = 0x02500201
-	commandGetNodeDetail gsr.CommandID = 0x02500202
-	commandRefreshNode   gsr.CommandID = 0x02500203
+	commandGetNodeReport      gsr.CommandID = 0x02500101
+	commandRegisterNodeLease  gsr.CommandID = 0x025001fe
+	commandHeartbeatNodeLease gsr.CommandID = 0x025001ff
+	commandListNodes          gsr.CommandID = 0x02500201
+	commandGetNodeDetail      gsr.CommandID = 0x02500202
+	commandRefreshNode        gsr.CommandID = 0x02500203
 )
 
 type errorCode string

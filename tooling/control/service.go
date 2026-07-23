@@ -13,7 +13,7 @@ type controlService struct {
 	config ObserverConfig
 }
 
-// NewClusterControlService creates a ClusterControlService with frozen static desired nodes.
+// NewClusterObserverService creates a ClusterObserverService with frozen static node configuration.
 func NewClusterObserverService(config ObserverConfig) (gsr.Service, error) {
 	if config.CallTimeout < 0 {
 		return nil, ErrInvalidConfig

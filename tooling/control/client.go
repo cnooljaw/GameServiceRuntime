@@ -2,7 +2,7 @@ package control
 
 import gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 
-// NewClient creates a typed ClusterControlService client.
+// NewClient creates a typed ClusterObserverService client.
 func NewClient(caller CommandCaller, target gsr.ServiceRef) (*Client, error) {
 	if isNil(caller) {
 		return nil, ErrInvalidCaller
