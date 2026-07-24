@@ -4,6 +4,10 @@
 >
 > 依据：[RFC-0192](../../rfcs/RFC-0192-Core-Runtime-Inspection.md)、[RFC-0230](../../rfcs/RFC-0230-Tooling-Monitor.md)
 
+“把 Runtime 的 Registry 暴露给管理后台，查询最快。”
+
+“今天是查询，明天就会有人顺手改它。”Monitor 的设计从拒绝这条捷径开始。
+
 ## 本章目标
 
 本章说明如何在不污染 Core Runtime 的前提下，把 `Runtime.Inspect()` 转换为可供日志、文件、CLI 或后续 HTTP adapter 使用的稳定报告。

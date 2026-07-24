@@ -2,6 +2,10 @@
 
 > 状态：已实现
 
+“Service panic 了，重新 new 一个就行。”
+
+“新对象从哪里恢复？新地址由谁发布？一分钟崩一百次怎么办？”
+
 Supervisor 处理 Service Handler panic 后的恢复决策。它不修改 Core `Service` 接口，不复活失败对象，也不会在 panic 后读取旧实例状态。
 
 ## 为什么需要独立 Supervisor

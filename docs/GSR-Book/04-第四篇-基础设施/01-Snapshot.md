@@ -4,6 +4,12 @@
 >
 > 公开契约：[RFC-0210](../../rfcs/RFC-0210-Tooling-Snapshot.md)
 
+“给 `Service` 加一个 `Snapshot()` 方法，不就能保存状态了吗？”
+
+老周反问：“谁来保证读取快照时，Handler 没有正在改状态？”
+
+Snapshot 的难点不是序列化，而是不绕过 Mailbox 读取权威状态。
+
 ## 本章目标
 
 理解 GSR 如何在不绕过 Mailbox、不修改 Core `Service` 接口的前提下采集和加载业务状态快照。
