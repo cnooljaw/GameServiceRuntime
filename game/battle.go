@@ -18,7 +18,7 @@ type BattleService struct {
 	participants map[PlayerID]Participant
 	statuses     map[PlayerID]ParticipantStatus
 	commands     []gsr.CommandID
-	context      gsr.ServiceContext
+	service      gsr.ServiceContext
 	timeline     *battleTimeline
 	phase        BattlePhase
 	finish       FinishBattle
@@ -61,12 +61,12 @@ func (s *BattleService) Commands() []gsr.CommandID {
 	return append([]gsr.CommandID(nil), s.commands...)
 }
 
-// Init captures the current Service context and creates Battle-local Timeline state.
+// Init captures the current Service capability and creates Battle-local Timeline state.
 func (s *BattleService) Init(serviceContext gsr.ServiceContext) error {
 	if isNil(serviceContext) {
 		return ErrInvalidConfig
 	}
-	s.context = serviceContext
+	s.service = serviceContext
 	s.timeline = &battleTimeline{battle: s, items: make(map[TimelineID]timelineRecord)}
 	return nil
 }
@@ -115,7 +115,7 @@ func (s *BattleService) Handle(commandContext gsr.CommandContext, command gsr.Co
 		if s.phase != BattleRunning {
 			return ErrStateConflict
 		}
-		return s.withContext(commandContext, func(ctx *battleCommandContext) error { return s.logic.HandleBattle(ctx, command) })
+		return s.withContext(commandContext, func(ctx *battleContext) error { return s.logic.HandleBattle(ctx, command) })
 	}
 }
 
@@ -127,9 +127,9 @@ func (s *BattleService) Stop(context.Context) error {
 	return nil
 }
 
-// Close releases Runtime capabilities after BattleService stops.
+// Close releases the Service capability after BattleService stops.
 func (s *BattleService) Close() error {
-	s.context = nil
+	s.service = nil
 	s.timeline = nil
 	return nil
 }
@@ -186,7 +186,7 @@ func (s *BattleService) finishBattle(commandContext gsr.CommandContext, finish F
 			return ErrInvalidSettlement
 		}
 		seen[intent.RequestID] = struct{}{}
-		requests[index] = SettlementRequest{RequestID: intent.RequestID, Source: s.context.Self(), Currency: intent.Currency, Entries: append([]SettlementEntry(nil), intent.Entries...)}
+		requests[index] = SettlementRequest{RequestID: intent.RequestID, Source: s.service.Self(), Currency: intent.Currency, Entries: append([]SettlementEntry(nil), intent.Entries...)}
 	}
 	if len(requests) > 0 && !validServiceRef(s.wallet) {
 		return ErrUnavailable
@@ -195,8 +195,8 @@ func (s *BattleService) finishBattle(commandContext gsr.CommandContext, finish F
 	s.phase = BattleSettling
 	for _, request := range requests {
 		s.settlements[request.RequestID] = SettlementResult{RequestID: request.RequestID, State: SettlementPending, Currency: request.Currency}
-		if err := s.context.Send(s.wallet, CommitSettlementCommand, cloneSettlementRequest(request)); err != nil {
-			s.context.Metrics().Inc("battle_settlement_send_failed_total")
+		if err := s.service.Send(s.wallet, CommitSettlementCommand, cloneSettlementRequest(request)); err != nil {
+			s.service.Metrics().Inc("battle_settlement_send_failed_total")
 		}
 	}
 	if len(requests) == 0 {
@@ -238,16 +238,16 @@ func (s *BattleService) applySettlement(commandContext gsr.CommandContext, resul
 
 func (s *BattleService) fire(commandContext gsr.CommandContext, fire timelineFire) error {
 	if fire.BattleID != s.id || fire.Epoch != s.epoch {
-		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		s.service.Metrics().Inc("battle_timeline_ignored_total")
 		return nil
 	}
 	record, exists := s.timeline.items[fire.ID]
 	if !exists || record.item.State != TimelineScheduled || record.item.Revision != fire.Revision || record.item.Command != fire.Command {
-		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		s.service.Metrics().Inc("battle_timeline_ignored_total")
 		return nil
 	}
 	if s.phase != BattleRunning {
-		s.context.Metrics().Inc("battle_timeline_ignored_total")
+		s.service.Metrics().Inc("battle_timeline_ignored_total")
 		return nil
 	}
 	record.item.State = TimelineFired
@@ -256,14 +256,14 @@ func (s *BattleService) fire(commandContext gsr.CommandContext, fire timelineFir
 	if err != nil {
 		return err
 	}
-	return s.withContext(commandContext, func(ctx *battleCommandContext) error {
+	return s.withContext(commandContext, func(ctx *battleContext) error {
 		return s.logic.HandleBattle(ctx, gsr.Command{ID: record.item.Command, Payload: payload})
 	})
 }
 
 func (s *BattleService) snapshot(commandContext gsr.CommandContext) (BattleSnapshot, error) {
 	var state []byte
-	err := s.withContext(commandContext, func(ctx *battleCommandContext) error {
+	err := s.withContext(commandContext, func(ctx *battleContext) error {
 		value, err := s.logic.Snapshot(ctx)
 		if err != nil {
 			return err
@@ -281,55 +281,68 @@ func (s *BattleService) snapshot(commandContext gsr.CommandContext) (BattleSnaps
 	return cloneBattleSnapshot(BattleSnapshot{ID: s.id, Epoch: s.epoch, Phase: s.phase, Participants: participants, Timeline: s.timeline.snapshot(), State: state}), nil
 }
 
-func (s *BattleService) withContext(commandContext gsr.CommandContext, fn func(*battleCommandContext) error) error {
+func (s *BattleService) withContext(commandContext gsr.CommandContext, fn func(*battleContext) error) error {
 	active := true
-	ctx := &battleCommandContext{battle: s, command: commandContext, active: &active}
-	err := fn(ctx)
-	active = false
-	return err
+	ctx := &battleContext{battle: s, command: commandContext, active: &active}
+	defer func() { active = false }()
+	return fn(ctx)
 }
 
-type battleCommandContext struct {
+type battleContext struct {
 	battle  *BattleService
 	command gsr.CommandContext
 	active  *bool
 }
 
-func (c *battleCommandContext) Self() gsr.ServiceRef   { return c.command.Self() }
-func (c *battleCommandContext) Source() gsr.ServiceRef { return c.command.Source() }
-func (c *battleCommandContext) Reply(value any) error  { return c.command.Reply(value) }
-func (c *battleCommandContext) BattleID() BattleID     { return c.battle.id }
-func (c *battleCommandContext) Epoch() BattleEpoch     { return c.battle.epoch }
-func (c *battleCommandContext) Now() time.Time         { return c.battle.context.Now() }
-func (c *battleCommandContext) Timeline() Timeline {
+func (c *battleContext) Self() gsr.ServiceRef   { return c.command.Self() }
+func (c *battleContext) Source() gsr.ServiceRef { return c.command.Source() }
+func (c *battleContext) Reply(value any) error {
+	if !c.usable() {
+		return ErrContextExpired
+	}
+	return reply(c.command, value)
+}
+func (c *battleContext) BattleID() BattleID { return c.battle.id }
+func (c *battleContext) Epoch() BattleEpoch { return c.battle.epoch }
+func (c *battleContext) Now() time.Time     { return c.battle.service.Now() }
+func (c *battleContext) Timeline() Timeline {
 	return timelineHandle{timeline: c.battle.timeline, active: c.active}
 }
-func (c *battleCommandContext) Finish(finish FinishBattle) error {
-	if c.active == nil || !*c.active {
-		return ErrStateConflict
+func (c *battleContext) Finish(finish FinishBattle) error {
+	if !c.usable() {
+		return ErrContextExpired
 	}
 	return c.battle.finishBattle(c.command, finish)
 }
-func (c *battleCommandContext) Broadcast(command gsr.CommandID, payload any) BroadcastResult {
+func (c *battleContext) Broadcast(command gsr.CommandID, payload any) (BroadcastResult, error) {
+	if !c.usable() {
+		return BroadcastResult{}, ErrContextExpired
+	}
 	result := BroadcastResult{}
 	for _, participant := range c.battle.participants {
 		if !validServiceRef(participant.Ref) {
 			continue
 		}
-		if err := c.battle.context.Send(participant.Ref, command, payload); err != nil {
+		if err := c.battle.service.Send(participant.Ref, command, payload); err != nil {
 			result.Rejected++
 			continue
 		}
 		result.Delivered++
 	}
-	return result
+	return result, nil
 }
-func (c *battleCommandContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
+
+func (c *battleContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
+	if !c.usable() {
+		return ErrContextExpired
+	}
 	if !validServiceRef(target) {
 		return ErrUnavailable
 	}
-	return c.battle.context.Send(target, command, payload)
+	return c.battle.service.Send(target, command, payload)
 }
+
+func (c *battleContext) usable() bool { return c != nil && c.active != nil && *c.active }
 
 func reply(commandContext gsr.CommandContext, value any) error {
 	err := commandContext.Reply(value)

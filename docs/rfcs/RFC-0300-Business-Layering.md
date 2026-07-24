@@ -65,6 +65,7 @@ var (
     ErrRequestConflict    error
     ErrStateConflict      error
     ErrUnavailable        error
+    ErrContextExpired     error
 )
 ```
 
@@ -82,6 +83,14 @@ ID 必须为去除首尾空白后非空、有效 UTF-8、最大 128 bytes 的稳
 
 应用可使用自己的 CommandID，但必须避开这些区间；每个 Service 的 Commands 返回完整且无重复的集合。
 
+### Command 调用语义
+
+Business Layer 直接使用 Core 的 `Send`、`Call` 与 `Reply`，不增加另一套领域 RPC 或隐藏消息模型。`Send` 只保证按目标 Mailbox 的接受边界投递，不等待业务结果；`Call` 等待当前 Command 的 Reply。调用方按是否需要当前结果选择它们：启动、通知、结果回投使用 `Send`，查询和需要立即判定的输入使用 `Call`。
+
+同一 Command 可以同时接受 `Send` 和 `Call`。业务 Handler 可以调用 Reply；若当前 Command 由 `Send` 到达，Reply 是成功无副作用，不得把 `gsr.ErrReplyUnavailable` 暴露成业务错误。Room、Wallet 的内部 Handler 使用该规则；BattleLogic 与 PlayerModule 分别经 `BattleContext`、`PlayerContext` 获得相同的 `Self`、`Source`、`Reply` 语义和受限的领域能力。
+
+`BattleContext` 和 `PlayerContext` 是当前 Handler 的能力对象，不是完整 Runtime。它们不能 Create/Stop Service、Resolve、操作 Discovery 或保存到 Handler 外。无论 Handler 正常返回还是因 panic 展开，Context 都立即失效；此后 Reply、Send、Finish、Broadcast 和 Timeline 调度必须返回 `ErrContextExpired` 或不产生状态变化。只读 ID、Source、Self、Now 的值不因此成为可写 Runtime 能力。
+
 ## 状态与生命周期
 
 每一份可变业务状态只有一个 owner：Battle 拥有单局状态，Room 拥有房间与 Battle 索引，Player 拥有单个玩家长期状态，Wallet 拥有账本请求与结果。创建由组合根或显式 Factory Service 完成，Factory 的结果作为新 Command 返回；Service Handler 不保存完整 Runtime，也不直接创建另一个 Service。
@@ -95,6 +104,8 @@ ID 必须为去除首尾空白后非空、有效 UTF-8、最大 128 bytes 的稳
 ## 并发与所有权
 
 Service 的 Mailbox 是它的唯一业务写入口。一个 Handler 可以 Send/Call 其他 Ref，但不得在本地状态写到一半后依赖同步 Call 完成跨 Service 原子事务；应先冻结请求，再由结果 Command 推进。业务 Service 和 Module 不得启动 goroutine、保留 ServiceContext 或直接访问另一个 Service 的内部对象。
+
+单个 Battle、Room、Player 或 Wallet 是一个串行热点：它的吞吐上限由 Handler 时长与 Mailbox 排队决定，不能靠增加 Worker 并行执行同一 owner。优化先缩短 Handler、把 I/O 交给组合根拥有的有界 runner、按 Battle/Player 等 owner 分片，再以 p95/p99 排队时间、Mailbox 拒绝、Handler 时长、广播量和分配数据决定是否调整边界；不得用业务 goroutine 绕开 Mailbox。
 
 ## 可观测性
 

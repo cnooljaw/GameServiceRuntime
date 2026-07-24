@@ -67,7 +67,7 @@ type PlayerModule interface {
 }
 ```
 
-Name 必须是去空白非空、最大 64 bytes 的稳定 ASCII 标识；一个 PlayerConfig 内不能重复。Commands 必须严格递增、非零且不与 Player 保留/其他模块 Command 重叠；没有外部 Command 的模块返回 nil。`Handle` 只收到自己声明的 Command；Event 按模块名词典序逐个分派，任一错误使当前 Player Command 返回错误且不继续分派后续模块。
+Name 必须是去空白非空、最大 64 bytes 的稳定 ASCII 标识；一个 PlayerConfig 内不能重复。Commands 必须严格递增、非零且不与 Player 保留/其他模块 Command 重叠；没有外部 Command 的模块返回 nil。`Handle` 只收到自己声明的 Command；Event 按模块名词典序逐个分派，任一错误使当前 Player Command 返回错误且不继续分派后续模块。`PlayerContext` 不隐藏 GSR Command 模型：Module 可用 Self、Source、Reply 和 Send；Reply 对 Send 是成功无副作用，不能据此取得完整 Runtime 控制权。
 
 ## 状态与生命周期
 
@@ -81,7 +81,7 @@ PlayerService Init 之后以 `PlayerActivated` 调用所有 module；Online、Of
 
 ## 并发与所有权
 
-PlayerContext 仅在 Player Handler 有效；Module 不得缓存它、其 Self/Source、也不得把它传递给另一个模块。模块状态只在 Player Mailbox 读写；所有 bytes 和集合返回副本。没有模块可以访问 Runtime 的 Create/Stop 或 PlayerService 内部 map。
+PlayerContext 仅在 Player Handler 有效；Module 不得缓存它、其 Self/Source、也不得把它传递给另一个模块。Handler 返回后，PlayerContext 的 Reply 和 Send 返回 `ErrContextExpired`。模块状态只在 Player Mailbox 读写；所有 bytes 和集合返回副本。没有模块可以访问 Runtime 的 Create/Stop 或 PlayerService 内部 map。
 
 ## 可观测性
 

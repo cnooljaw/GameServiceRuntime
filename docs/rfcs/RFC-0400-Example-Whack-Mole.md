@@ -72,7 +72,7 @@ Kick 只能在 BattleRunning、Epoch 相等、Player 为参与者且 ShrewVisibl
 
 ## 状态与生命周期
 
-Room 成功创建 Battle 后，composition root 对 Battle Send Start。Start 使用固定 RandomSeed 选择/生成首个 Shrew 并调度下一项；每个 Spawn/Expire/Kick 都写入 Logic 私有状态并可取得 Snapshot。Finish 冻结所有 Player 分数为 `SettlementRequest`，转入 BattleSettling；Wallet committed 后 BattleFinished，并向 Room 发送 `{BattleID, Ref}`。外层读取 Finished Snapshot、导出 Record 后调用 `Runtime.Stop`；Battle Handler 绝不 Stop 自己。
+Room 成功创建 Battle 后，composition root 使用 `Runtime.Send` 投递通用 Start 和玩法 Start；它们不需要当前结果。随后客户端输入使用 `Runtime.Call` 投递 Kick 并取得 `KickResult`。同一 Battle Mailbox 保证先接受的 Start 在 Kick 前完成，Logic 中的 `ctx.Reply` 对 Send 是成功无副作用。Start 使用固定 RandomSeed 选择/生成首个 Shrew 并调度下一项；每个 Spawn/Expire/Kick 都写入 Logic 私有状态并可取得 Snapshot。Finish 冻结所有 Player 分数为 `SettlementRequest`，转入 BattleSettling；Wallet committed 后 BattleFinished，并向 Room 发送 `{BattleID, Ref}`。外层读取 Finished Snapshot、导出 Record 后调用 `Runtime.Stop`；Battle Handler 绝不 Stop 自己。
 
 重连以 PlayerService/Mapper Call `GetBattleSnapshot`，返回 BattleEpoch、Timeline Snapshot、玩家可见 Shrew/Scores 投影；它不重新生成 timer 或重置分数。Record Bundle 初始状态在 Start 后捕获，记录每个 Battle 输入（包括 Timeline fire 和随机 seed Command）。
 
@@ -82,7 +82,7 @@ Room 成功创建 Battle 后，composition root 对 Battle Send Start。Start �
 
 ## 并发与所有权
 
-Shrew、Score、seed、next ID 和 timeline 全部属于一个 BattleLogic/Service 的 Mailbox；Room、Player、Wallet 不直接改它们。测试不得以 `time.Sleep` 推进规则，也不得由 example Service 创建 goroutine。所有 Snapshot map/bytes 为副本。
+Shrew、Score、seed、next ID 和 timeline 全部属于一个 BattleLogic/Service 的 Mailbox；Room、Player、Wallet 不直接改它们。测试不得以 `time.Sleep` 推进规则，也不得由 example Service 创建 goroutine。所有 Snapshot map/bytes 为副本。示例基准分别测量一个 Battle 的连续 Kick 与多个独立 Battle 的并行 Kick；它们用于显示单局串行热点和按 Battle 分片，不把临时数字视为生产容量承诺。
 
 ## 可观测性
 

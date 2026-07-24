@@ -23,7 +23,7 @@ type WalletService struct {
 	executor   LedgerExecutor
 	maxPending int
 	runnerNode gsr.NodeID
-	context    gsr.ServiceContext
+	service    gsr.ServiceContext
 	requests   map[RequestID]SettlementRequest
 	results    map[RequestID]SettlementResult
 	balances   map[Currency]map[PlayerID]Amount
@@ -42,12 +42,12 @@ func (*WalletService) Commands() []gsr.CommandID {
 	return []gsr.CommandID{CommitSettlementCommand, GetSettlementCommand, GetBalanceCommand, commandApplyLedgerResult, commandRecoverSettlement}
 }
 
-// Init stores only the Runtime capability required to submit results back to Battle.
+// Init stores only the Service capability required to submit results back to Battle.
 func (s *WalletService) Init(serviceContext gsr.ServiceContext) error {
 	if isNil(serviceContext) {
 		return ErrInvalidConfig
 	}
-	s.context = serviceContext
+	s.service = serviceContext
 	return nil
 }
 
@@ -96,8 +96,8 @@ func (s *WalletService) Handle(commandContext gsr.CommandContext, command gsr.Co
 // Stop only releases lifecycle-local work references; it does not manufacture terminal results.
 func (*WalletService) Stop(context.Context) error { return nil }
 
-// Close releases WalletService's Runtime context.
-func (s *WalletService) Close() error { s.context = nil; return nil }
+// Close releases WalletService's Service capability.
+func (s *WalletService) Close() error { s.service = nil; return nil }
 
 func (s *WalletService) commit(commandContext gsr.CommandContext, request SettlementRequest) error {
 	if validateSettlementRequest(request) != nil || request.Source != commandContext.Source() {
@@ -115,7 +115,7 @@ func (s *WalletService) commit(commandContext gsr.CommandContext, request Settle
 	pending := SettlementResult{RequestID: request.RequestID, State: SettlementPending, Currency: request.Currency}
 	s.requests[request.RequestID] = cloneSettlementRequest(request)
 	s.results[request.RequestID] = pending
-	if err := s.executor.Submit(LedgerTask{Wallet: s.context.Self(), Source: request.Source, Request: cloneSettlementRequest(request)}); err != nil {
+	if err := s.executor.Submit(LedgerTask{Wallet: s.service.Self(), Source: request.Source, Request: cloneSettlementRequest(request)}); err != nil {
 		rejected := SettlementResult{RequestID: request.RequestID, State: SettlementRejected, Currency: request.Currency, Reason: "unavailable"}
 		s.results[request.RequestID] = rejected
 		return reply(commandContext, cloneSettlementResult(rejected))
@@ -153,8 +153,8 @@ func (s *WalletService) apply(commandContext gsr.CommandContext, applied ledgerR
 			currency[balance.Player] = balance.Amount
 		}
 	}
-	if err := s.context.Send(request.Source, ApplySettlementResultCommand, cloneSettlementResult(result)); err != nil {
-		s.context.Metrics().Inc("wallet_result_notify_failed_total")
+	if err := s.service.Send(request.Source, ApplySettlementResultCommand, cloneSettlementResult(result)); err != nil {
+		s.service.Metrics().Inc("wallet_result_notify_failed_total")
 	}
 	return reply(commandContext, cloneSettlementResult(result))
 }
@@ -167,7 +167,7 @@ func (s *WalletService) recover(commandContext gsr.CommandContext, requestID Req
 	if s.results[requestID].State != SettlementPending {
 		return reply(commandContext, cloneSettlementResult(s.results[requestID]))
 	}
-	if err := s.executor.Submit(LedgerTask{Wallet: s.context.Self(), Source: request.Source, Request: cloneSettlementRequest(request)}); err != nil {
+	if err := s.executor.Submit(LedgerTask{Wallet: s.service.Self(), Source: request.Source, Request: cloneSettlementRequest(request)}); err != nil {
 		return ErrUnavailable
 	}
 	return reply(commandContext, cloneSettlementResult(s.results[requestID]))

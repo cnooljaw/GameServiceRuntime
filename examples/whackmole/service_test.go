@@ -1,12 +1,37 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
+
+func TestWhackMoleSendStartThenCallKick(t *testing.T) {
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "whack-test", Workers: 1})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	battle, err := game.NewBattleService(game.BattleConfig{ID: "battle-42", Participants: []game.Participant{{Player: "alice"}}, Logic: newWhackMoleLogic(7)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: battle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := startWhackMole(runtime, ref); err != nil {
+		t.Fatal(err)
+	}
+	value, err := runtime.Call(context.Background(), ref, KickCommand, KickRequest{Player: "alice", Shrew: 1, Epoch: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := value.(KickResult)
+	if !ok || !result.Hit || result.Score != 1 {
+		t.Fatalf("Kick result = %#v, want hit score 1", value)
+	}
+}
 
 func TestWhackMoleKickHitsOnlyOnceAndFinishesThroughBattleContext(t *testing.T) {
 	logic := newWhackMoleLogic(7)
@@ -68,7 +93,7 @@ func (c *whackTestContext) Epoch() game.BattleEpoch               { return c.epo
 func (*whackTestContext) Now() time.Time                          { return time.Unix(1, 0) }
 func (c *whackTestContext) Timeline() game.Timeline               { return &c.timeline }
 func (c *whackTestContext) Finish(finish game.FinishBattle) error { c.finish = finish; return nil }
-func (*whackTestContext) Broadcast(gsr.CommandID, any) game.BroadcastResult {
-	return game.BroadcastResult{}
+func (*whackTestContext) Broadcast(gsr.CommandID, any) (game.BroadcastResult, error) {
+	return game.BroadcastResult{}, nil
 }
 func (*whackTestContext) Send(gsr.ServiceRef, gsr.CommandID, any) error { return nil }

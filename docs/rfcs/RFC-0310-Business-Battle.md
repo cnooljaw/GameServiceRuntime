@@ -98,7 +98,7 @@ type BattleContext interface {
     Now() time.Time
     Timeline() Timeline
     Finish(FinishBattle) error
-    Broadcast(gsr.CommandID, any) BroadcastResult
+    Broadcast(gsr.CommandID, any) (BroadcastResult, error)
     Send(gsr.ServiceRef, gsr.CommandID, any) error
 }
 type BroadcastResult struct { Delivered, Rejected int }
@@ -117,6 +117,8 @@ func CreateBattle(ServiceCreator, gsr.ServiceName, BattleConfig) (gsr.ServiceRef
 0x03000201 TimelineFire（私有）
 ```
 
+`BattleContext` 保留当前 Command 的 `Self`、`Source`、`Reply` 语义，并增加 BattleID、Epoch、Timeline、Finish、Broadcast 和 Send；它不是完整 Runtime。Logic 用 `ctx.Reply` 对 Call 返回当前结果；同一 Command 由 Send 到达时 Reply 成功无副作用。`Broadcast` 的 error 只表示 Context 已过期；逐目标拒绝继续由 `BroadcastResult.Rejected` 表达。
+
 Finish payload 为 `FinishBattle{RequestID, Settlements []SettlementIntent}`；Intent 不携带 `Source`，Battle 在自己的 Handler 中冻结并填入 `Self` 后构造 `SettlementRequest`，转为 `BattleSettling` 并 Send 给 Wallet。Wallet 的 `SettlementResult` 以 `ApplySettlementResult` 回到 Battle；同 RequestID 的重复 Finish 返回原阶段，不重复发送。游戏 Logic 自定义 Command 仅在 `BattleRunning` 处理，且不得修改 BattleContext 之外的权威状态。
 
 ## 状态与生命周期
@@ -131,7 +133,7 @@ Timeline 事件必须带当前 Epoch/Revision；迟到、取消或旧 Epoch 的�
 
 ## 并发与所有权
 
-Battle 状态、Logic 状态和 Timeline 状态仅由 Battle Mailbox 改写。BattleContext、Timeline 和其 payload 只能在当前 Handler 使用；不得保存、传给 goroutine 或在 Handle 返回后继续调用。Broadcast 不持有 PlayerService 指针，只基于 frozen Participant Ref 调用 Send。所有 Snapshot、参与者 map 和 Logic bytes 均深拷贝。
+Battle 状态、Logic 状态和 Timeline 状态仅由 Battle Mailbox 改写。BattleContext、Timeline 和其 payload 只能在当前 Handler 使用；不得保存、传给 goroutine 或在 Handle 返回后继续调用。Handler 返回后 Reply、Send、Finish、Broadcast 与 Timeline 调度返回 `ErrContextExpired`，Cancel 返回 false；Broadcast 不持有 PlayerService 指针，只基于 frozen Participant Ref 调用 Send。所有 Snapshot、参与者 map 和 Logic bytes 均深拷贝。
 
 ## 可观测性
 

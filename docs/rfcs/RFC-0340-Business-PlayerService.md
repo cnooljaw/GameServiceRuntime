@@ -80,7 +80,7 @@ BackupPlayer 只使 Module 生成独立 Snapshot bytes 或向外部 writer 发�
 
 ## 并发与所有权
 
-PlayerState、模块状态和最后重连投影只在 Player Mailbox 改写。模块只能经 PlayerContext 访问当前 Player；不得持有其他 Module/Service 指针、保存 Context、创建 goroutine或直接访问 Repository。所有 Snapshot、state 和 bytes 必须复制。
+PlayerState、模块状态和最后重连投影只在 Player Mailbox 改写。模块只能经 PlayerContext 访问当前 Player；PlayerContext 保留当前 Command 的 Self、Source、Reply 语义，Reply 对 Send 是成功无副作用。不得持有其他 Module/Service 指针、保存 Context、创建 goroutine或直接访问 Repository；Handler 返回后通过 Context Send 或 Reply 返回 `ErrContextExpired`。所有 Snapshot、state 和 bytes 必须复制。
 
 ## 可观测性
 

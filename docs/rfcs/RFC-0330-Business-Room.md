@@ -77,7 +77,7 @@ func NewRoomService(RoomConfig) (*RoomService, error)
 0x03000306 GetRoomSnapshot
 ```
 
-Join/Leave payload 使用 PlayerID；Start 使用 `BattleCreateRequest`；ApplyBattleCreated 使用 `BattleCreatedResult`；ApplyBattleFinished 使用 `BattleFinishedNotice`。`Factory` 非 nil 时必须同时配置精确 `FactoryRef`，ApplyBattleCreated 只接受该 source；ID/Capacity/Factory、成员重复、未加入玩家、重复 BattleID、零 Ref、超容量与不一致 RequestID 都是稳定错误。Factory 为 nil 时 Room 不支持 Start，但 Join/Leave/Query 仍可用。
+Join/Leave payload 使用 PlayerID；Start 使用 `BattleCreateRequest`；ApplyBattleCreated 使用 `BattleCreatedResult`；ApplyBattleFinished 使用 `BattleFinishedNotice`。`Factory` 非 nil 时必须同时配置精确 `FactoryRef`，ApplyBattleCreated 只接受该 source；ID/Capacity/Factory、成员重复、未加入玩家、重复 BattleID、零 Ref、超容量与不一致 RequestID 都是稳定错误。Factory 为 nil 时 Room 不支持 Start，但 Join/Leave/Query 仍可用。Room 没有可插拔 Logic 边界，因此直接在 `gsr.CommandContext` 上使用 RFC-0300 的 Send/Call/Reply 语义，不增加仅转发 Runtime 的 RoomContext。
 
 ## 状态与生命周期
 

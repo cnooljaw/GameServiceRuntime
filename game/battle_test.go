@@ -2,6 +2,7 @@ package game
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -13,7 +14,101 @@ import (
 const (
 	commandBattleTestSchedule gsr.CommandID = 0x04010001
 	commandBattleTestFired    gsr.CommandID = 0x04010002
+	commandBattleTestReply    gsr.CommandID = 0x04010003
+	commandBattleTestCapture  gsr.CommandID = 0x04010004
+	commandBattleTestPanic    gsr.CommandID = 0x04010005
 )
+
+func TestBattleContextReplyAllowsSend(t *testing.T) {
+	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
+	logic := &contextTestLogic{}
+	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice"}}, Logic: logic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Handle(&battleTestCommandContext{replyErr: gsr.ErrReplyUnavailable}, gsr.Command{ID: StartBattleCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Handle(&battleTestCommandContext{replyErr: gsr.ErrReplyUnavailable}, gsr.Command{ID: commandBattleTestReply}); err != nil {
+		t.Fatalf("Reply during Send-style Command error = %v", err)
+	}
+}
+
+func TestBattleContextRejectsEffectsAfterHandler(t *testing.T) {
+	target := gsr.ServiceRef{Node: "player-node", ID: 1}
+	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
+	logic := &contextTestLogic{}
+	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Handle(&battleTestCommandContext{}, gsr.Command{ID: StartBattleCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Handle(&battleTestCommandContext{}, gsr.Command{ID: commandBattleTestCapture}); err != nil {
+		t.Fatal(err)
+	}
+	if logic.context == nil {
+		t.Fatal("BattleLogic did not receive a Context")
+	}
+	if err := logic.context.Reply("late"); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Reply error = %v, want ErrContextExpired", err)
+	}
+	if err := logic.context.Send(target, commandBattleTestSchedule, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Send error = %v, want ErrContextExpired", err)
+	}
+	if _, err := logic.context.Broadcast(commandBattleTestSchedule, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Broadcast error = %v, want ErrContextExpired", err)
+	}
+	if _, err := logic.context.Timeline().After(time.Second, commandBattleTestSchedule, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Timeline.After error = %v, want ErrContextExpired", err)
+	}
+	if err := logic.context.Finish(FinishBattle{RequestID: "finish-42"}); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Finish error = %v, want ErrContextExpired", err)
+	}
+	if len(serviceContext.sent) != 0 || len(serviceContext.after) != 0 {
+		t.Fatalf("expired Context produced effects: sends=%#v timers=%#v", serviceContext.sent, serviceContext.after)
+	}
+}
+
+func TestBattleContextRejectsEffectsAfterHandlerPanic(t *testing.T) {
+	target := gsr.ServiceRef{Node: "player-node", ID: 1}
+	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
+	logic := &contextTestLogic{}
+	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Handle(&battleTestCommandContext{}, gsr.Command{ID: StartBattleCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("BattleLogic panic was not propagated")
+			}
+		}()
+		_ = battle.Handle(&battleTestCommandContext{}, gsr.Command{ID: commandBattleTestPanic})
+	}()
+	if logic.context == nil {
+		t.Fatal("BattleLogic did not receive a Context")
+	}
+	if err := logic.context.Send(target, commandBattleTestSchedule, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Send after panic error = %v, want ErrContextExpired", err)
+	}
+	if len(serviceContext.sent) != 0 {
+		t.Fatalf("expired Context produced sends after panic: %#v", serviceContext.sent)
+	}
+}
 
 func TestBattleTimelineFencesCancelledAndReplacedTimers(t *testing.T) {
 	clock := time.Unix(100, 0)
@@ -133,6 +228,27 @@ func (l *timelineTestLogic) HandleBattle(ctx BattleContext, command gsr.Command)
 }
 func (*timelineTestLogic) Snapshot(BattleContext) ([]byte, error) { return []byte("state"), nil }
 
+type contextTestLogic struct{ context BattleContext }
+
+func (*contextTestLogic) Commands() []gsr.CommandID {
+	return []gsr.CommandID{commandBattleTestReply, commandBattleTestCapture, commandBattleTestPanic}
+}
+func (l *contextTestLogic) HandleBattle(ctx BattleContext, command gsr.Command) error {
+	switch command.ID {
+	case commandBattleTestReply:
+		return ctx.Reply("accepted")
+	case commandBattleTestCapture:
+		l.context = ctx
+		return nil
+	case commandBattleTestPanic:
+		l.context = ctx
+		panic("battle context test panic")
+	default:
+		return ErrInvalidCommand
+	}
+}
+func (*contextTestLogic) Snapshot(BattleContext) ([]byte, error) { return nil, nil }
+
 type battleTestServiceContext struct {
 	self  gsr.ServiceRef
 	now   time.Time
@@ -172,12 +288,16 @@ func (battleTestMetrics) SetGauge(string, int64)        {}
 func (battleTestMetrics) Observe(string, time.Duration) {}
 
 type battleTestCommandContext struct {
-	source gsr.ServiceRef
-	reply  any
+	source   gsr.ServiceRef
+	reply    any
+	replyErr error
 }
 
 func (*battleTestCommandContext) Self() gsr.ServiceRef {
 	return gsr.ServiceRef{Node: "battle-node", ID: 1}
 }
 func (c *battleTestCommandContext) Source() gsr.ServiceRef { return c.source }
-func (c *battleTestCommandContext) Reply(value any) error  { c.reply = value; return nil }
+func (c *battleTestCommandContext) Reply(value any) error {
+	c.reply = value
+	return c.replyErr
+}

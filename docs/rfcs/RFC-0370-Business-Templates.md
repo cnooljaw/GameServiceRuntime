@@ -48,6 +48,8 @@ PlayerService (long-lived player state)
 
 新增 `MatchService` 或 `TaskService` 时必须声明新 CommandID 区段、State、RequestID 语义和返回副本规则，不得复用 Battle 的内部 Timeline/Wallet 私有 Command。
 
+模板不以领域 API 重命名或遮蔽 `Send`、`Call`、`Reply`。只有存在可插拔 Logic/Module 的 Battle 与 Player 才提供 `BattleContext`、`PlayerContext`，它们表达“当前 Command 加上领域能力”；Room 与 Wallet 的固定 Handler 直接使用 `gsr.CommandContext`。新增 Context 必须说明 Handler 有效期、Reply 对 Send 的行为和禁止的 Runtime 控制能力。
+
 ## 状态与生命周期
 
 选择规则：需要独立 Service 的条件是它拥有独立的可变权威状态、可独立寻址/恢复、或者会被多个 owner 以 Command 协作；否则优先作为当前 owner 的 Module/Logic。一个业务实体在一个时刻只能有一个写 owner；投影/缓存不是 owner。
@@ -67,6 +69,8 @@ PlayerService (long-lived player state)
 ```
 
 业务代码不得直接创建 goroutine、保存 ServiceContext、共享可变领域对象或把 Call 当分布式锁。外部 I/O worker 仅由组合根拥有，并满足有界提交、取消/Close、真实返回等待和结果 Command 回写。
+
+性能优化不改变 owner：先缩短单个 Handler、削减 Snapshot/广播分配、用异步 Result Command 隔离慢 I/O，并把独立 Battle/Player 分到多个 Service；只有压测证明单一 owner 已成为热点，才在新 RFC 中拆分权威状态。单局吞吐不以同一 Battle 的并发 Handle 换取。
 
 ## 可观测性
 

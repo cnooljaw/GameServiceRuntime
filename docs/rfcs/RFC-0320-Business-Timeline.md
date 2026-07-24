@@ -77,7 +77,7 @@ Snapshot 以 Item ID 排序，包含非终态和可诊断的终态项；实现�
 
 ## 错误与失败语义
 
-无效 delay/at/command/payload、未知或终态 ID、或在 Battle Handle 外调用 Timeline 均返回稳定错误。Core `After` 返回错误时不创建 Item。Core timer 允许迟到、重复或在物理取消后仍到达；Revision fencing 保证它不改变业务状态。Runtime Stop 前未到达的 Item 不会自动补偿。
+无效 delay/at/command/payload、未知或终态 ID 返回稳定错误；在 Battle Handle 外调用 After、At 或 Replace 返回 `ErrContextExpired`，Cancel 返回 false，Snapshot 返回零值。Core `After` 返回错误时不创建 Item。Core timer 允许迟到、重复或在物理取消后仍到达；Revision fencing 保证它不改变业务状态。Runtime Stop 前未到达的 Item 不会自动补偿。
 
 ## 并发与所有权
 

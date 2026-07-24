@@ -34,17 +34,23 @@ type timelineHandle struct {
 }
 
 func (t timelineHandle) After(delay time.Duration, command gsr.CommandID, payload any) (TimelineID, error) {
-	if !t.usable() || delay < 0 {
+	if !t.usable() {
+		return 0, ErrContextExpired
+	}
+	if delay < 0 {
 		return 0, ErrInvalidCommand
 	}
-	return t.schedule(t.timeline.battle.context.Now().Add(delay), command, payload)
+	return t.schedule(t.timeline.battle.service.Now().Add(delay), command, payload)
 }
 
 func (t timelineHandle) At(at time.Time, command gsr.CommandID, payload any) (TimelineID, error) {
-	if !t.usable() || at.IsZero() {
+	if !t.usable() {
+		return 0, ErrContextExpired
+	}
+	if at.IsZero() {
 		return 0, ErrInvalidCommand
 	}
-	now := t.timeline.battle.context.Now()
+	now := t.timeline.battle.service.Now()
 	if at.Before(now) {
 		at = now
 	}
@@ -52,14 +58,17 @@ func (t timelineHandle) At(at time.Time, command gsr.CommandID, payload any) (Ti
 }
 
 func (t timelineHandle) Replace(id TimelineID, delay time.Duration, command gsr.CommandID, payload any) (TimelineRevision, error) {
-	if !t.usable() || delay < 0 {
+	if !t.usable() {
+		return 0, ErrContextExpired
+	}
+	if delay < 0 {
 		return 0, ErrInvalidCommand
 	}
 	record, exists := t.timeline.items[id]
 	if !exists || record.item.State != TimelineScheduled || record.item.Revision == ^TimelineRevision(0) {
 		return 0, ErrStateConflict
 	}
-	return t.replace(id, t.timeline.battle.context.Now().Add(delay), command, payload)
+	return t.replace(id, t.timeline.battle.service.Now().Add(delay), command, payload)
 }
 
 func (t timelineHandle) Cancel(id TimelineID) bool {
@@ -127,11 +136,11 @@ func (t timelineHandle) replace(id TimelineID, dueAt time.Time, command gsr.Comm
 }
 
 func (t *battleTimeline) schedule(record timelineRecord) error {
-	delay := record.item.DueAt.Sub(t.battle.context.Now())
+	delay := record.item.DueAt.Sub(t.battle.service.Now())
 	if delay < 0 {
 		delay = 0
 	}
-	_, err := t.battle.context.After(delay, TimelineFireCommand, timelineFire{BattleID: t.battle.id, Epoch: t.battle.epoch, ID: record.item.ID, Revision: record.item.Revision, Command: record.item.Command})
+	_, err := t.battle.service.After(delay, TimelineFireCommand, timelineFire{BattleID: t.battle.id, Epoch: t.battle.epoch, ID: record.item.ID, Revision: record.item.Revision, Command: record.item.Command})
 	return err
 }
 

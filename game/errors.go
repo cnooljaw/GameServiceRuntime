@@ -16,6 +16,8 @@ var (
 	ErrStateConflict = errors.New("game: state conflict")
 	// ErrUnavailable indicates an external capability rejected immediate submission.
 	ErrUnavailable = errors.New("game: unavailable")
+	// ErrContextExpired indicates a BattleContext or PlayerContext escaped its Handler.
+	ErrContextExpired = errors.New("game: context expired")
 	// ErrInvalidConfig indicates a Service dependency or configuration is invalid.
 	ErrInvalidConfig = errors.New("game: invalid config")
 	// ErrInvalidCommand indicates a Command or payload is invalid for the target Service.

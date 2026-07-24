@@ -59,8 +59,8 @@ Layer 3: Business Layer
 | RFC-0273 Node Stop Execution | 10C2A | 已接受 | 已实现 Gateway+Principal 授权的 StopOperation、精确 Coordinator NodeAgent receipt、Directory 双重再确认、组合根有界 Runner、本地与双节点 TCP 验收；恢复、补偿和 Reconcile 仍后置。 |
 | RFC-0274 Manual Recovery | 10C2B | 已接受 | 已实现 Blueprint Runner 创建替代实例、NodeAgent receipt、人工 Confirm、Directory CAS、未知结果 Resolve、本地与双节点 TCP 验收；不恢复旧 Ref 或自动 Reconcile。 |
 | RFC-0280 Record/Replay | 11 | 已接受 | 已实现 Handle decorator、有界 Recorder、版本化 Bundle、目录型 JSONArchive、可组合 Codec 与隔离 Replay；Battle 的确定性业务组合留待 Phase 13。 |
-| RFC-0300 至 RFC-0370 | 12 | 已接受 | 已实现 game 包的领域边界、Battle/Timeline/Room/Player/Module/Wallet API、RequestID 与异步 LedgerRunner/MemoryLedgerStore；具体游戏规则和生产 Store 外置。 |
-| RFC-0400 示例 | 13 | 已接受 | 已实现 WhackMole 的 Timeline、单次 Kick、结算入口、可执行组合根与隔离 Record/Replay 验收；生产房间工厂与持久账本外置。 |
+| RFC-0300 至 RFC-0370 | 12 | 已接受 | 已实现 game 包的领域边界、Battle/Timeline/Room/Player/Module/Wallet API、RequestID 与异步 LedgerRunner/MemoryLedgerStore；2026-07-24 冻结直接 Send/Call/Reply 与 Context 有效期语义。具体游戏规则和生产 Store 外置。 |
+| RFC-0400 示例 | 13 | 已接受 | 已实现 WhackMole 的 Timeline、单次 Kick、结算入口、可执行组合根与隔离 Record/Replay 验收；2026-07-24 补充 Send 启动、Call 命中结果与按 Battle 性能基准。生产房间工厂与持久账本外置。 |
 
 截至 2026-07-24，后续阶段的开放 API、owner、失败收敛与验收已完成文档冻结，均为“待实现”。它们可以进入失败测试和最小实现；任何兼容性外的变更仍必须先修订 RFC。
 

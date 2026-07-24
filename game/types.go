@@ -192,7 +192,7 @@ type BattleConfig struct {
 	RandomSeed   uint64
 }
 
-// BattleContext is valid only during one BattleService Handle invocation.
+// BattleContext exposes the current Command and Battle effects during one BattleService Handle invocation.
 type BattleContext interface {
 	gsr.CommandContext
 	BattleID() BattleID
@@ -200,7 +200,7 @@ type BattleContext interface {
 	Now() time.Time
 	Timeline() Timeline
 	Finish(FinishBattle) error
-	Broadcast(gsr.CommandID, any) BroadcastResult
+	Broadcast(gsr.CommandID, any) (BroadcastResult, error)
 	Send(gsr.ServiceRef, gsr.CommandID, any) error
 }
 

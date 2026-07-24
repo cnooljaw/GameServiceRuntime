@@ -11,6 +11,12 @@ import (
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
+const (
+	commandPlayerTestReply   gsr.CommandID = 0x04020001
+	commandPlayerTestCapture gsr.CommandID = 0x04020002
+	commandPlayerTestPanic   gsr.CommandID = 0x04020003
+)
+
 func TestRoomIndexesOnlyTrustedFactoryResults(t *testing.T) {
 	factoryRef := gsr.ServiceRef{Node: "factory", ID: 1}
 	factory := &roomTestFactory{}
@@ -90,6 +96,86 @@ func TestPlayerFencesOfflineGenerationAndOrdersModuleEvents(t *testing.T) {
 	}
 }
 
+func TestPlayerContextReplyAllowsSend(t *testing.T) {
+	module := &playerContextTestModule{}
+	player, err := NewPlayerService(PlayerConfig{Identity: SessionIdentity{Player: "alice", Account: "account-1"}, Modules: []PlayerModule{module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceContext := &roomPlayerTestContext{self: gsr.ServiceRef{Node: "player", ID: 1}, now: time.Unix(1, 0)}
+	if err := player.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := player.Handle(&roomPlayerCommandContext{replyErr: gsr.ErrReplyUnavailable}, gsr.Command{ID: commandPlayerTestReply}); err != nil {
+		t.Fatalf("Reply during Send-style Command error = %v", err)
+	}
+}
+
+func TestPlayerContextReplyAllowsActivationEvent(t *testing.T) {
+	module := &replyOnPlayerActivationModule{}
+	player, err := NewPlayerService(PlayerConfig{Identity: SessionIdentity{Player: "alice", Account: "account-1"}, Modules: []PlayerModule{module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceContext := &roomPlayerTestContext{self: gsr.ServiceRef{Node: "player", ID: 1}, now: time.Unix(1, 0)}
+	if err := player.Init(serviceContext); err != nil {
+		t.Fatalf("Reply during activation event error = %v", err)
+	}
+}
+
+func TestPlayerContextRejectsSendAfterHandler(t *testing.T) {
+	module := &playerContextTestModule{}
+	player, err := NewPlayerService(PlayerConfig{Identity: SessionIdentity{Player: "alice", Account: "account-1"}, Modules: []PlayerModule{module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceContext := &roomPlayerTestContext{self: gsr.ServiceRef{Node: "player", ID: 1}, now: time.Unix(1, 0)}
+	if err := player.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	if err := player.Handle(&roomPlayerCommandContext{}, gsr.Command{ID: commandPlayerTestCapture}); err != nil {
+		t.Fatal(err)
+	}
+	if module.context == nil {
+		t.Fatal("PlayerModule did not receive a Context")
+	}
+	if err := module.context.Send(gsr.ServiceRef{Node: "target", ID: 1}, commandPlayerTestReply, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Send error = %v, want ErrContextExpired", err)
+	}
+	if len(serviceContext.sent) != 0 {
+		t.Fatalf("expired Context produced sends: %#v", serviceContext.sent)
+	}
+}
+
+func TestPlayerContextRejectsSendAfterHandlerPanic(t *testing.T) {
+	module := &playerContextTestModule{}
+	player, err := NewPlayerService(PlayerConfig{Identity: SessionIdentity{Player: "alice", Account: "account-1"}, Modules: []PlayerModule{module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceContext := &roomPlayerTestContext{self: gsr.ServiceRef{Node: "player", ID: 1}, now: time.Unix(1, 0)}
+	if err := player.Init(serviceContext); err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("PlayerModule panic was not propagated")
+			}
+		}()
+		_ = player.Handle(&roomPlayerCommandContext{}, gsr.Command{ID: commandPlayerTestPanic})
+	}()
+	if module.context == nil {
+		t.Fatal("PlayerModule did not receive a Context")
+	}
+	if err := module.context.Send(gsr.ServiceRef{Node: "target", ID: 1}, commandPlayerTestReply, nil); !errors.Is(err, ErrContextExpired) {
+		t.Fatalf("late Send after panic error = %v, want ErrContextExpired", err)
+	}
+	if len(serviceContext.sent) != 0 {
+		t.Fatalf("expired Context produced sends after panic: %#v", serviceContext.sent)
+	}
+}
+
 type roomTestFactory struct{ requests []BattleCreateRequest }
 
 func (f *roomTestFactory) RequestBattle(request BattleCreateRequest) error {
@@ -108,13 +194,61 @@ func (m *playerTestModule) HandleEvent(_ PlayerContext, event PlayerEvent) error
 }
 func (*playerTestModule) Snapshot(PlayerContext) ([]byte, error) { return []byte("module"), nil }
 
+type playerContextTestModule struct{ context PlayerContext }
+
+func (*playerContextTestModule) Name() string { return "context" }
+func (*playerContextTestModule) Commands() []gsr.CommandID {
+	return []gsr.CommandID{commandPlayerTestReply, commandPlayerTestCapture, commandPlayerTestPanic}
+}
+func (m *playerContextTestModule) Handle(ctx PlayerContext, command gsr.Command) error {
+	switch command.ID {
+	case commandPlayerTestReply:
+		return ctx.Reply("accepted")
+	case commandPlayerTestCapture:
+		m.context = ctx
+		return nil
+	case commandPlayerTestPanic:
+		m.context = ctx
+		panic("player context test panic")
+	default:
+		return ErrInvalidCommand
+	}
+}
+func (*playerContextTestModule) HandleEvent(PlayerContext, PlayerEvent) error { return nil }
+func (*playerContextTestModule) Snapshot(PlayerContext) ([]byte, error)       { return nil, nil }
+
+type replyOnPlayerActivationModule struct{}
+
+func (*replyOnPlayerActivationModule) Name() string              { return "reply-on-activation" }
+func (*replyOnPlayerActivationModule) Commands() []gsr.CommandID { return nil }
+func (*replyOnPlayerActivationModule) Handle(PlayerContext, gsr.Command) error {
+	return nil
+}
+func (*replyOnPlayerActivationModule) HandleEvent(ctx PlayerContext, event PlayerEvent) error {
+	if event.Kind == PlayerActivated {
+		return ctx.Reply("activated")
+	}
+	return nil
+}
+func (*replyOnPlayerActivationModule) Snapshot(PlayerContext) ([]byte, error) { return nil, nil }
+
 type roomPlayerTestContext struct {
 	self gsr.ServiceRef
 	now  time.Time
+	sent []roomPlayerTestSend
 }
 
-func (c *roomPlayerTestContext) Self() gsr.ServiceRef                        { return c.self }
-func (*roomPlayerTestContext) Send(gsr.ServiceRef, gsr.CommandID, any) error { return nil }
+type roomPlayerTestSend struct {
+	target  gsr.ServiceRef
+	command gsr.CommandID
+	payload any
+}
+
+func (c *roomPlayerTestContext) Self() gsr.ServiceRef { return c.self }
+func (c *roomPlayerTestContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
+	c.sent = append(c.sent, roomPlayerTestSend{target: target, command: command, payload: payload})
+	return nil
+}
 func (*roomPlayerTestContext) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
 	return nil, nil
 }
@@ -135,10 +269,14 @@ func (roomPlayerMetrics) SetGauge(string, int64)        {}
 func (roomPlayerMetrics) Observe(string, time.Duration) {}
 
 type roomPlayerCommandContext struct {
-	source gsr.ServiceRef
-	reply  any
+	source   gsr.ServiceRef
+	reply    any
+	replyErr error
 }
 
 func (*roomPlayerCommandContext) Self() gsr.ServiceRef     { return gsr.ServiceRef{Node: "test", ID: 1} }
 func (c *roomPlayerCommandContext) Source() gsr.ServiceRef { return c.source }
-func (c *roomPlayerCommandContext) Reply(value any) error  { c.reply = value; return nil }
+func (c *roomPlayerCommandContext) Reply(value any) error {
+	c.reply = value
+	return c.replyErr
+}

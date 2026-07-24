@@ -64,7 +64,7 @@ type PlayerService struct {
 	modules      map[string]PlayerModule
 	moduleNames  []string
 	commands     []gsr.CommandID
-	context      gsr.ServiceContext
+	service      gsr.ServiceContext
 	roomBindings map[RequestID]PlayerBinding
 	battleBinds  map[RequestID]PlayerBinding
 	reconnect    []byte
@@ -116,8 +116,8 @@ func (s *PlayerService) Init(serviceContext gsr.ServiceContext) error {
 	if isNil(serviceContext) {
 		return ErrInvalidConfig
 	}
-	s.context = serviceContext
-	return s.withContext(initPlayerCommandContext{self: serviceContext.Self()}, func(ctx *playerCommandContext) error {
+	s.service = serviceContext
+	return s.withContext(initPlayerContext{self: serviceContext.Self()}, func(ctx *playerContext) error {
 		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerActivated, At: serviceContext.Now()})
 	})
 }
@@ -159,15 +159,15 @@ func (s *PlayerService) Handle(commandContext gsr.CommandContext, command gsr.Co
 		if !exists {
 			return gsr.ErrCommandNotRegistered
 		}
-		return s.withContext(commandContext, func(ctx *playerCommandContext) error { return module.Handle(ctx, command) })
+		return s.withContext(commandContext, func(ctx *playerContext) error { return module.Handle(ctx, command) })
 	}
 }
 
 // Stop does not create Player business transitions.
 func (*PlayerService) Stop(context.Context) error { return nil }
 
-// Close releases PlayerService's Runtime context.
-func (s *PlayerService) Close() error { s.context = nil; return nil }
+// Close releases PlayerService's Service capability.
+func (s *PlayerService) Close() error { s.service = nil; return nil }
 
 func (s *PlayerService) online(commandContext gsr.CommandContext, presence PlayerPresence) error {
 	if !sameIdentity(presence.Identity, s.identity) || !validText(presence.Generation, maxBusinessIDBytes) {
@@ -178,8 +178,8 @@ func (s *PlayerService) online(commandContext gsr.CommandContext, presence Playe
 	}
 	s.generation = presence.Generation
 	s.state.Online = true
-	if err := s.withContext(commandContext, func(ctx *playerCommandContext) error {
-		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerOnline, Generation: presence.Generation, At: s.context.Now()})
+	if err := s.withContext(commandContext, func(ctx *playerContext) error {
+		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerOnline, Generation: presence.Generation, At: s.service.Now()})
 	}); err != nil {
 		return err
 	}
@@ -194,8 +194,8 @@ func (s *PlayerService) offline(commandContext gsr.CommandContext, presence Play
 		return s.replySnapshot(commandContext)
 	}
 	s.state.Online = false
-	if err := s.withContext(commandContext, func(ctx *playerCommandContext) error {
-		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerOffline, Generation: presence.Generation, At: s.context.Now()})
+	if err := s.withContext(commandContext, func(ctx *playerContext) error {
+		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerOffline, Generation: presence.Generation, At: s.service.Now()})
 	}); err != nil {
 		return err
 	}
@@ -226,8 +226,8 @@ func (s *PlayerService) bind(commandContext gsr.CommandContext, command gsr.Comm
 }
 
 func (s *PlayerService) backup(commandContext gsr.CommandContext) error {
-	if err := s.withContext(commandContext, func(ctx *playerCommandContext) error {
-		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerBackup, Generation: s.generation, At: s.context.Now()})
+	if err := s.withContext(commandContext, func(ctx *playerContext) error {
+		return s.dispatchEvent(ctx, PlayerEvent{Kind: PlayerBackup, Generation: s.generation, At: s.service.Now()})
 	}); err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func (s *PlayerService) replySnapshot(commandContext gsr.CommandContext) error {
 
 func (s *PlayerService) snapshot(commandContext gsr.CommandContext) (PlayerSnapshot, error) {
 	result := PlayerSnapshot{State: s.state, Modules: make(map[string][]byte, len(s.modules))}
-	if err := s.withContext(commandContext, func(ctx *playerCommandContext) error {
+	if err := s.withContext(commandContext, func(ctx *playerContext) error {
 		for _, name := range s.moduleNames {
 			bytes, err := s.modules[name].Snapshot(ctx)
 			if err != nil {
@@ -259,7 +259,7 @@ func (s *PlayerService) snapshot(commandContext gsr.CommandContext) (PlayerSnaps
 	return clonePlayerSnapshot(result), nil
 }
 
-func (s *PlayerService) dispatchEvent(ctx *playerCommandContext, event PlayerEvent) error {
+func (s *PlayerService) dispatchEvent(ctx *playerContext, event PlayerEvent) error {
 	for _, name := range s.moduleNames {
 		if err := s.modules[name].HandleEvent(ctx, event); err != nil {
 			return err
@@ -279,38 +279,47 @@ func (s *PlayerService) moduleFor(command gsr.CommandID) (PlayerModule, bool) {
 	return nil, false
 }
 
-func (s *PlayerService) withContext(command gsr.CommandContext, fn func(*playerCommandContext) error) error {
+func (s *PlayerService) withContext(command gsr.CommandContext, fn func(*playerContext) error) error {
 	active := true
-	ctx := &playerCommandContext{service: s, command: command, active: &active}
-	err := fn(ctx)
-	active = false
-	return err
+	ctx := &playerContext{player: s, command: command, active: &active}
+	defer func() { active = false }()
+	return fn(ctx)
 }
 
-type playerCommandContext struct {
-	service *PlayerService
+type playerContext struct {
+	player  *PlayerService
 	command gsr.CommandContext
 	active  *bool
 }
 
-func (c *playerCommandContext) Self() gsr.ServiceRef   { return c.command.Self() }
-func (c *playerCommandContext) Source() gsr.ServiceRef { return c.command.Source() }
-func (c *playerCommandContext) Reply(value any) error  { return c.command.Reply(value) }
-func (c *playerCommandContext) PlayerID() PlayerID     { return c.service.identity.Player }
-func (c *playerCommandContext) AccountID() AccountID   { return c.service.identity.Account }
-func (c *playerCommandContext) Now() time.Time         { return c.service.context.Now() }
-func (c *playerCommandContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if c.active == nil || !*c.active || !validServiceRef(target) {
+func (c *playerContext) Self() gsr.ServiceRef   { return c.command.Self() }
+func (c *playerContext) Source() gsr.ServiceRef { return c.command.Source() }
+func (c *playerContext) Reply(value any) error {
+	if !c.usable() {
+		return ErrContextExpired
+	}
+	return reply(c.command, value)
+}
+func (c *playerContext) PlayerID() PlayerID   { return c.player.identity.Player }
+func (c *playerContext) AccountID() AccountID { return c.player.identity.Account }
+func (c *playerContext) Now() time.Time       { return c.player.service.Now() }
+func (c *playerContext) Send(target gsr.ServiceRef, command gsr.CommandID, payload any) error {
+	if !c.usable() {
+		return ErrContextExpired
+	}
+	if !validServiceRef(target) {
 		return ErrUnavailable
 	}
-	return c.service.context.Send(target, command, payload)
+	return c.player.service.Send(target, command, payload)
 }
 
-type initPlayerCommandContext struct{ self gsr.ServiceRef }
+func (c *playerContext) usable() bool { return c != nil && c.active != nil && *c.active }
 
-func (c initPlayerCommandContext) Self() gsr.ServiceRef   { return c.self }
-func (c initPlayerCommandContext) Source() gsr.ServiceRef { return c.self }
-func (initPlayerCommandContext) Reply(any) error          { return gsr.ErrReplyUnavailable }
+type initPlayerContext struct{ self gsr.ServiceRef }
+
+func (c initPlayerContext) Self() gsr.ServiceRef   { return c.self }
+func (c initPlayerContext) Source() gsr.ServiceRef { return c.self }
+func (initPlayerContext) Reply(any) error          { return gsr.ErrReplyUnavailable }
 
 func validModuleName(name string) bool {
 	if name == "" || len(name) > 64 || strings.TrimSpace(name) != name {

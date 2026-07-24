@@ -48,8 +48,15 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | 编号 | 状态 | 事项 | 完成标准 |
 |---|---|---|---|
 | CF-009 | 已完成 | 向 Monitor 提供只读运行任务快照 | 通过 `Runtime.Inspect` 暴露任务类型、owner、开始时间和超时标记；不公开可变 task registry，不把 Monitor API 放入 Core Service 接口。 |
+
 | CF-010 | 已完成 | 同步教程和 RFC 状态 | 以实现为准回填 `docs/GSR-Book` 的 Core Runtime 章节；完成 API 冻结评审后，把 `RFC-0100` 至 `RFC-0192` 从“草案”更新为明确的已接受状态。 |
 | CF-011 | 已完成 | 发布首个 Core 版本 | P1、P2 清零后整理变更说明，执行全量质量命令并建立首个版本标签；标签前不承诺公开 API 稳定性。 |
+
+## P4：业务模板性能基线
+
+| 编号 | 状态 | 事项 | 完成标准 |
+|---|---|---|---|
+| BIZ-001 | 待开始 | 建立 Battle 热点与广播基线 | 在固定机器上记录单 Battle 连续 Command、多个 Battle 并行 Command、不同参与者数 Broadcast 的 p50/p95/p99、allocs/op、Mailbox 拒绝和队列等待；以数据决定是否新增只读投影、批处理或 owner 拆分 RFC，不为优化提前放开 Service goroutine。 |
 
 ## 验收命令
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"sort"
 	"time"
 
@@ -87,7 +86,7 @@ func (l *whackMoleLogic) HandleBattle(ctx game.BattleContext, command gsr.Comman
 		if err := l.spawn(ctx); err != nil {
 			return err
 		}
-		return whackReply(ctx, struct{}{})
+		return ctx.Reply(struct{}{})
 	case SpawnCommand:
 		return l.spawn(ctx)
 	case KickCommand:
@@ -173,12 +172,4 @@ func cloneScores(values map[game.PlayerID]int64) map[game.PlayerID]int64 {
 		result[player] = score
 	}
 	return result
-}
-
-func whackReply(ctx game.BattleContext, value any) error {
-	err := ctx.Reply(value)
-	if errors.Is(err, gsr.ErrReplyUnavailable) {
-		return nil
-	}
-	return err
 }

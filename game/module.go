@@ -27,7 +27,7 @@ type PlayerEvent struct {
 	At         time.Time
 }
 
-// PlayerContext is valid only while PlayerService dispatches one Command or Event.
+// PlayerContext exposes the current Command and Player effects while PlayerService dispatches one Command or Event.
 type PlayerContext interface {
 	gsr.CommandContext
 	PlayerID() PlayerID

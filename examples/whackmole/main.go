@@ -33,10 +33,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if _, err = runtime.Call(context.Background(), battleRef, game.StartBattleCommand, struct{}{}); err != nil {
-		panic(err)
-	}
-	if _, err = runtime.Call(context.Background(), battleRef, StartCommand, struct{}{}); err != nil {
+	if err := startWhackMole(runtime, battleRef); err != nil {
 		panic(err)
 	}
 	value, err := runtime.Call(context.Background(), battleRef, KickCommand, KickRequest{Player: "alice", Shrew: 1, Epoch: 1})
@@ -44,4 +41,11 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("whackmole kick: %#v\n", value)
+}
+
+func startWhackMole(runtime game.CommandRuntime, battle gsr.ServiceRef) error {
+	if err := runtime.Send(battle, game.StartBattleCommand, struct{}{}); err != nil {
+		return err
+	}
+	return runtime.Send(battle, StartCommand, struct{}{})
 }
