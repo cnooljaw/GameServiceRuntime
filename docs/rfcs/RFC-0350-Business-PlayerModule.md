@@ -67,7 +67,9 @@ type PlayerModule interface {
 }
 ```
 
-Name 必须是去空白非空、最大 64 bytes 的稳定 ASCII 标识；一个 PlayerConfig 内不能重复。Commands 必须严格递增、非零且不与 Player 保留/其他模块 Command 重叠；没有外部 Command 的模块返回 nil。`Handle` 只收到自己声明的 Command；Event 按模块名词典序逐个分派，任一错误使当前 Player Command 返回错误且不继续分派后续模块。`PlayerContext` 不隐藏 GSR Command 模型：Module 可用 Self、Source、Reply 和 Send；Reply 对 Send 是成功无副作用，不能据此取得完整 Runtime 控制权。
+Name 必须是去空白非空、最大 64 bytes 的稳定 ASCII 标识；一个 PlayerConfig 内不能重复。Commands 必须非零、无重复且不与 Player 保留/其他模块 Command 重叠；没有外部 Command 的模块返回 nil。`Handle` 只收到自己声明的 Command；Event 按模块名词典序逐个分派，任一错误使当前 Player Command 返回错误且不继续分派后续模块。`PlayerContext` 不隐藏 GSR Command 模型：Module 可用 Self、Source、Reply 和 Send；Reply 对 Send 是成功无副作用，不能据此取得完整 Runtime 控制权。
+
+这里的 `Commands()` 是 PlayerService 组合多个 Module 时使用的本地路由契约，不是 Core Runtime 的 Service 白名单。PlayerService 只在构造时读取一次并建立私有路由表；Runtime、Decorator 和其它 Service 不读取或转发它。
 
 ## 状态与生命周期
 
@@ -77,7 +79,7 @@ PlayerService Init 之后以 `PlayerActivated` 调用所有 module；Online、Of
 
 ## 错误与失败语义
 
-配置阶段拒绝空/重复名称、命令重叠、nil 模块或无效 Snapshot。Handler 阶段拒绝身份不匹配、未声明 Command、非法 Event 和无法序列化的 Snapshot。模块错误不会自动回滚模块已做的私有修改，因此模块必须先验证输入，或只在成功点写状态；跨模块原子更新不被承诺，应提升到 PlayerService 统一 Command。
+配置阶段拒绝空/重复名称、命令重叠、nil 模块或无效 Snapshot。Handler 阶段拒绝身份不匹配、没有模块路由的 Command、非法 Event 和无法序列化的 Snapshot。模块错误不会自动回滚模块已做的私有修改，因此模块必须先验证输入，或只在成功点写状态；跨模块原子更新不被承诺，应提升到 PlayerService 统一 Command。
 
 ## 并发与所有权
 

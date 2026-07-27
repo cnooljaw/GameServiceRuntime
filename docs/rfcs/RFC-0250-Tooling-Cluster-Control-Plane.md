@@ -210,7 +210,7 @@ Phase 9 处理 ServiceGroup、Directory 和路由事实。Phase 10 才能冻结 
 
 必须覆盖：
 
-1. Startup Command 只在 Service 进入 Running 后经 Mailbox 投递，未声明 Command 被拒绝。
+1. Startup Command 只在 Service 进入 Running 后经 Mailbox 投递，并采用与普通异步 Command 相同的 Handler error 语义。
 2. NodeAgent 自动 Register、定时 Heartbeat；lease 失效后重新 Register；普通暂时失败只在下一次间隔重试。
 3. Stop 对当前 lease 最多注销一次；Runtime Closing 路径不发起新的跨 Service Call。
 4. NodeAgent 只接受配置的 ObserverNode 和非零 Source.ID；拒绝路径不调用 Reporter。

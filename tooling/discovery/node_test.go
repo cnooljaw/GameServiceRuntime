@@ -339,7 +339,6 @@ type leaseOwnerNameRequest struct {
 	ref   gsr.ServiceRef
 }
 
-func (*leaseOwnerProbeService) Commands() []gsr.CommandID { return []gsr.CommandID{1, 2} }
 func (s *leaseOwnerProbeService) Init(serviceContext gsr.ServiceContext) error {
 	client, err := discovery.NewClient(serviceContext, s.target)
 	if err != nil {

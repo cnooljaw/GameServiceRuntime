@@ -48,10 +48,6 @@ func NewClusterObserverService(config ObserverConfig) (gsr.Service, error) {
 	return &controlService{config: config, nodes: nodes}, nil
 }
 
-func (*controlService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandListNodes, commandGetNodeDetail, commandRefreshNode}
-}
-
 func (s *controlService) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -85,7 +81,7 @@ func (s *controlService) Handle(commandContext gsr.CommandContext, command gsr.C
 		}
 		return commandContext.Reply(nodeDetailResponse{Detail: cloneNodeDetail(detail)})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

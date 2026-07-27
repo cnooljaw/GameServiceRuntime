@@ -170,7 +170,6 @@ func newJoiningLifecycleService(stopErr error) *joiningLifecycleService {
 	}
 }
 
-func (*joiningLifecycleService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*joiningLifecycleService) Init(gsr.ServiceContext) error { return nil }
 func (*joiningLifecycleService) Handle(gsr.CommandContext, gsr.Command) error {
 	return nil
@@ -196,7 +195,6 @@ func newCloseTimeoutHandlerService() *closeTimeoutHandlerService {
 	return &closeTimeoutHandlerService{started: make(chan struct{}), release: make(chan struct{})}
 }
 
-func (*closeTimeoutHandlerService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*closeTimeoutHandlerService) Init(gsr.ServiceContext) error { return nil }
 func (s *closeTimeoutHandlerService) Handle(gsr.CommandContext, gsr.Command) error {
 	s.once.Do(func() { close(s.started) })

@@ -19,7 +19,7 @@ description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler�
 ## Core 不变量
 
 - Core 只理解 Service、ServiceRef、Command、Envelope、Mailbox、Scheduler、Timer、生命周期和 Cluster 数据面；不引入 Actor、PTYPE 或业务领域类型。
-- 业务入口只有 Command。Service 可公开实现 `CommandDeclarer`，Runtime 在创建时复制并冻结私有命令集；不公开可变 Registry。
+- 业务入口只有 Command，`Service.Handle` 是唯一分发入口。Runtime 不维护 per-Service Command 白名单；Service 内部按可读性选择 `switch` 或私有函数表，不公开全局可变 Registry。
 - Command 必须经过 Mailbox；同一 Service 的 `Handle`、`Stop`、`Close` 不并发。Send/After 与 Stop 共享明确的消息接受边界。
 - 业务状态变化只在 Mailbox handler 中发生；跨 Service 只用 ServiceRef + Send/Call，不持有对象指针或用多把锁协调状态。
 - Service 不创建 goroutine。AST 门禁检查显式 Service 类型所有方法中的直接 `go` 语句；自由函数间接启动仍需评审。Runtime 创建的 Init、dispatch、Stop、Close 等任务必须有 owner、类型、完成句柄，并追踪到函数真实返回。

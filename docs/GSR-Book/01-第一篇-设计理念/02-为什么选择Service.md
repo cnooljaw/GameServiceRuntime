@@ -80,10 +80,6 @@ type counterService struct {
     value int
 }
 
-func (*counterService) Commands() []gsr.CommandID {
-    return []gsr.CommandID{Increment, GetValue}
-}
-
 func (*counterService) Init(gsr.ServiceContext) error {
     return nil
 }
@@ -100,7 +96,7 @@ func (s *counterService) Handle(ctx gsr.CommandContext, cmd gsr.Command) error {
     case GetValue:
         return ctx.Reply(s.value)
     default:
-        return gsr.ErrCommandNotRegistered
+        return gsr.ErrUnknownCommand
     }
 }
 

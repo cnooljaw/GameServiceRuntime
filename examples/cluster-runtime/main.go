@@ -58,9 +58,11 @@ func (textCodec) Decode(_ gsr.CommandID, _ bool, payload []byte) (any, error) {
 
 type helloService struct{}
 
-func (helloService) Commands() []gsr.CommandID     { return []gsr.CommandID{cmdHello} }
 func (helloService) Init(gsr.ServiceContext) error { return nil }
 func (helloService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
+	if command.ID != cmdHello {
+		return gsr.ErrUnknownCommand
+	}
 	return ctx.Reply("hello " + command.Payload.(string))
 }
 func (helloService) Stop(context.Context) error { return nil }

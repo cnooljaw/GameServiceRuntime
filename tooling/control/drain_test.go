@@ -415,9 +415,6 @@ type drainGatewayService struct {
 	target  gsr.ServiceRef
 }
 
-func (*drainGatewayService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandStartDrainOperation, commandResolveDrainOperation, commandGetDrainOperation, commandListDrainAudit, commandBeginDrainStop, commandResolveDrainStop, commandGetDrainStop, commandBeginRecovery, commandConfirmRecovery, commandResolveRecovery, commandGetRecovery, commandAbandonRecovery}
-}
 func (s *drainGatewayService) Init(context gsr.ServiceContext) error { s.context = context; return nil }
 func (s *drainGatewayService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	value, err := s.context.Call(context.Background(), s.target, command.ID, command.Payload)
@@ -431,11 +428,10 @@ func (s *drainGatewayService) Close() error             { s.context = nil; retur
 
 type drainWorkService struct{}
 
-func (drainWorkService) Commands() []gsr.CommandID     { return []gsr.CommandID{commandDrainWork} }
 func (drainWorkService) Init(gsr.ServiceContext) error { return nil }
 func (drainWorkService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandDrainWork {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	return context.Reply("worked")
 }
@@ -453,7 +449,6 @@ type drainVisitorService struct {
 	client   *drain.Client
 }
 
-func (*drainVisitorService) Commands() []gsr.CommandID { return []gsr.CommandID{commandDrainVisitor} }
 func (s *drainVisitorService) Init(context gsr.ServiceContext) error {
 	client, err := drain.NewClient(context, s.registry)
 	if err != nil {
@@ -465,7 +460,7 @@ func (s *drainVisitorService) Init(context gsr.ServiceContext) error {
 }
 func (s *drainVisitorService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandDrainVisitor {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	action, ok := command.Payload.(drainVisitorAction)
 	if !ok {
@@ -498,13 +493,6 @@ type lostPublishReplyService struct {
 	drop      atomic.Bool
 }
 
-func (s *lostPublishReplyService) Commands() []gsr.CommandID {
-	declarer, ok := s.inner.(gsr.CommandDeclarer)
-	if !ok {
-		return nil
-	}
-	return declarer.Commands()
-}
 func (s *lostPublishReplyService) Init(context gsr.ServiceContext) error {
 	return s.inner.Init(context)
 }
@@ -532,13 +520,6 @@ type lostGuardBeginReplyService struct {
 	drop   atomic.Bool
 }
 
-func (s *lostGuardBeginReplyService) Commands() []gsr.CommandID {
-	declarer, ok := s.inner.(gsr.CommandDeclarer)
-	if !ok {
-		return nil
-	}
-	return declarer.Commands()
-}
 func (s *lostGuardBeginReplyService) Init(context gsr.ServiceContext) error {
 	return s.inner.Init(context)
 }

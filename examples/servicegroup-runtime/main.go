@@ -158,16 +158,6 @@ type groupRouteService struct {
 	current   servicegroup.ServiceSet
 }
 
-func (*groupRouteService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandStartWatch,
-		commandCurrent,
-		commandRoute,
-		commandBroadcast,
-		servicegroup.ServiceSetChangedCommand,
-	}
-}
-
 func (s *groupRouteService) Init(serviceContext gsr.ServiceContext) error {
 	client, err := servicegroup.NewClient(serviceContext, s.directory)
 	if err != nil {
@@ -234,7 +224,7 @@ func (s *groupRouteService) Handle(commandContext gsr.CommandContext, command gs
 		}
 		return commandContext.Reply(struct{}{})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 
@@ -270,9 +260,6 @@ type workerService struct {
 	notices chan<- string
 }
 
-func (workerService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandWork, commandNotice}
-}
 func (workerService) Init(gsr.ServiceContext) error { return nil }
 func (s workerService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	payload, ok := command.Payload.(string)
@@ -286,7 +273,7 @@ func (s workerService) Handle(commandContext gsr.CommandContext, command gsr.Com
 		s.notices <- s.name + ":" + payload
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (workerService) Stop(context.Context) error { return nil }

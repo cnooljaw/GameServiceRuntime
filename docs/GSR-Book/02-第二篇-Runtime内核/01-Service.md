@@ -61,21 +61,13 @@ type StartupCommandDeclarer interface {
 }
 ```
 
-返回的 Command 也必须出现在 `Commands()` 中。
+返回的 Command 在 Service 进入 Running 后按普通消息进入 Mailbox。
 
-## Commands 是入口白名单
+## Handle 是唯一分发入口
 
-Service 通常实现 `CommandDeclarer`：
+Runtime 不要求 Service 再提供一份 Command 清单。`CreateService` 已经把实例和 `Handle` 绑定；能力清单与 Handler 会重复表达同一事实，还会要求每层 Decorator 转发清单。
 
-```go
-func (*counterService) Commands() []gsr.CommandID {
-    return []gsr.CommandID{Increment, GetValue}
-}
-```
-
-Runtime 在 `CreateService` 时复制并冻结这组 ID。未注册 Command 在进入 Mailbox 前就返回 `ErrCommandNotRegistered`。
-
-这比在每个 Handler 的 `default` 分支才发现错误更早，也避免运行期修改“路由表”。
+命令较少时直接使用 `switch`。命令较多时，可以在 Service 内部使用私有函数表。两者都是业务实现细节，不形成 Core Registry。
 
 ## Handle 只处理一条 Command
 
@@ -88,7 +80,7 @@ func (s *counterService) Handle(ctx gsr.CommandContext, cmd gsr.Command) error {
     case GetValue:
         return ctx.Reply(s.value)
     default:
-        return gsr.ErrCommandNotRegistered
+        return gsr.ErrUnknownCommand
     }
 }
 ```
@@ -136,7 +128,7 @@ ref, err := runtime.CreateService(gsr.ServiceSpec{
 
 Runtime 会：
 
-1. 验证 Service 与 Command 集；
+1. 验证 Service 配置；
 2. 分配新的 `ServiceRef`；
 3. 先注册实例，状态为 Starting；
 4. 追踪并调用 `Init`；

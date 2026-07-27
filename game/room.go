@@ -87,9 +87,6 @@ func NewRoomService(config RoomConfig) (*RoomService, error) {
 }
 
 // Commands declares all RoomService protocol Commands.
-func (*RoomService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{JoinRoomCommand, LeaveRoomCommand, StartRoomBattleCommand, ApplyBattleCreatedCommand, ApplyBattleFinishedCommand, GetRoomSnapshotCommand}
-}
 
 // Init performs no I/O and keeps Room state owned by its Mailbox.
 func (*RoomService) Init(gsr.ServiceContext) error { return nil }
@@ -143,7 +140,7 @@ func (s *RoomService) Handle(commandContext gsr.CommandContext, command gsr.Comm
 	case GetRoomSnapshotCommand:
 		return reply(commandContext, s.snapshot())
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 
@@ -240,7 +237,6 @@ func cloneBattleCreateRequest(request BattleCreateRequest) BattleCreateRequest {
 }
 
 var _ gsr.Service = (*RoomService)(nil)
-var _ gsr.CommandDeclarer = (*RoomService)(nil)
 
 func sortBattleIDs(values map[BattleID]gsr.ServiceRef) []BattleID {
 	result := make([]BattleID, 0, len(values))

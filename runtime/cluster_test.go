@@ -464,7 +464,6 @@ func (t *memoryTransport) Close(context.Context) error {
 
 type clusterRecordingService struct{ received chan string }
 
-func (*clusterRecordingService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*clusterRecordingService) Init(gsr.ServiceContext) error { return nil }
 func (s *clusterRecordingService) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	s.received <- command.Payload.(string)
@@ -475,7 +474,6 @@ func (*clusterRecordingService) Close() error               { return nil }
 
 type clusterReplyService struct{}
 
-func (clusterReplyService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (clusterReplyService) Init(gsr.ServiceContext) error { return nil }
 func (clusterReplyService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	return ctx.Reply("reply: " + command.Payload.(string))
@@ -485,7 +483,6 @@ func (clusterReplyService) Close() error               { return nil }
 
 type clusterErrorService struct{}
 
-func (clusterErrorService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (clusterErrorService) Init(gsr.ServiceContext) error { return nil }
 func (clusterErrorService) Handle(gsr.CommandContext, gsr.Command) error {
 	return errors.New("cluster handler failed")
@@ -495,7 +492,6 @@ func (clusterErrorService) Close() error               { return nil }
 
 type clusterReplyErrorService struct{ replyErr chan error }
 
-func (*clusterReplyErrorService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*clusterReplyErrorService) Init(gsr.ServiceContext) error { return nil }
 func (s *clusterReplyErrorService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
 	err := ctx.Reply("reply")
@@ -510,7 +506,6 @@ type clusterBlockingReplyService struct {
 	release chan struct{}
 }
 
-func (*clusterBlockingReplyService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*clusterBlockingReplyService) Init(gsr.ServiceContext) error { return nil }
 func (s *clusterBlockingReplyService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
 	close(s.started)
@@ -525,7 +520,6 @@ type clusterCallingService struct {
 	target gsr.ServiceRef
 }
 
-func (*clusterCallingService) Commands() []gsr.CommandID           { return []gsr.CommandID{1} }
 func (s *clusterCallingService) Init(ctx gsr.ServiceContext) error { s.ctx = ctx; return nil }
 func (s *clusterCallingService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
 	value, err := s.ctx.Call(context.Background(), s.target, 1, nil)

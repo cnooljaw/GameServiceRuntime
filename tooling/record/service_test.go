@@ -233,13 +233,10 @@ func eventuallyRecords(t *testing.T, client Client, targetKey StableKey, after S
 
 type recordTargetService struct{ total atomic.Int64 }
 
-func (*recordTargetService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRecordTestIncrement}
-}
 func (*recordTargetService) Init(gsr.ServiceContext) error { return nil }
 func (s *recordTargetService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandRecordTestIncrement {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	amount, ok := command.Payload.(int)
 	if !ok {

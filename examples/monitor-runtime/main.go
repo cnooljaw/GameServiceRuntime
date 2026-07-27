@@ -34,12 +34,14 @@ func main() {
 
 type echoService struct{}
 
-func (echoService) Commands() []gsr.CommandID { return []gsr.CommandID{cmdEcho} }
 func (echoService) Init(context gsr.ServiceContext) error {
 	context.Metrics().Inc("monitor_example_started_total")
 	return nil
 }
 func (echoService) Handle(context gsr.CommandContext, command gsr.Command) error {
+	if command.ID != cmdEcho {
+		return gsr.ErrUnknownCommand
+	}
 	return context.Reply(command.Payload)
 }
 func (echoService) Stop(context.Context) error { return nil }

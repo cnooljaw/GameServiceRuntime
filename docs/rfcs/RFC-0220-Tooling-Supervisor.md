@@ -113,7 +113,7 @@ type DecoratorConfig struct {
 func Decorate(gsr.Service, DecoratorConfig) (gsr.Service, error)
 ```
 
-Decorator 必须保持被包装 Service 的 `Commands()`、`Init`、正常 `Handle`、`Stop`、`Close` 顺序和 Reply 语义，不暴露被包装对象。`Handle` defer 只在捕获 panic 时执行：
+Decorator 必须保持被包装 Service 的 `Init`、正常 `Handle`、`Stop`、`Close` 顺序和 Reply 语义，不暴露被包装对象。`Handle` defer 只在捕获 panic 时执行：
 
 1. 使用当前 `ServiceContext.Self()` 构造 `FailedRef`。
 2. 使用 `ServiceContext.Now()` 构造 `OccurredAt`。

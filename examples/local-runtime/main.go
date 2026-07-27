@@ -28,13 +28,12 @@ func main() {
 
 type echoService struct{}
 
-func (echoService) Commands() []gsr.CommandID     { return []gsr.CommandID{cmdEcho} }
 func (echoService) Init(gsr.ServiceContext) error { return nil }
 func (echoService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	if command.ID == cmdEcho {
 		return ctx.Reply(command.Payload)
 	}
-	return nil
+	return gsr.ErrUnknownCommand
 }
 func (echoService) Stop(context.Context) error { return nil }
 func (echoService) Close() error               { return nil }

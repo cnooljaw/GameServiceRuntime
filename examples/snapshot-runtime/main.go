@@ -87,10 +87,6 @@ func newCounterServiceFromSnapshot(saved snapshot.Snapshot) (*counterService, er
 	return &counterService{key: saved.Key, value: payload.Value, revision: state.Revision}, nil
 }
 
-func (*counterService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandIncrement, commandGet, snapshot.CaptureCommand}
-}
-
 func (*counterService) Init(gsr.ServiceContext) error { return nil }
 
 func (s *counterService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
@@ -121,7 +117,7 @@ func (s *counterService) Handle(ctx gsr.CommandContext, command gsr.Command) err
 			Schema: "counter", Version: 1, Revision: s.revision, Payload: payload,
 		}})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

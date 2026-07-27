@@ -44,6 +44,8 @@ type PlayerModule interface {
 }
 ```
 
+这里的 `Commands()` 只用于 PlayerService 在构造时组合多个 Module 并建立本地路由，不是 Runtime 的 Service 白名单。普通 Service 不需要实现 `Commands()`。
+
 Module 不是 Service：
 
 - 没有独立 Ref；

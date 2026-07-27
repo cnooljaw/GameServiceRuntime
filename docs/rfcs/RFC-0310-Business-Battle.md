@@ -70,7 +70,6 @@ type BattleSnapshot struct {
     State        []byte
 }
 type BattleLogic interface {
-    Commands() []gsr.CommandID
     HandleBattle(BattleContext, gsr.Command) error
     Snapshot(BattleContext) ([]byte, error)
 }
@@ -106,7 +105,7 @@ func NewBattleService(BattleConfig) (*BattleService, error)
 func CreateBattle(ServiceCreator, gsr.ServiceName, BattleConfig) (gsr.ServiceRef, error)
 ```
 
-`BattleConfig.ID`、Logic、Participants 和 Epoch（零值默认 1）必须有效；玩家 ID 不重复，Player Ref 若非零必须有效，Wallet 仅能在需结算的 Logic 中使用。`CreateBattle` 只能由组合根/FactoryService 调用；它创建 `gsr.ServiceSpec`，不在已有 Battle Handler 中调用。Logic.Commands 与下列保留 Command 不得重叠：
+`BattleConfig.ID`、Logic、Participants 和 Epoch（零值默认 1）必须有效；玩家 ID 不重复，Player Ref 若非零必须有效，Wallet 仅能在需结算的 Logic 中使用。`CreateBattle` 只能由组合根/FactoryService 调用；它创建 `gsr.ServiceSpec`，不在已有 Battle Handler 中调用。BattleService 先处理下列保留 Command，其余 Command 在 `BattleRunning` 阶段交给 Logic：
 
 ```text
 0x03000101 StartBattle

@@ -57,8 +57,6 @@ type recordingService struct {
 	payload any
 }
 
-func (s *recordingService) Commands() []gsr.CommandID { return []gsr.CommandID{20, 1001} }
-
 func (s *recordingService) Init(gsr.ServiceContext) error { return nil }
 func (s *recordingService) Handle(_ gsr.CommandContext, cmd gsr.Command) error {
 	s.mu.Lock()
@@ -74,8 +72,6 @@ type serialService struct {
 	mu                    sync.Mutex
 	current, max, handled int
 }
-
-func (s *serialService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s *serialService) Init(gsr.ServiceContext) error { return nil }
 func (s *serialService) Handle(_ gsr.CommandContext, _ gsr.Command) error {

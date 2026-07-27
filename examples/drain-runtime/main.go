@@ -60,7 +60,6 @@ func main() {
 
 type targetService struct{}
 
-func (targetService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (targetService) Init(gsr.ServiceContext) error {
 	return nil
 }
@@ -74,8 +73,6 @@ type visitorService struct {
 	target   gsr.ServiceRef
 }
 
-func (*visitorService) Commands() []gsr.CommandID { return []gsr.CommandID{commandAcquireVisitorLease} }
-
 func (s *visitorService) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -83,7 +80,7 @@ func (s *visitorService) Init(serviceContext gsr.ServiceContext) error {
 
 func (s *visitorService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandAcquireVisitorLease {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	if _, ok := command.Payload.(struct{}); !ok {
 		return drain.ErrInvalidLease

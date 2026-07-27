@@ -15,7 +15,6 @@ const (
 
 type guardDecorator struct {
 	inner      gsr.Service
-	commands   []gsr.CommandID
 	controller gsr.ServiceRef
 	external   map[gsr.CommandID]struct{}
 	context    gsr.ServiceContext
@@ -28,32 +27,9 @@ func Decorate(service gsr.Service, config GuardConfig) (gsr.Service, error) {
 	if isNil(service) || !validServiceRef(config.Controller) || len(config.ExternalCommands) == 0 {
 		return nil, ErrInvalidGuard
 	}
-	declarer, ok := service.(gsr.CommandDeclarer)
-	if !ok {
-		return nil, ErrInvalidGuard
-	}
-	innerCommands := declarer.Commands()
-	if len(innerCommands) == 0 {
-		return nil, ErrInvalidGuard
-	}
-	registered := make(map[gsr.CommandID]struct{}, len(innerCommands)+2)
-	commands := make([]gsr.CommandID, 0, len(innerCommands)+2)
-	for _, command := range innerCommands {
-		if _, exists := registered[command]; exists {
-			return nil, ErrInvalidGuard
-		}
-		registered[command] = struct{}{}
-		commands = append(commands, command)
-	}
-	if _, exists := registered[BeginDrainCommand]; exists {
-		return nil, ErrInvalidGuard
-	}
-	if _, exists := registered[GetDrainStatusCommand]; exists {
-		return nil, ErrInvalidGuard
-	}
 	external := make(map[gsr.CommandID]struct{}, len(config.ExternalCommands))
 	for _, command := range config.ExternalCommands {
-		if _, exists := registered[command]; !exists {
+		if command == 0 || command == BeginDrainCommand || command == GetDrainStatusCommand {
 			return nil, ErrInvalidGuard
 		}
 		if _, exists := external[command]; exists {
@@ -61,17 +37,11 @@ func Decorate(service gsr.Service, config GuardConfig) (gsr.Service, error) {
 		}
 		external[command] = struct{}{}
 	}
-	commands = append(commands, BeginDrainCommand, GetDrainStatusCommand)
 	return &guardDecorator{
 		inner:      service,
-		commands:   commands,
 		controller: config.Controller,
 		external:   external,
 	}, nil
-}
-
-func (d *guardDecorator) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), d.commands...)
 }
 
 func (d *guardDecorator) StartupCommand() (gsr.Command, bool) {

@@ -101,13 +101,12 @@ type remoteSnapshotService struct {
 	allowMismatchedRequest bool
 }
 
-func (remoteSnapshotService) Commands() []gsr.CommandID { return []gsr.CommandID{CaptureCommand} }
 func (remoteSnapshotService) Init(gsr.ServiceContext) error {
 	return nil
 }
 func (s remoteSnapshotService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	if command.ID != CaptureCommand {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	request, ok := command.Payload.(CaptureRequest)
 	if !ok {

@@ -128,14 +128,11 @@ func TestRecoveryRunnerRejectsInvalidConfigAndFullQueue(t *testing.T) {
 
 type recoveryResultSink struct{ results chan recoveryCreateResult }
 
-func (*recoveryResultSink) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRecordRecoveryCreate}
-}
 func (*recoveryResultSink) Init(gsr.ServiceContext) error { return nil }
 func (s *recoveryResultSink) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	result, ok := command.Payload.(recoveryCreateResult)
 	if !ok || command.ID != commandRecordRecoveryCreate {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	s.results <- result
 	return nil
@@ -147,13 +144,10 @@ type recoveryWorkService struct{ starts atomic.Int32 }
 
 const recoveryRunnerWorkCommand gsr.CommandID = 0x7f250501
 
-func (*recoveryWorkService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{recoveryRunnerWorkCommand}
-}
 func (*recoveryWorkService) Init(gsr.ServiceContext) error { return nil }
 func (*recoveryWorkService) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	if command.ID != recoveryRunnerWorkCommand {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	return nil
 }

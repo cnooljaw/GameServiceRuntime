@@ -160,15 +160,6 @@ type remoteSubscriber struct {
 	lease     servicegroup.WatchLease
 }
 
-func (*remoteSubscriber) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandSubscribe,
-		commandRenewSubscription,
-		commandUnsubscribe,
-		servicegroup.ServiceSetChangedCommand,
-	}
-}
-
 func (s *remoteSubscriber) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -226,7 +217,7 @@ func (s *remoteSubscriber) Handle(commandContext gsr.CommandContext, command gsr
 		s.changes <- change
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 
@@ -238,9 +229,6 @@ type routeService struct {
 	received chan<- string
 }
 
-func (routeService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRouteSend, commandRouteCall}
-}
 func (routeService) Init(gsr.ServiceContext) error { return nil }
 func (s routeService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	payload, ok := command.Payload.(string)
@@ -254,7 +242,7 @@ func (s routeService) Handle(context gsr.CommandContext, command gsr.Command) er
 	case commandRouteCall:
 		return context.Reply(s.name + ":" + payload)
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (routeService) Stop(context.Context) error { return nil }

@@ -61,6 +61,5 @@ func TestBattleConfigRejectsInvalidParticipantsAndLogic(t *testing.T) {
 
 type testBattleLogic struct{}
 
-func (*testBattleLogic) Commands() []gsr.CommandID                     { return []gsr.CommandID{0x0400ffff} }
 func (*testBattleLogic) HandleBattle(BattleContext, gsr.Command) error { return nil }
 func (*testBattleLogic) Snapshot(BattleContext) ([]byte, error)        { return []byte{}, nil }

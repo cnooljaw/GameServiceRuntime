@@ -101,10 +101,6 @@ func newIntegrationCounterService(snapshot Snapshot) (*integrationCounterService
 	return &integrationCounterService{key: snapshot.Key, value: payload.Value, revision: state.Revision}, nil
 }
 
-func (*integrationCounterService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{testCommandIncrement, testCommandGet, CaptureCommand}
-}
-
 func (*integrationCounterService) Init(gsr.ServiceContext) error { return nil }
 
 func (s *integrationCounterService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
@@ -135,7 +131,7 @@ func (s *integrationCounterService) Handle(ctx gsr.CommandContext, command gsr.C
 			Schema: "counter", Version: 1, Revision: s.revision, Payload: payload,
 		}})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

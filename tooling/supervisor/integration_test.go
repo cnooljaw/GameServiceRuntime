@@ -291,9 +291,6 @@ func newRecoveryCounterService(key ServiceKey, state snapshot.State) (*recoveryC
 	return &recoveryCounterService{key: key, value: value, revision: state.Revision}, nil
 }
 
-func (*recoveryCounterService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{recoveryCounterValueCommand, recoveryCounterPanicCommand, snapshot.CaptureCommand}
-}
 func (*recoveryCounterService) Init(gsr.ServiceContext) error { return nil }
 func (s *recoveryCounterService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	switch command.ID {
@@ -312,7 +309,7 @@ func (s *recoveryCounterService) Handle(ctx gsr.CommandContext, command gsr.Comm
 			State: snapshot.State{Schema: "counter", Version: 1, Revision: s.revision, Payload: []byte(strconv.Itoa(s.value))},
 		})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (*recoveryCounterService) Stop(context.Context) error { return nil }

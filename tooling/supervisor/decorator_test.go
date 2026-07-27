@@ -92,8 +92,8 @@ func TestDecoratorNoticeUsesFailedServiceAsRuntimeSource(t *testing.T) {
 	}
 }
 
-func TestDecoratorPreservesCommandsAndNormalLifecycle(t *testing.T) {
-	inner := &recordingDecoratorService{commands: []gsr.CommandID{10, 11}}
+func TestDecoratorPreservesNormalLifecycle(t *testing.T) {
+	inner := &recordingDecoratorService{}
 	decorated, err := Decorate(inner, DecoratorConfig{
 		Key:        ServiceKey{Namespace: "player", ID: "42"},
 		Generation: 1,
@@ -102,16 +102,6 @@ func TestDecoratorPreservesCommandsAndNormalLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	declarer, ok := decorated.(gsr.CommandDeclarer)
-	if !ok {
-		t.Fatal("decorated Service does not declare Commands")
-	}
-	commands := declarer.Commands()
-	commands[0] = 99
-	if got := declarer.Commands()[0]; got != 10 {
-		t.Fatalf("Commands leaked mutable slice: %v", got)
-	}
-
 	serviceContext := newDecoratorTestContext()
 	if err := decorated.Init(serviceContext); err != nil {
 		t.Fatal(err)
@@ -186,7 +176,7 @@ func TestDecoratorDeliveryFailureIsVisibleThroughRuntimeInspection(t *testing.T)
 func TestDecoratorRejectsSupervisorSelfReferenceDuringInit(t *testing.T) {
 	serviceContext := newDecoratorTestContext()
 	serviceContext.self = serviceContext.sendTarget
-	decorated, err := Decorate(&recordingDecoratorService{commands: []gsr.CommandID{1}}, DecoratorConfig{
+	decorated, err := Decorate(&recordingDecoratorService{}, DecoratorConfig{
 		Key:        ServiceKey{Namespace: "player", ID: "42"},
 		Generation: 1,
 		Supervisor: serviceContext.sendTarget,
@@ -201,14 +191,12 @@ func TestDecoratorRejectsSupervisorSelfReferenceDuringInit(t *testing.T) {
 
 type panicDecoratorService struct{}
 
-func (panicDecoratorService) Commands() []gsr.CommandID                    { return []gsr.CommandID{10} }
 func (panicDecoratorService) Init(gsr.ServiceContext) error                { return nil }
 func (panicDecoratorService) Handle(gsr.CommandContext, gsr.Command) error { panic("boom") }
 func (panicDecoratorService) Stop(context.Context) error                   { return nil }
 func (panicDecoratorService) Close() error                                 { return nil }
 
 type recordingDecoratorService struct {
-	commands  []gsr.CommandID
 	handleErr error
 	calls     []string
 }
@@ -222,9 +210,6 @@ type failureNoticeCaptureService struct {
 	received chan<- receivedFailureNotice
 }
 
-func (*failureNoticeCaptureService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{failureCommand}
-}
 func (*failureNoticeCaptureService) Init(gsr.ServiceContext) error { return nil }
 func (s *failureNoticeCaptureService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	notice, ok := command.Payload.(FailureNotice)
@@ -237,9 +222,6 @@ func (s *failureNoticeCaptureService) Handle(ctx gsr.CommandContext, command gsr
 func (*failureNoticeCaptureService) Stop(context.Context) error { return nil }
 func (*failureNoticeCaptureService) Close() error               { return nil }
 
-func (s *recordingDecoratorService) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), s.commands...)
-}
 func (s *recordingDecoratorService) Init(gsr.ServiceContext) error {
 	s.calls = append(s.calls, "init")
 	return nil

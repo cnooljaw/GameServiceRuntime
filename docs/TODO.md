@@ -8,7 +8,7 @@
 
 **Core Runtime** 已经完成 `RFC-0100` 至 `RFC-0192` 的功能实现，覆盖：
 
-- Service、ServiceRef、ServiceName、Registry 和私有只读 Command 集。
+- Service、ServiceRef、ServiceName、Registry 和单一 `Handle` Command 分发入口。
 - Mailbox、ReadyQueue、固定执行许可池和串行 Handler。
 - Send、Call、Reply、Session、PendingCall 和同步调用环检测。
 - Timer 到 Command 的统一投递链路。

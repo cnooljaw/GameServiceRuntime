@@ -82,10 +82,6 @@ type timerRecordTarget struct {
 	total   atomic.Int64
 }
 
-func (*timerRecordTarget) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRecordTimerStart, commandRecordTestIncrement}
-}
-
 const commandRecordTimerStart gsr.CommandID = 0x7f280102
 
 func (s *timerRecordTarget) StartupCommand() (gsr.Command, bool) {
@@ -105,7 +101,7 @@ func (s *timerRecordTarget) Handle(_ gsr.CommandContext, command gsr.Command) er
 		s.total.Add(int64(amount))
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (*timerRecordTarget) Stop(context.Context) error { return nil }

@@ -11,8 +11,6 @@ import (
 
 type fixedReplyService struct{ reply any }
 
-func (*fixedReplyService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (*fixedReplyService) Init(gsr.ServiceContext) error { return nil }
 
 func (s *fixedReplyService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
@@ -27,8 +25,6 @@ type callingService struct {
 	ctx    gsr.ServiceContext
 	target gsr.ServiceRef
 }
-
-func (*callingService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s *callingService) Init(ctx gsr.ServiceContext) error { s.ctx = ctx; return nil }
 
@@ -61,8 +57,6 @@ func newAcceptanceService() *acceptanceService {
 	return &acceptanceService{started: make(chan struct{}), release: make(chan struct{})}
 }
 
-func (*acceptanceService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (*acceptanceService) Init(gsr.ServiceContext) error { return nil }
 
 func (s *acceptanceService) Handle(gsr.CommandContext, gsr.Command) error {
@@ -77,8 +71,6 @@ func (*acceptanceService) Stop(context.Context) error { return nil }
 func (*acceptanceService) Close() error { return nil }
 
 type lifecyclePanicService struct{ phase string }
-
-func (lifecyclePanicService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s lifecyclePanicService) Init(gsr.ServiceContext) error {
 	if s.phase == "init" {
@@ -105,8 +97,6 @@ func (s lifecyclePanicService) Close() error {
 
 type blockingInitService struct{ started, release, closed chan struct{} }
 
-func (*blockingInitService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (s *blockingInitService) Init(gsr.ServiceContext) error {
 	close(s.started)
 	<-s.release
@@ -123,8 +113,6 @@ func (s *blockingInitService) Close() error {
 }
 
 type controlledStopService struct{ stopStarted, releaseStop, closed chan struct{} }
-
-func (*controlledStopService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*controlledStopService) Init(gsr.ServiceContext) error { return nil }
 
@@ -145,8 +133,6 @@ func (s *controlledStopService) Close() error {
 
 type contextCaptureService struct{ ctx gsr.ServiceContext }
 
-func (*contextCaptureService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (s *contextCaptureService) Init(ctx gsr.ServiceContext) error {
 	s.ctx = ctx
 	return nil
@@ -163,8 +149,6 @@ type stopCallingReplyService struct {
 	target gsr.ServiceRef
 	result chan error
 }
-
-func (*stopCallingReplyService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s *stopCallingReplyService) Init(ctx gsr.ServiceContext) error {
 	s.ctx = ctx
@@ -188,8 +172,6 @@ type bridgeService struct {
 	target gsr.ServiceRef
 }
 
-func (*bridgeService) Commands() []gsr.CommandID { return []gsr.CommandID{1, 2} }
-
 func (s *bridgeService) Init(ctx gsr.ServiceContext) error {
 	s.ctx = ctx
 	return nil
@@ -209,8 +191,6 @@ func (s *bridgeService) Handle(ctx gsr.CommandContext, cmd gsr.Command) error {
 func (*bridgeService) Stop(context.Context) error { return nil }
 
 func (*bridgeService) Close() error { return nil }
-
-func (*closeCallingService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s *closeCallingService) Init(ctx gsr.ServiceContext) error {
 	s.ctx = ctx
@@ -232,8 +212,6 @@ type fanoutService struct {
 	targets []gsr.ServiceRef
 	done    chan error
 }
-
-func (*fanoutService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (s *fanoutService) Init(ctx gsr.ServiceContext) error { s.ctx = ctx; return nil }
 
@@ -263,8 +241,6 @@ func newSerialStopService() *serialStopService {
 	return &serialStopService{started: make(chan struct{}), release: make(chan struct{}), stopCalled: make(chan struct{})}
 }
 
-func (*serialStopService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (*serialStopService) Init(gsr.ServiceContext) error { return nil }
 
 func (s *serialStopService) Handle(gsr.CommandContext, gsr.Command) error {
@@ -285,8 +261,6 @@ func (*serialStopService) Close() error { return nil }
 
 type panicService struct{}
 
-func (panicService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (panicService) Init(gsr.ServiceContext) error { return nil }
 
 func (panicService) Handle(gsr.CommandContext, gsr.Command) error { panic("boom") }
@@ -296,8 +270,6 @@ func (panicService) Stop(context.Context) error { return nil }
 func (panicService) Close() error { return nil }
 
 type releasableStopService struct{ started, release chan struct{} }
-
-func (*releasableStopService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*releasableStopService) Init(gsr.ServiceContext) error { return nil }
 
@@ -313,8 +285,6 @@ func (*releasableStopService) Close() error { return nil }
 
 type lifecycleErrorService struct{ stopErr, closeErr error }
 
-func (lifecycleErrorService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (lifecycleErrorService) Init(gsr.ServiceContext) error { return nil }
 
 func (lifecycleErrorService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
@@ -324,8 +294,6 @@ func (s lifecycleErrorService) Stop(context.Context) error { return s.stopErr }
 func (s lifecycleErrorService) Close() error { return s.closeErr }
 
 type pendingService struct{ handled, stopped, closed chan struct{} }
-
-func (*pendingService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*pendingService) Init(gsr.ServiceContext) error { return nil }
 
@@ -337,8 +305,6 @@ func (s *pendingService) Close() error { close(s.closed); return nil }
 
 type errorService struct{ err error }
 
-func (errorService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (errorService) Init(gsr.ServiceContext) error { return nil }
 
 func (s errorService) Handle(gsr.CommandContext, gsr.Command) error { return s.err }
@@ -348,8 +314,6 @@ func (errorService) Stop(context.Context) error { return nil }
 func (errorService) Close() error { return nil }
 
 type replyErrorService struct{ errors chan error }
-
-func (*replyErrorService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*replyErrorService) Init(gsr.ServiceContext) error { return nil }
 
@@ -366,8 +330,6 @@ type delayedReplyService struct {
 	release  chan struct{}
 	replyErr chan error
 }
-
-func (*delayedReplyService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*delayedReplyService) Init(gsr.ServiceContext) error { return nil }
 
@@ -386,8 +348,6 @@ type selfCallingService struct {
 	self gsr.ServiceRef
 }
 
-func (*selfCallingService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
-
 func (s *selfCallingService) Init(ctx gsr.ServiceContext) error { s.ctx = ctx; return nil }
 
 func (s *selfCallingService) Handle(ctx gsr.CommandContext, _ gsr.Command) error {
@@ -403,8 +363,6 @@ func (*selfCallingService) Stop(context.Context) error { return nil }
 func (*selfCallingService) Close() error { return nil }
 
 type slowService struct{ done chan struct{} }
-
-func (*slowService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 
 func (*slowService) Init(ctx gsr.ServiceContext) error {
 	_ = ctx.Now()
@@ -422,17 +380,3 @@ func (s *slowService) Handle(gsr.CommandContext, gsr.Command) error {
 func (*slowService) Stop(context.Context) error { return nil }
 
 func (*slowService) Close() error { return nil }
-
-type undeclaredService struct{}
-
-func (undeclaredService) Init(gsr.ServiceContext) error { return nil }
-
-func (undeclaredService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
-
-func (undeclaredService) Stop(context.Context) error { return nil }
-
-func (undeclaredService) Close() error { return nil }
-
-type duplicateCommandService struct{ undeclaredService }
-
-func (duplicateCommandService) Commands() []gsr.CommandID { return []gsr.CommandID{1, 1} }

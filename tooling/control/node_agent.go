@@ -63,10 +63,6 @@ func NewNodeAgentService(config NodeAgentConfig) (gsr.Service, error) {
 	return &nodeAgent{config: config, newLeaseClient: newNodeLeaseClient, stopReceipts: make(map[nodeStopKey]nodeStopRecord), recoveryReceipts: make(map[nodeRecoveryKey]nodeRecoveryRecord)}, nil
 }
 
-func (*nodeAgent) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGetNodeReport, commandBeginNodeStop, commandGetNodeStopReceipt, commandBeginRecoveryCreate, commandGetRecoveryReceipt, commandRecordRecoveryCreate, commandRecordNodeStopResult, commandRegisterNodeLease, commandHeartbeatNodeLease}
-}
-
 // StartupCommand starts registration only after Runtime has entered Running.
 func (*nodeAgent) StartupCommand() (gsr.Command, bool) {
 	return gsr.Command{ID: commandRegisterNodeLease}, true
@@ -109,7 +105,7 @@ func (a *nodeAgent) Handle(commandContext gsr.CommandContext, command gsr.Comman
 		}
 		return a.heartbeatLease()
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

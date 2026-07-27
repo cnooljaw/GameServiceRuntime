@@ -206,9 +206,6 @@ type timelineTestLogic struct {
 	lastPayload any
 }
 
-func (*timelineTestLogic) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandBattleTestSchedule, commandBattleTestFired}
-}
 func (l *timelineTestLogic) HandleBattle(ctx BattleContext, command gsr.Command) error {
 	switch command.ID {
 	case commandBattleTestSchedule:
@@ -230,9 +227,6 @@ func (*timelineTestLogic) Snapshot(BattleContext) ([]byte, error) { return []byt
 
 type contextTestLogic struct{ context BattleContext }
 
-func (*contextTestLogic) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandBattleTestReply, commandBattleTestCapture, commandBattleTestPanic}
-}
 func (l *contextTestLogic) HandleBattle(ctx BattleContext, command gsr.Command) error {
 	switch command.ID {
 	case commandBattleTestReply:

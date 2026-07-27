@@ -55,7 +55,6 @@ func TestReplyTwiceFails(t *testing.T) {
 
 type replyService struct{}
 
-func (replyService) Commands() []gsr.CommandID                          { return []gsr.CommandID{10} }
 func (replyService) Init(gsr.ServiceContext) error                      { return nil }
 func (replyService) Handle(ctx gsr.CommandContext, _ gsr.Command) error { return ctx.Reply("pong") }
 func (replyService) Stop(context.Context) error                         { return nil }

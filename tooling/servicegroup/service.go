@@ -52,17 +52,6 @@ func NewDirectoryService(config DirectoryConfig) (gsr.Service, error) {
 	}, nil
 }
 
-func (*directoryService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandPublishServiceSet,
-		commandGetServiceSet,
-		commandWatchServiceGroup,
-		commandRenewServiceGroupWatch,
-		commandUnwatchServiceGroup,
-		commandSweepExpiredWatches,
-	}
-}
-
 func (s *directoryService) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -142,7 +131,7 @@ func (s *directoryService) Handle(commandContext gsr.CommandContext, command gsr
 		}
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

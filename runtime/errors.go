@@ -21,10 +21,8 @@ var (
 	ErrReplyUnavailable = errors.New("gsr: reply unavailable")
 	// ErrReplyExpired indicates that the PendingCall no longer exists.
 	ErrReplyExpired = errors.New("gsr: reply expired")
-	// ErrCommandNotRegistered indicates that a Service does not support the CommandID.
-	ErrCommandNotRegistered = errors.New("gsr: command not registered")
-	// ErrCommandAlreadyRegistered indicates a duplicate CommandID declaration.
-	ErrCommandAlreadyRegistered = errors.New("gsr: command already registered")
+	// ErrUnknownCommand indicates that a Service Handle does not recognize the CommandID.
+	ErrUnknownCommand = errors.New("gsr: unknown command")
 	// ErrServiceNameConflict indicates that a ServiceName is already registered.
 	ErrServiceNameConflict = errors.New("gsr: service name conflict")
 	// ErrCallCycle indicates a synchronous self-call or detected Call cycle.

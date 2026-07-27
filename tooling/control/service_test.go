@@ -193,13 +193,12 @@ func newObserverClientForTarget(t *testing.T, runtime *gsr.Runtime, target gsr.S
 
 type invalidReportService struct{}
 
-func (invalidReportService) Commands() []gsr.CommandID { return []gsr.CommandID{commandGetNodeReport} }
 func (invalidReportService) Init(gsr.ServiceContext) error {
 	return nil
 }
 func (invalidReportService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandGetNodeReport {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	return context.Reply(nodeReportResponse{Report: testReport("unexpected-node")})
 }
@@ -212,15 +211,12 @@ type blockingReportService struct {
 	finished chan struct{}
 }
 
-func (*blockingReportService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGetNodeReport}
-}
 func (*blockingReportService) Init(gsr.ServiceContext) error {
 	return nil
 }
 func (s *blockingReportService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandGetNodeReport {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	close(s.started)
 	<-s.release

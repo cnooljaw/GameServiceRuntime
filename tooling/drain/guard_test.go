@@ -29,13 +29,12 @@ func TestDecorateRejectsInvalidGuardConfiguration(t *testing.T) {
 		config  GuardConfig
 	}{
 		{name: "nil service", service: nil, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{commandGuardExternal}}},
-		{name: "missing command declarer", service: noCommandGuardService{}, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{commandGuardExternal}}},
 		{name: "invalid controller", service: validService, config: GuardConfig{ExternalCommands: []gsr.CommandID{commandGuardExternal}}},
 		{name: "empty external commands", service: validService, config: GuardConfig{Controller: validController}},
+		{name: "zero external command", service: validService, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{0}}},
 		{name: "duplicate external command", service: validService, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{commandGuardExternal, commandGuardExternal}}},
-		{name: "undeclared external command", service: validService, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{99}}},
-		{name: "begin command collision", service: &guardCommandsService{commands: []gsr.CommandID{BeginDrainCommand}}, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{BeginDrainCommand}}},
-		{name: "status command collision", service: &guardCommandsService{commands: []gsr.CommandID{GetDrainStatusCommand}}, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{GetDrainStatusCommand}}},
+		{name: "begin command collision", service: validService, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{BeginDrainCommand}}},
+		{name: "status command collision", service: validService, config: GuardConfig{Controller: validController, ExternalCommands: []gsr.CommandID{GetDrainStatusCommand}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -45,26 +44,13 @@ func TestDecorateRejectsInvalidGuardConfiguration(t *testing.T) {
 		})
 	}
 
-	decorated, err := Decorate(validService, GuardConfig{
+	_, err := Decorate(validService, GuardConfig{
 		Controller:       validController,
 		ExternalCommands: []gsr.CommandID{commandGuardExternal},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	declarer, ok := decorated.(gsr.CommandDeclarer)
-	if !ok {
-		t.Fatal("decorated Service does not declare Commands")
-	}
-	commands := declarer.Commands()
-	if !sameCommandIDs(commands, []gsr.CommandID{commandGuardExternal, commandGuardInternal, BeginDrainCommand, GetDrainStatusCommand}) {
-		t.Fatalf("Commands() = %#v", commands)
-	}
-	commands[0] = 99
-	if again := declarer.Commands(); again[0] != commandGuardExternal {
-		t.Fatalf("Commands() returned shared backing storage: %#v", again)
-	}
-
 	selfConfigured, err := Decorate(&guardTargetService{}, GuardConfig{
 		Controller:       gsr.ServiceRef{Node: "guard-node", ID: 9},
 		ExternalCommands: []gsr.CommandID{commandGuardExternal},
@@ -350,24 +336,11 @@ func (noCommandGuardService) Handle(gsr.CommandContext, gsr.Command) error { ret
 func (noCommandGuardService) Stop(context.Context) error                   { return nil }
 func (noCommandGuardService) Close() error                                 { return nil }
 
-type guardCommandsService struct{ commands []gsr.CommandID }
-
-func (s *guardCommandsService) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), s.commands...)
-}
-func (*guardCommandsService) Init(gsr.ServiceContext) error                { return nil }
-func (*guardCommandsService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
-func (*guardCommandsService) Stop(context.Context) error                   { return nil }
-func (*guardCommandsService) Close() error                                 { return nil }
-
 type guardTargetService struct {
 	external atomic.Int32
 	internal atomic.Int32
 }
 
-func (*guardTargetService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGuardExternal, commandGuardInternal}
-}
 func (*guardTargetService) Init(gsr.ServiceContext) error { return nil }
 func (s *guardTargetService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	if _, ok := command.Payload.(struct{}); !ok {
@@ -381,7 +354,7 @@ func (s *guardTargetService) Handle(commandContext gsr.CommandContext, command g
 		s.internal.Add(1)
 		return commandContext.Reply("internal")
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (*guardTargetService) Stop(context.Context) error { return nil }
@@ -393,13 +366,10 @@ type guardBlockingService struct {
 	external atomic.Int32
 }
 
-func (*guardBlockingService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGuardExternal}
-}
 func (*guardBlockingService) Init(gsr.ServiceContext) error { return nil }
 func (s *guardBlockingService) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandGuardExternal {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	if _, ok := command.Payload.(struct{}); !ok {
 		return ErrInvalidGuard
@@ -417,9 +387,6 @@ type guardBeginService struct {
 	target  gsr.ServiceRef
 }
 
-func (*guardBeginService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGuardBegin, commandGuardBadBegin}
-}
 func (s *guardBeginService) Init(context gsr.ServiceContext) error {
 	s.context = context
 	return nil
@@ -440,7 +407,7 @@ func (s *guardBeginService) Handle(commandContext gsr.CommandContext, command gs
 		return guardErrorFromCode(response.Error)
 	}
 	if command.ID != commandGuardBegin {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	client, err := NewGuardClient(s.context, s.target)
 	if err != nil {
@@ -461,16 +428,13 @@ type guardStartupService struct {
 	closeCalls atomic.Int32
 }
 
-func (*guardStartupService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandGuardExternal, commandGuardInternal}
-}
 func (*guardStartupService) StartupCommand() (gsr.Command, bool) {
 	return gsr.Command{ID: commandGuardInternal, Payload: struct{}{}}, true
 }
 func (*guardStartupService) Init(gsr.ServiceContext) error { return nil }
 func (s *guardStartupService) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandGuardInternal {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	s.handled <- struct{}{}
 	return nil

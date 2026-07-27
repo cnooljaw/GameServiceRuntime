@@ -53,7 +53,6 @@ func newBlockingHandlerService() *blockingHandlerService {
 	return &blockingHandlerService{started: make(chan struct{}), release: make(chan struct{})}
 }
 
-func (*blockingHandlerService) Commands() []CommandID     { return []CommandID{1} }
 func (*blockingHandlerService) Init(ServiceContext) error { return nil }
 func (s *blockingHandlerService) Handle(CommandContext, Command) error {
 	s.once.Do(func() { close(s.started) })

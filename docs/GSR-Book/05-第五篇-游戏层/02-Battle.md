@@ -18,7 +18,6 @@ BattleService
 
 ```go
 type BattleLogic interface {
-    Commands() []gsr.CommandID
     HandleBattle(BattleContext, gsr.Command) error
     Snapshot(BattleContext) ([]byte, error)
 }

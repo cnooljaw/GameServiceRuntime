@@ -54,23 +54,6 @@ func NewDrainCoordinatorService(config DrainCoordinatorConfig) (gsr.Service, err
 	return &drainCoordinatorService{config: config, operations: make(map[RequestID]drainOperationRecord), stops: make(map[RequestID]stopOperationRecord), recoveries: make(map[RequestID]recoveryOperationRecord)}, nil
 }
 
-func (*drainCoordinatorService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandStartDrainOperation,
-		commandResolveDrainOperation,
-		commandGetDrainOperation,
-		commandListDrainAudit,
-		commandBeginDrainStop,
-		commandResolveDrainStop,
-		commandGetDrainStop,
-		commandBeginRecovery,
-		commandConfirmRecovery,
-		commandResolveRecovery,
-		commandGetRecovery,
-		commandAbandonRecovery,
-	}
-}
-
 func (s *drainCoordinatorService) Init(serviceContext gsr.ServiceContext) error {
 	directory, err := servicegroup.NewClient(serviceContext, s.config.Directory)
 	if err != nil {
@@ -161,7 +144,7 @@ func (s *drainCoordinatorService) Handle(commandContext gsr.CommandContext, comm
 		}
 		return s.handleAbandonRecovery(commandContext, request.RequestID, request.Principal)
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

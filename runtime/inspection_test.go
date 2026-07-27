@@ -459,7 +459,6 @@ func TestRuntimeInspectIsSafeDuringConcurrentLifecycleChanges(t *testing.T) {
 
 type inspectionService struct{}
 
-func (inspectionService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (inspectionService) Init(gsr.ServiceContext) error { return nil }
 func (inspectionService) Handle(gsr.CommandContext, gsr.Command) error {
 	return nil
@@ -469,7 +468,6 @@ func (inspectionService) Close() error               { return nil }
 
 type inspectionMetricsService struct{}
 
-func (inspectionMetricsService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (inspectionMetricsService) Init(context gsr.ServiceContext) error {
 	context.Metrics().Add("inspection_counter", 7)
 	context.Metrics().SetGauge("inspection_gauge", -3)
@@ -485,7 +483,6 @@ type inspectionBlockingReplyService struct {
 	release chan struct{}
 }
 
-func (*inspectionBlockingReplyService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (*inspectionBlockingReplyService) Init(gsr.ServiceContext) error {
 	return nil
 }
@@ -502,7 +499,6 @@ type inspectionBlockingHandleService struct {
 	release chan struct{}
 }
 
-func (*inspectionBlockingHandleService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (*inspectionBlockingHandleService) Init(gsr.ServiceContext) error {
 	return nil
 }
@@ -519,7 +515,6 @@ type inspectionBlockingInitService struct {
 	release chan struct{}
 }
 
-func (*inspectionBlockingInitService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (s *inspectionBlockingInitService) Init(gsr.ServiceContext) error {
 	close(s.started)
 	<-s.release
@@ -539,7 +534,6 @@ type inspectionBlockingStopService struct {
 	release chan struct{}
 }
 
-func (*inspectionBlockingStopService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*inspectionBlockingStopService) Init(gsr.ServiceContext) error { return nil }
 func (*inspectionBlockingStopService) Handle(gsr.CommandContext, gsr.Command) error {
 	return nil
@@ -556,7 +550,6 @@ type inspectionBlockingCloseService struct {
 	release chan struct{}
 }
 
-func (*inspectionBlockingCloseService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (*inspectionBlockingCloseService) Init(gsr.ServiceContext) error { return nil }
 func (*inspectionBlockingCloseService) Handle(gsr.CommandContext, gsr.Command) error {
 	return nil

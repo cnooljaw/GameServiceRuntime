@@ -146,7 +146,7 @@ func NewMemoryStore() *MemoryStore
 func NewCodec(fallback gsr.ClusterCodec) gsr.ClusterCodec
 ```
 
-`CaptureCommand` 是稳定协议号。目标 Service 必须通过 `CommandDeclarer` 声明它，在状态中持有自己的稳定 `Key`，校验 `CaptureRequest.Key`，并在 `Handle` 中回复带 owner Key 的 `CaptureResponse`。Manager 必须拒绝无效或与请求不一致的响应 Key，且不得调用 Store。调用方不得绕过 `Manager` 拼装远程线格式。
+`CaptureCommand` 是稳定协议号。目标 Service 在自己的 `Handle` 中处理它，持有稳定 `Key`，校验 `CaptureRequest.Key`，并回复带 owner Key 的 `CaptureResponse`。Manager 必须拒绝无效或与请求不一致的响应 Key，且不得调用 Store。调用方不得绕过 `Manager` 拼装远程线格式。
 
 ## 数据不变量
 

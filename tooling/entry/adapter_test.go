@@ -631,7 +631,6 @@ func (rejectingDispatcher) Call(context.Context, gsr.ServiceRef, gsr.CommandID, 
 
 type entryCaptureService struct{ received chan<- SessionIdentity }
 
-func (*entryCaptureService) Commands() []gsr.CommandID     { return []gsr.CommandID{routedCommandID} }
 func (*entryCaptureService) Init(gsr.ServiceContext) error { return nil }
 func (s *entryCaptureService) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	identity, ok := command.Payload.(SessionIdentity)
@@ -646,11 +645,10 @@ func (*entryCaptureService) Close() error               { return nil }
 
 type replyService struct{}
 
-func (replyService) Commands() []gsr.CommandID     { return []gsr.CommandID{routedCommandID} }
 func (replyService) Init(gsr.ServiceContext) error { return nil }
 func (replyService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != routedCommandID {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	return context.Reply("pong")
 }

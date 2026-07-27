@@ -107,14 +107,7 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 	if spec.Service == nil {
 		return ServiceRef{}, ErrInvalidServiceSpec
 	}
-	commands, err := commandSetFor(spec.Service)
-	if err != nil {
-		return ServiceRef{}, err
-	}
 	startup, hasStartup := startupCommandFor(spec.Service)
-	if hasStartup && !commands.supports(startup.ID) {
-		return ServiceRef{}, ErrInvalidServiceSpec
-	}
 	if spec.Policy.StopTimeout <= 0 {
 		spec.Policy.StopTimeout = 5 * time.Second
 	}
@@ -125,7 +118,7 @@ func (r *Runtime) CreateService(spec ServiceSpec) (ServiceRef, error) {
 		spec.Policy.LifecycleTimeout = spec.Policy.StopTimeout + spec.Policy.CloseTimeout
 	}
 	ref := ServiceRef{Node: r.node, ID: ServiceID(r.nextID.Add(1))}
-	instance := &serviceInstance{ref: ref, name: spec.Name, service: spec.Service, commands: commands, policy: spec.Policy, done: make(chan struct{})}
+	instance := &serviceInstance{ref: ref, name: spec.Name, service: spec.Service, policy: spec.Policy, done: make(chan struct{})}
 	instance.mailbox = newMailbox(r.mailboxSize, r.metrics, r.now, mailboxDepthMetric(ref))
 	instance.context = &serviceContext{runtime: r, instance: instance}
 	instance.setStatus(ServiceCreated)
@@ -224,9 +217,6 @@ func (r *Runtime) sendLocalEnvelope(envelope Envelope) error {
 	if ServiceStatus(instance.status.Load()) != ServiceRunning || instance.finalized.Load() {
 		return ErrServiceClosed
 	}
-	if !instance.commands.supports(envelope.Command) {
-		return ErrCommandNotRegistered
-	}
 	if err := instance.mailbox.pushEnvelope(envelope); err != nil {
 		return err
 	}
@@ -247,9 +237,6 @@ func (r *Runtime) After(target ServiceRef, delay time.Duration, id CommandID, pa
 	defer instance.acceptMu.Unlock()
 	if ServiceStatus(instance.status.Load()) != ServiceRunning || instance.finalized.Load() {
 		return 0, ErrServiceClosed
-	}
-	if !instance.commands.supports(id) {
-		return 0, ErrCommandNotRegistered
 	}
 	return r.timers.add(target, delay, func() { r.deliverTimer(target, id, payload) }), nil
 }

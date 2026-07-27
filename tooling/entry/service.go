@@ -48,8 +48,6 @@ func NewLoginService(config LoginServiceConfig) (gsr.Service, error) {
 	return &loginService{registry: config.Registry, current: make(map[accountServerKey]LoginTicket)}, nil
 }
 
-func (*loginService) Commands() []gsr.CommandID { return []gsr.CommandID{issueTicketCommand} }
-
 func (s *loginService) Init(context gsr.ServiceContext) error {
 	if nilInterface(context) {
 		return ErrInvalidConfig
@@ -60,7 +58,7 @@ func (s *loginService) Init(context gsr.ServiceContext) error {
 
 func (s *loginService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != issueTicketCommand {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	request, ok := command.Payload.(issueTicketRequest)
 	if !ok {

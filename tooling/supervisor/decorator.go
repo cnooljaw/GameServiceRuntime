@@ -7,10 +7,9 @@ import (
 )
 
 type serviceDecorator struct {
-	inner    gsr.Service
-	commands []gsr.CommandID
-	config   DecoratorConfig
-	context  gsr.ServiceContext
+	inner   gsr.Service
+	config  DecoratorConfig
+	context gsr.ServiceContext
 }
 
 // Decorate wraps Handle panic reporting around a Service without changing normal lifecycle behavior.
@@ -18,21 +17,9 @@ func Decorate(service gsr.Service, config DecoratorConfig) (gsr.Service, error) 
 	if isNil(service) || validateServiceKey(config.Key) != nil || config.Generation == 0 || validateConcreteRef(config.Supervisor) != nil {
 		return nil, ErrInvalidConfig
 	}
-	declarer, ok := service.(gsr.CommandDeclarer)
-	if !ok {
-		return nil, ErrInvalidConfig
-	}
-	commands := declarer.Commands()
-	if len(commands) == 0 {
-		return nil, ErrInvalidConfig
-	}
 	return &serviceDecorator{
-		inner: service, commands: append([]gsr.CommandID(nil), commands...), config: config,
+		inner: service, config: config,
 	}, nil
-}
-
-func (d *serviceDecorator) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), d.commands...)
 }
 
 func (d *serviceDecorator) Init(ctx gsr.ServiceContext) error {

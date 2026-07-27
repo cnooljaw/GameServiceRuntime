@@ -38,10 +38,6 @@ type Service interface {
     Close() error
 }
 
-type CommandDeclarer interface {
-    Commands() []CommandID
-}
-
 // StartupCommandDeclarer optionally declares one Command that Runtime enqueues
 // after Init succeeds and the Service has entered Running.
 type StartupCommandDeclarer interface {
@@ -87,7 +83,7 @@ type ServiceContext interface {
 
 Service 实现不得直接创建 goroutine。异步业务使用 Command、Timer 或独立 Service；Runtime 创建的 Service 执行任务由内部任务表追踪。第一版不公开 `Fork` 或 `Go` API。
 
-`StartupCommandDeclarer` 是启动后异步工作的唯一通用入口。它返回 `ok=false` 时不投递；返回的 Command 必须已经由 `Commands` 声明。Runtime 在 `Init` 成功、实例进入 `Running` 后，以该 Service 自身为 Source 把它放入 Mailbox，再从 `CreateService` 返回。它不替代 `Init`，也不保证 Handler 在 `CreateService` 返回前完成。声明必须只依赖创建时已冻结的配置，不能读取或修改运行期状态。
+`StartupCommandDeclarer` 是启动后异步工作的唯一通用入口。它返回 `ok=false` 时不投递。Runtime 在 `Init` 成功、实例进入 `Running` 后，以该 Service 自身为 Source 把 Command 放入 Mailbox，再从 `CreateService` 返回。它不替代 `Init`，也不保证 Handler 在 `CreateService` 返回前完成。声明必须只依赖创建时已冻结的配置，不能读取或修改运行期状态。
 
 禁止在 `ServiceContext` 暴露：
 
@@ -108,7 +104,6 @@ type ServiceInstance struct {
     Mailbox  *Mailbox
     Status   ServiceStatus
     Policy   ServicePolicy
-    commands *commandSet
 }
 ```
 
@@ -121,7 +116,7 @@ type ServiceInstance struct {
 3. Service 不能直接创建 goroutine；无论是否修改自身状态，都不能产生脱离 Runtime 追踪的异步任务。
 4. 外部系统要影响 Service，只能投递 Command。
 5. `Init`、`Handle`、`Stop`、`Close` 中的 panic 都必须由 Runtime 捕获；第一版标记 `Failed` 并隔离实例，后续交给 Supervisor 决定恢复策略。
-6. Service 必须通过 `CommandDeclarer` 声明可接收的 CommandID。
+6. `Handle` 是 Service 唯一的 Command 分发入口；未知 Command 由 Service 返回 `ErrUnknownCommand`。
 7. Service 不得同步 Call 自己，Runtime 返回 `ErrCallCycle`。
 8. Runtime 必须向 Handler 提供准确的 Command Source，本地与远程不能使用不同的零值约定。
 9. 需要在启动后注册、重试或等待外部依赖的 Service，应使用 `StartupCommandDeclarer` 声明的启动 Command，再由 Handler 推进状态；不得在 `Init` 中阻塞或创建 goroutine。

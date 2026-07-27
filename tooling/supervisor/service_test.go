@@ -365,7 +365,6 @@ type failureEmitterService struct {
 	target  gsr.ServiceRef
 }
 
-func (*failureEmitterService) Commands() []gsr.CommandID { return []gsr.CommandID{emitFailureCommand} }
 func (s *failureEmitterService) Init(ctx gsr.ServiceContext) error {
 	s.context = ctx
 	return nil

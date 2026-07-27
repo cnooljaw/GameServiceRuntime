@@ -87,9 +87,6 @@ func newBenchmarkRuntime(b *testing.B, workers int) (*gsr.Runtime, gsr.ServiceRe
 
 type benchmarkService struct{ handled chan struct{} }
 
-func (*benchmarkService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{benchmarkCommandSend, benchmarkCommandCall}
-}
 func (*benchmarkService) Init(gsr.ServiceContext) error { return nil }
 func (s *benchmarkService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	switch command.ID {

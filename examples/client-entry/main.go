@@ -99,9 +99,11 @@ func (m echoMapper) Map(identity entry.SessionIdentity, packet entry.ClientPacke
 
 type echoService struct{ received chan<- entry.SessionIdentity }
 
-func (*echoService) Commands() []gsr.CommandID     { return []gsr.CommandID{echoCommand} }
 func (*echoService) Init(gsr.ServiceContext) error { return nil }
 func (s *echoService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID != echoCommand {
+		return gsr.ErrUnknownCommand
+	}
 	identity, ok := command.Payload.(entry.SessionIdentity)
 	if !ok {
 		return errors.New("missing session identity")

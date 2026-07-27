@@ -68,20 +68,6 @@ func NewService(config Config) (gsr.Service, error) {
 	}, nil
 }
 
-func (*service) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandRegisterNode,
-		commandHeartbeat,
-		commandUnregisterNode,
-		commandGetNode,
-		commandListNodes,
-		commandRegisterName,
-		commandUnregisterName,
-		commandResolveName,
-		commandSweepExpired,
-	}
-}
-
 func (s *service) Init(context gsr.ServiceContext) error {
 	s.context = context
 	return nil

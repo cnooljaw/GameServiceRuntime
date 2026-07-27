@@ -72,10 +72,6 @@ func newWhackMoleLogic(seed uint64) *whackMoleLogic {
 	return &whackMoleLogic{seed: seed, shrews: make(map[ShrewID]ShrewState), scores: make(map[game.PlayerID]int64)}
 }
 
-func (*whackMoleLogic) Commands() []gsr.CommandID {
-	return []gsr.CommandID{StartCommand, SpawnCommand, KickCommand, ExpireCommand, FinishCommand, GetSnapshotCommand}
-}
-
 func (l *whackMoleLogic) HandleBattle(ctx game.BattleContext, command gsr.Command) error {
 	switch command.ID {
 	case StartCommand:
@@ -133,7 +129,7 @@ func (l *whackMoleLogic) HandleBattle(ctx game.BattleContext, command gsr.Comman
 	case GetSnapshotCommand:
 		return ctx.Reply(l.snapshot(ctx))
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

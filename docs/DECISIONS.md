@@ -19,6 +19,7 @@
 | D-004：异步必须有 owner | Service 默认不创建 goroutine；Timer 只投递 Command；例外任务必须有生命周期 owner、关闭入口和真实返回追踪。 | 防止 Handler 外状态竞争、关闭泄漏和看似超时却仍在运行的任务。 | [设计原则](rfcs/RFC-0001-Foundation-Design-Principles.md)、[生命周期](rfcs/RFC-0180-Core-Lifecycle.md) |
 | D-005：Timer 不是 Service | Timer 是 Core 的未来 Command 投递能力，不执行回调；不把 Timer Wheel 设计成 Service。 | 定时不应绕过 Mailbox，也不应增加没有独立状态或地址价值的运行单元。 | [Timer](rfcs/RFC-0170-Core-Timer.md) |
 | D-006：不引入 `SystemServiceID` | 系统 Service 与普通 Service 一样使用动态 `ServiceID` 和稳定 `ServiceName`；只有 `ServiceID(0)` 保留给 Core 节点端点。 | 避免魔法实例 ID 与部署配置耦合，区分实例地址、长期名字和 Runtime 自身的节点级协议。 | [ServiceRef 与寻址](rfcs/RFC-0110-Core-ServiceRef.md) |
+| D-021：Handle 是唯一 Command 分发入口 | Runtime 不要求 Service 声明 Command 清单，也不维护 per-Service Command 白名单；未知 Command 进入 Mailbox 后由 Handler 返回错误。 | `CreateService` 与 `Handle` 已完成入口绑定。额外清单重复表达 Handler 能力，并把转发负担扩散到 Decorator；Skynet 同样把业务 `CMD` 表留在 Service 内部。 | [Service](rfcs/RFC-0100-Core-Service.md)、[Command](rfcs/RFC-0120-Core-Command.md) |
 
 ## Cluster 与 Tooling
 

@@ -67,15 +67,6 @@ func validateBattleConfig(config BattleConfig) error {
 		}
 		seenPlayers[participant.Player] = struct{}{}
 	}
-	commands := config.Logic.Commands()
-	if len(commands) == 0 || !strictCommandIDs(commands) {
-		return ErrInvalidConfig
-	}
-	for _, command := range commands {
-		if reservedBattleCommand(command) {
-			return ErrInvalidConfig
-		}
-	}
 	return nil
 }
 

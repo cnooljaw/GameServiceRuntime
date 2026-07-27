@@ -80,7 +80,6 @@ type RecorderConfig struct {
 }
 func NewRecorderService(RecorderConfig) (*RecorderService, error)
 func NewDecorator(gsr.Service, gsr.ServiceRef, StableKey, CommandCodec, Redactor, bool) (*Decorator, error)
-func (*Decorator) Commands() []gsr.CommandID
 
 type Client interface {
     Append(context.Context, gsr.ServiceRef, RecordEntry) error

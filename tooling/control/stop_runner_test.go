@@ -247,14 +247,11 @@ func (f nodeStopRunnerFixture) awaitResult(t *testing.T) nodeStopResult {
 
 type stopResultSink struct{ results chan nodeStopResult }
 
-func (*stopResultSink) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRecordNodeStopResult}
-}
 func (*stopResultSink) Init(gsr.ServiceContext) error { return nil }
 func (s *stopResultSink) Handle(_ gsr.CommandContext, command gsr.Command) error {
 	result, ok := command.Payload.(nodeStopResult)
 	if !ok || command.ID != commandRecordNodeStopResult {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	s.results <- result
 	return nil
@@ -268,11 +265,10 @@ type blockingStopService struct {
 	calls   atomic.Int32
 }
 
-func (*blockingStopService) Commands() []gsr.CommandID     { return []gsr.CommandID{commandDrainWork} }
 func (*blockingStopService) Init(gsr.ServiceContext) error { return nil }
 func (*blockingStopService) Handle(context gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandDrainWork {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	return context.Reply("worked")
 }

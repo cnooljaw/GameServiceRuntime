@@ -121,7 +121,6 @@ func waitForMetric(t *testing.T, rt *Runtime, name string, want uint64) {
 
 type timerMetricService struct{ handled chan CommandID }
 
-func (*timerMetricService) Commands() []CommandID     { return []CommandID{1, 2, 3} }
 func (*timerMetricService) Init(ServiceContext) error { return nil }
 func (s *timerMetricService) Handle(_ CommandContext, command Command) error {
 	s.handled <- command.ID
@@ -136,7 +135,6 @@ type blockingTimerMetricService struct {
 	once    sync.Once
 }
 
-func (*blockingTimerMetricService) Commands() []CommandID     { return []CommandID{1, 2, 3} }
 func (*blockingTimerMetricService) Init(ServiceContext) error { return nil }
 func (s *blockingTimerMetricService) Handle(_ CommandContext, command Command) error {
 	if command.ID == 1 {

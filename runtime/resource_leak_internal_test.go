@@ -60,9 +60,6 @@ const (
 
 type resourceProbeService struct{}
 
-func (resourceProbeService) Commands() []CommandID {
-	return []CommandID{resourceCommandReply, resourceCommandNoReply}
-}
 func (resourceProbeService) Init(ServiceContext) error { return nil }
 func (resourceProbeService) Handle(ctx CommandContext, command Command) error {
 	if command.ID == resourceCommandReply {

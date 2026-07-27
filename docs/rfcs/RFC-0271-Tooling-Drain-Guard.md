@@ -22,7 +22,7 @@ Phase 10B 必须交付：
 - 由 `BeginDrainCommand` 串行地切换到不可逆 Drain 状态，并以 `GetDrainStatusCommand` 查询独立状态快照。
 - 精确到 `ServiceRef` 的协调者来源约束、显式外部 Command 清单、稳定 `ErrDraining` 和幂等 Begin。
 - 对公开 Guard Command 的可组合 Cluster Codec、本地测试和双节点 TCP 验收。
-- 对 Command 声明、生命周期、Startup Command 和指标的透明转发；不在 Guard、Client 或 Codec 中创建 goroutine。
+- 对生命周期、Startup Command 和指标的透明转发；不在 Guard、Client 或 Codec 中创建 goroutine。
 
 ## 非目标
 
@@ -79,7 +79,7 @@ func (*GuardClient) Status(context.Context) (DrainStatus, error)
 
 `Controller` 必须是 Node 非空、ServiceID 非零的完整 `ServiceRef`，并且不得与被包装 Service 的实际 Self 相同。它代表可信集群内、可开始 Drain 的单一协调 Service；这只是实例级来源 fencing，不是外部用户认证。
 
-`ExternalCommands` 必须非空、无重复，且每一个都必须由被包装 Service 声明。`Decorate` 同时拒绝内层已经声明 `BeginDrainCommand` 或 `GetDrainStatusCommand` 的 Service，防止控制入口碰撞。清单外 Command 被视为内部 Command，Guard 原样转交内层；组合根必须审计并显式列出所有会接收新业务流量的入口。
+`ExternalCommands` 必须非空、非零、无重复，并且不能使用 `BeginDrainCommand` 或 `GetDrainStatusCommand`。Core 不维护 Service Command 清单，因此 Guard 不尝试预检内层是否处理这些 Command；清单是组合根对外部入口的显式配置。Guard 的两个控制 Command 属于保留编号，内层 Service 不得赋予它们其它含义。清单外 Command 被视为内部 Command，Guard 原样转交内层；组合根必须审计并列出所有会接收新业务流量的入口。
 
 `DrainStatus` 是值快照：未开始时 `Draining=false` 且 `StartedAt` 为零；开始后 `Draining=true` 且 `StartedAt` 为非零、首次成功 Begin 时由 `ServiceContext.Now()` 记录。状态不携带 Visitor、ServiceGroup 或 Stop 进度。
 
@@ -121,7 +121,7 @@ ErrUnauthorized
 ErrDraining
 ```
 
-`ErrInvalidGuard` 表示无效 Guard 配置、控制 Command 碰撞或无效 Begin payload；`ErrUnauthorized` 表示 Begin 的精确来源不匹配；`ErrDraining` 表示 Guard 已拒绝一个已声明的外部 Command。Client 发现无效响应或 Codec 发现无效 wire 值时继续返回既有 `ErrInvalidResponse`。Runtime、Transport 和 context 取消/超时错误保持原语义。
+`ErrInvalidGuard` 表示无效 Guard 配置、外部 Command 与控制 Command 碰撞或无效 Begin payload；`ErrUnauthorized` 表示 Begin 的精确来源不匹配；`ErrDraining` 表示 Guard 已拒绝一个配置为外部入口的 Command。Client 发现无效响应或 Codec 发现无效 wire 值时继续返回既有 `ErrInvalidResponse`。Runtime、Transport 和 context 取消/超时错误保持原语义。
 
 Core 只稳定编码自己的错误；因此目标所在节点的业务入口或同节点调用方可以用 `errors.Is(err, ErrDraining)` 进行类型化处理，而对任意远端外部 Command 的直接 Call 会按现有 Cluster 规则收到 `*gsr.RemoteError`。业务协议 adapter 应在目标节点把 `ErrDraining` 映射为其自身的可重试响应，不能把 Guard 错误加入 Core 的稳定远端错误表。`GuardClient.Begin` 和 `Status` 则通过自身的类型化响应，在跨节点时保持 `ErrUnauthorized`、`ErrInvalidGuard` 与 `ErrInvalidResponse` 的语义。
 
@@ -145,8 +145,8 @@ drain_guard_rejected_total
 
 必须覆盖：
 
-1. `Decorate` 拒绝 nil Service、无 CommandDeclarer、无效 Controller、空或重复 ExternalCommands、外部 Command 未由内层声明、控制 Command 碰撞和 Controller 等于实际 Self。
-2. Guard 返回独立 Command 清单，包含内层 Command 与两个控制 Command，并透明转发生命周期和 Startup Command。
+1. `Decorate` 拒绝 nil Service、无效 Controller、空/零值/重复 ExternalCommands、控制 Command 碰撞和 Controller 等于实际 Self。
+2. Guard 透明转发生命周期和 Startup Command。
 3. Begin 之前外部 Command 正常到达内层；Begin 之后同类 Command 返回 `ErrDraining` 且不改变内层状态；清单外内部 Command 仍被转交。
 4. Begin 只接受精确 Controller `ServiceRef`；错误 source、节点级 caller 和错误 payload 不改变状态。
 5. Begin 幂等地保留首次 `StartedAt`；Status 在前后返回满足不变量的独立快照；开始和拒绝指标正确。

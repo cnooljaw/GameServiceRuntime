@@ -114,14 +114,6 @@ type remoteVisitorService struct {
 	lease    drain.VisitorLease
 }
 
-func (*remoteVisitorService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandRemoteVisitorAcquire,
-		commandRemoteVisitorRenew,
-		commandRemoteVisitorRelease,
-	}
-}
-
 func (s *remoteVisitorService) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -164,7 +156,7 @@ func (s *remoteVisitorService) Handle(commandContext gsr.CommandContext, command
 		s.lease = drain.VisitorLease{}
 		return commandContext.Reply(struct{}{})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

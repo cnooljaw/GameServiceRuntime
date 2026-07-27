@@ -121,7 +121,6 @@ func newRemoteDiscoveryFixture(t *testing.T) remoteDiscoveryFixture {
 
 type remoteFixtureService struct{}
 
-func (remoteFixtureService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (remoteFixtureService) Init(gsr.ServiceContext) error { return nil }
 func (remoteFixtureService) Handle(gsr.CommandContext, gsr.Command) error {
 	return nil

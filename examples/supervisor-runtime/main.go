@@ -158,9 +158,6 @@ func newCounterService(key supervisor.ServiceKey, state snapshot.State) (*counte
 	return &counterService{key: key, value: value, revision: state.Revision}, nil
 }
 
-func (*counterService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{valueCommand, panicCommand, snapshot.CaptureCommand}
-}
 func (*counterService) Init(gsr.ServiceContext) error { return nil }
 func (s *counterService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	switch command.ID {
@@ -179,7 +176,7 @@ func (s *counterService) Handle(ctx gsr.CommandContext, command gsr.Command) err
 			State: snapshot.State{Schema: "counter", Version: 1, Revision: s.revision, Payload: []byte(strconv.Itoa(s.value))},
 		})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 func (*counterService) Stop(context.Context) error { return nil }

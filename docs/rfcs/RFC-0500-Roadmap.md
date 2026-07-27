@@ -98,7 +98,7 @@ Service B Handle Command
 实现：
 
 - `CommandID`
-- `CommandDeclarer` 与 Runtime 私有只读命令集
+- `Service.Handle` 单一 Command 分发入口；Runtime 不维护 per-Service Command 白名单
 - `SessionID`
 - `PendingCall`
 - `Call`

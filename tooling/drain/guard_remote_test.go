@@ -87,16 +87,13 @@ type remoteGuardController struct {
 	target  gsr.ServiceRef
 }
 
-func (*remoteGuardController) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRemoteGuardBegin}
-}
 func (s *remoteGuardController) Init(context gsr.ServiceContext) error {
 	s.context = context
 	return nil
 }
 func (s *remoteGuardController) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandRemoteGuardBegin {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	if _, ok := command.Payload.(struct{}); !ok {
 		return drain.ErrInvalidGuard
@@ -116,13 +113,10 @@ func (*remoteGuardController) Close() error               { return nil }
 
 type remoteGuardedService struct{ externalCalls int }
 
-func (*remoteGuardedService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandRemoteGuardExternal}
-}
 func (*remoteGuardedService) Init(gsr.ServiceContext) error { return nil }
 func (s *remoteGuardedService) Handle(commandContext gsr.CommandContext, command gsr.Command) error {
 	if command.ID != commandRemoteGuardExternal {
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 	if _, ok := command.Payload.(struct{}); !ok {
 		return drain.ErrInvalidGuard

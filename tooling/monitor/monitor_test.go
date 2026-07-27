@@ -206,7 +206,6 @@ func (s *stubInspector) Inspect() gsr.RuntimeInspection {
 
 type monitorMetricsService struct{}
 
-func (monitorMetricsService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (monitorMetricsService) Init(context gsr.ServiceContext) error {
 	context.Metrics().Add("business_counter", 7)
 	context.Metrics().SetGauge("business_gauge", -3)

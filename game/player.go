@@ -63,7 +63,7 @@ type PlayerService struct {
 	generation   string
 	modules      map[string]PlayerModule
 	moduleNames  []string
-	commands     []gsr.CommandID
+	moduleRoutes map[gsr.CommandID]PlayerModule
 	service      gsr.ServiceContext
 	roomBindings map[RequestID]PlayerBinding
 	battleBinds  map[RequestID]PlayerBinding
@@ -76,9 +76,10 @@ func NewPlayerService(config PlayerConfig) (*PlayerService, error) {
 		return nil, ErrInvalidConfig
 	}
 	modules := make(map[string]PlayerModule, len(config.Modules))
-	commands := []gsr.CommandID{SetPlayerOnlineCommand, SetPlayerOfflineCommand, SetPlayerRoomCommand, SetPlayerBattleCommand, GetPlayerSnapshotCommand, ApplyPlayerReconnectSnapshotCommand, BackupPlayerCommand}
-	seenCommands := make(map[gsr.CommandID]struct{}, len(commands))
-	for _, command := range commands {
+	moduleRoutes := make(map[gsr.CommandID]PlayerModule)
+	reservedCommands := []gsr.CommandID{SetPlayerOnlineCommand, SetPlayerOfflineCommand, SetPlayerRoomCommand, SetPlayerBattleCommand, GetPlayerSnapshotCommand, ApplyPlayerReconnectSnapshotCommand, BackupPlayerCommand}
+	seenCommands := make(map[gsr.CommandID]struct{}, len(reservedCommands))
+	for _, command := range reservedCommands {
 		seenCommands[command] = struct{}{}
 	}
 	for _, module := range config.Modules {
@@ -94,7 +95,7 @@ func NewPlayerService(config PlayerConfig) (*PlayerService, error) {
 				return nil, ErrInvalidConfig
 			}
 			seenCommands[command] = struct{}{}
-			commands = append(commands, command)
+			moduleRoutes[command] = module
 		}
 		modules[module.Name()] = module
 	}
@@ -103,12 +104,7 @@ func NewPlayerService(config PlayerConfig) (*PlayerService, error) {
 		moduleNames = append(moduleNames, name)
 	}
 	sort.Strings(moduleNames)
-	return &PlayerService{identity: config.Identity, state: PlayerState{Player: config.Identity.Player, Account: config.Identity.Account}, modules: modules, moduleNames: moduleNames, commands: commands, roomBindings: make(map[RequestID]PlayerBinding), battleBinds: make(map[RequestID]PlayerBinding)}, nil
-}
-
-// Commands declares Player reserved and module Commands.
-func (s *PlayerService) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), s.commands...)
+	return &PlayerService{identity: config.Identity, state: PlayerState{Player: config.Identity.Player, Account: config.Identity.Account}, modules: modules, moduleNames: moduleNames, moduleRoutes: moduleRoutes, roomBindings: make(map[RequestID]PlayerBinding), battleBinds: make(map[RequestID]PlayerBinding)}, nil
 }
 
 // Init dispatches the explicit PlayerActivated event in PlayerService's initialization boundary.
@@ -157,7 +153,7 @@ func (s *PlayerService) Handle(commandContext gsr.CommandContext, command gsr.Co
 	default:
 		module, exists := s.moduleFor(command.ID)
 		if !exists {
-			return gsr.ErrCommandNotRegistered
+			return gsr.ErrUnknownCommand
 		}
 		return s.withContext(commandContext, func(ctx *playerContext) error { return module.Handle(ctx, command) })
 	}
@@ -269,14 +265,8 @@ func (s *PlayerService) dispatchEvent(ctx *playerContext, event PlayerEvent) err
 }
 
 func (s *PlayerService) moduleFor(command gsr.CommandID) (PlayerModule, bool) {
-	for _, name := range s.moduleNames {
-		for _, declared := range s.modules[name].Commands() {
-			if declared == command {
-				return s.modules[name], true
-			}
-		}
-	}
-	return nil, false
+	module, exists := s.moduleRoutes[command]
+	return module, exists
 }
 
 func (s *PlayerService) withContext(command gsr.CommandContext, fn func(*playerContext) error) error {
@@ -345,4 +335,3 @@ func clonePlayerSnapshot(snapshot PlayerSnapshot) PlayerSnapshot {
 }
 
 var _ gsr.Service = (*PlayerService)(nil)
-var _ gsr.CommandDeclarer = (*PlayerService)(nil)

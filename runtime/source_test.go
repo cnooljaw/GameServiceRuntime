@@ -84,7 +84,6 @@ type sourceObservingService struct {
 	sources chan gsr.ServiceRef
 }
 
-func (*sourceObservingService) Commands() []gsr.CommandID     { return []gsr.CommandID{1, 2} }
 func (*sourceObservingService) Init(gsr.ServiceContext) error { return nil }
 func (s *sourceObservingService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 	s.sources <- ctx.Source()
@@ -101,7 +100,6 @@ type sourceCallingService struct {
 	target  gsr.ServiceRef
 }
 
-func (*sourceCallingService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (s *sourceCallingService) Init(context gsr.ServiceContext) error {
 	s.context = context
 	return nil

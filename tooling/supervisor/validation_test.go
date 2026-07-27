@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -57,11 +56,10 @@ func TestDecorateRejectsInvalidServiceAndConfig(t *testing.T) {
 	}{
 		{name: "nil", config: validConfig},
 		{name: "dynamic nil", service: typedNil, config: validConfig},
-		{name: "missing commands", service: noCommandsDecoratorService{}, config: validConfig},
-		{name: "invalid key", service: &recordingDecoratorService{commands: []gsr.CommandID{1}}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Key.ID = " " })},
-		{name: "invalid utf8", service: &recordingDecoratorService{commands: []gsr.CommandID{1}}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Key.ID = string([]byte{0xff}) })},
-		{name: "zero generation", service: &recordingDecoratorService{commands: []gsr.CommandID{1}}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Generation = 0 })},
-		{name: "zero supervisor", service: &recordingDecoratorService{commands: []gsr.CommandID{1}}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Supervisor = gsr.ServiceRef{} })},
+		{name: "invalid key", service: &recordingDecoratorService{}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Key.ID = " " })},
+		{name: "invalid utf8", service: &recordingDecoratorService{}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Key.ID = string([]byte{0xff}) })},
+		{name: "zero generation", service: &recordingDecoratorService{}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Generation = 0 })},
+		{name: "zero supervisor", service: &recordingDecoratorService{}, config: replaceDecoratorConfig(validConfig, func(c *DecoratorConfig) { c.Supervisor = gsr.ServiceRef{} })},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -80,13 +78,6 @@ func TestNewServiceRejectsNilRecoveryExecutor(t *testing.T) {
 		}
 	}
 }
-
-type noCommandsDecoratorService struct{}
-
-func (noCommandsDecoratorService) Init(gsr.ServiceContext) error                { return nil }
-func (noCommandsDecoratorService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
-func (noCommandsDecoratorService) Stop(context.Context) error                   { return nil }
-func (noCommandsDecoratorService) Close() error                                 { return nil }
 
 func replacePolicy(policy RestartPolicy, change func(*RestartPolicy)) RestartPolicy {
 	change(&policy)

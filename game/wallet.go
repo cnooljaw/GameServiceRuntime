@@ -38,9 +38,6 @@ func NewWalletService(config WalletConfig) (*WalletService, error) {
 }
 
 // Commands declares Wallet's public request/query Commands and private Runner result Commands.
-func (*WalletService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{CommitSettlementCommand, GetSettlementCommand, GetBalanceCommand, commandApplyLedgerResult, commandRecoverSettlement}
-}
 
 // Init stores only the Service capability required to submit results back to Battle.
 func (s *WalletService) Init(serviceContext gsr.ServiceContext) error {
@@ -89,7 +86,7 @@ func (s *WalletService) Handle(commandContext gsr.CommandContext, command gsr.Co
 		}
 		return s.recover(commandContext, requestID)
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

@@ -46,16 +46,6 @@ func NewVisitorRegistryService(config VisitorRegistryConfig) (gsr.Service, error
 	}, nil
 }
 
-func (*visitorRegistryService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		commandAcquireVisitorLease,
-		commandRenewVisitorLease,
-		commandReleaseVisitorLease,
-		commandListVisitors,
-		commandSweepVisitors,
-	}
-}
-
 func (s *visitorRegistryService) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -120,7 +110,7 @@ func (s *visitorRegistryService) Handle(commandContext gsr.CommandContext, comma
 		}
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

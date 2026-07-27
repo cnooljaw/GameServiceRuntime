@@ -17,7 +17,6 @@ type BattleService struct {
 	logic        BattleLogic
 	participants map[PlayerID]Participant
 	statuses     map[PlayerID]ParticipantStatus
-	commands     []gsr.CommandID
 	service      gsr.ServiceContext
 	timeline     *battleTimeline
 	phase        BattlePhase
@@ -39,9 +38,7 @@ func NewBattleService(config BattleConfig) (*BattleService, error) {
 		participants[participant.Player] = participant
 		statuses[participant.Player] = ParticipantOffline
 	}
-	commands := []gsr.CommandID{StartBattleCommand, GetBattleSnapshotCommand, SetParticipantConnectedCommand, FinishBattleCommand, ApplySettlementResultCommand, TimelineFireCommand}
-	commands = append(commands, config.Logic.Commands()...)
-	return &BattleService{id: config.ID, epoch: config.Epoch, wallet: config.Wallet, logic: config.Logic, participants: participants, statuses: statuses, commands: commands, phase: BattleCreated, settlements: make(map[RequestID]SettlementResult)}, nil
+	return &BattleService{id: config.ID, epoch: config.Epoch, wallet: config.Wallet, logic: config.Logic, participants: participants, statuses: statuses, phase: BattleCreated, settlements: make(map[RequestID]SettlementResult)}, nil
 }
 
 // CreateBattle creates a BattleService through a composition-root ServiceCreator.
@@ -54,11 +51,6 @@ func CreateBattle(creator ServiceCreator, name gsr.ServiceName, config BattleCon
 		return gsr.ServiceRef{}, err
 	}
 	return creator.CreateService(gsr.ServiceSpec{Name: name, Service: battle})
-}
-
-// Commands declares Battle's reserved and game Logic Commands.
-func (s *BattleService) Commands() []gsr.CommandID {
-	return append([]gsr.CommandID(nil), s.commands...)
 }
 
 // Init captures the current Service capability and creates Battle-local Timeline state.

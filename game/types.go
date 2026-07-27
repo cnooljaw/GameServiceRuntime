@@ -177,7 +177,6 @@ type BattleSnapshot struct {
 
 // BattleLogic contains game-specific state co-located with one BattleService.
 type BattleLogic interface {
-	Commands() []gsr.CommandID
 	HandleBattle(BattleContext, gsr.Command) error
 	Snapshot(BattleContext) ([]byte, error)
 }

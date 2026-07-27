@@ -10,7 +10,6 @@ import (
 // Decorator records encoded input immediately before delegating a Command to its inner Service.
 type Decorator struct {
 	inner     gsr.Service
-	commands  []gsr.CommandID
 	recorder  gsr.ServiceRef
 	targetKey StableKey
 	codec     CommandCodec
@@ -31,29 +30,8 @@ func NewDecorator(service gsr.Service, recorder gsr.ServiceRef, targetKey Stable
 	if err := validateKey(targetKey); err != nil {
 		return nil, err
 	}
-	declarer, ok := service.(gsr.CommandDeclarer)
-	if !ok {
-		return nil, ErrInvalidConfig
-	}
-	commands := declarer.Commands()
-	if len(commands) == 0 {
-		return nil, ErrInvalidConfig
-	}
-	seen := make(map[gsr.CommandID]struct{}, len(commands))
-	for _, command := range commands {
-		if command == 0 {
-			return nil, ErrInvalidConfig
-		}
-		if _, exists := seen[command]; exists {
-			return nil, ErrInvalidConfig
-		}
-		seen[command] = struct{}{}
-	}
-	return &Decorator{inner: service, commands: append([]gsr.CommandID(nil), commands...), recorder: recorder, targetKey: targetKey, codec: codec, redactor: redactor, strict: strict}, nil
+	return &Decorator{inner: service, recorder: recorder, targetKey: targetKey, codec: codec, redactor: redactor, strict: strict}, nil
 }
-
-// Commands returns an independent copy of the wrapped Service's declared Commands.
-func (d *Decorator) Commands() []gsr.CommandID { return append([]gsr.CommandID(nil), d.commands...) }
 
 // StartupCommand forwards an optional startup Command declaration from the wrapped Service.
 func (d *Decorator) StartupCommand() (gsr.Command, bool) {

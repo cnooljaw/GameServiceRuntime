@@ -325,10 +325,6 @@ type watchSubscriber struct {
 	changes   chan<- ServiceSetChanged
 }
 
-func (*watchSubscriber) Commands() []gsr.CommandID {
-	return []gsr.CommandID{commandWatchAction, ServiceSetChangedCommand}
-}
-
 func (s *watchSubscriber) Init(serviceContext gsr.ServiceContext) error {
 	s.context = serviceContext
 	return nil
@@ -374,7 +370,7 @@ func (s *watchSubscriber) Handle(commandContext gsr.CommandContext, command gsr.
 		s.changes <- change
 		return nil
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

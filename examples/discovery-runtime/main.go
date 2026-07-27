@@ -69,10 +69,9 @@ func main() {
 
 type configService struct{}
 
-func (configService) Commands() []gsr.CommandID     { return []gsr.CommandID{1} }
 func (configService) Init(gsr.ServiceContext) error { return nil }
 func (configService) Handle(gsr.CommandContext, gsr.Command) error {
-	return nil
+	return gsr.ErrUnknownCommand
 }
 func (configService) Stop(context.Context) error { return nil }
 func (configService) Close() error               { return nil }

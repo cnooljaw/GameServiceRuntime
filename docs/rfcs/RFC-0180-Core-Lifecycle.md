@@ -98,7 +98,7 @@ Runtime 关闭会先阻止新的 Service 创建，再等待已经进入 `Init` �
 
 `Init(ServiceContext)` 是同步、短时的构造钩子，只用于建立内存状态和获取可立即返回的本地资源。它没有取消 context，Service 不得在其中创建后台 goroutine、执行无界 IO 或等待长期业务条件。需要取消、重试或长时间等待的启动过程，应在 Service 进入 Running 后通过 Command 和显式状态推进。
 
-实现 `StartupCommandDeclarer` 的 Service 可以声明一个启动 Command。Runtime 必须在 `Init` 成功并把状态切换为 `Running` 后验证并投递该 Command；Command 的 Source 是该 Service 自身。该投递沿用普通 Mailbox、Scheduler、Stop 和失败语义，不增加回调或第二条生命周期执行链。Command 未被声明时 `CreateService` 返回 `ErrInvalidServiceSpec`，并按照 Init 失败路径关闭实例。
+实现 `StartupCommandDeclarer` 的 Service 可以声明一个启动 Command。Runtime 必须在 `Init` 成功并把状态切换为 `Running` 后投递该 Command；Command 的 Source 是该 Service 自身。该投递沿用普通 Mailbox、Scheduler、Stop 和失败语义，不增加回调或第二条生命周期执行链。Runtime 不预检目标 Service 是否支持该 Command；未知 Command 进入 Mailbox 后由 `Handle` 返回 `ErrUnknownCommand`，与普通异步 Command 采用相同观测语义。
 
 调用 `CreateService` 的 goroutine 会等待 Init 返回；Runtime 同时把 Init 登记为内部任务。`Runtime.Close` 等待 Init 的时间受 `ShutdownTimeout` 和调用方 context 限制。期限到达后 Runtime 释放自己拥有的结构并报告残留 Init，但保留任务记录直到 Init 真实返回；Init 后续返回时仍执行一次 `Service.Close()`，随后回收任务记录。
 

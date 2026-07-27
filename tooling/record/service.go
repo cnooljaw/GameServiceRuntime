@@ -48,9 +48,6 @@ func NewRecorderService(config RecorderConfig) (*RecorderService, error) {
 }
 
 // Commands declares RecorderService's typed Command protocol.
-func (*RecorderService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{AppendRecordCommand, ListRecordsCommand, ClearRecordsCommand}
-}
 
 // Init stores the Runtime capability used only for metrics and clock alignment.
 func (s *RecorderService) Init(serviceContext gsr.ServiceContext) error {
@@ -84,7 +81,7 @@ func (s *RecorderService) Handle(commandContext gsr.CommandContext, command gsr.
 		}
 		return commandContext.Reply(emptyResponse{Error: responseCodeFromError(s.clear(request.Key))})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

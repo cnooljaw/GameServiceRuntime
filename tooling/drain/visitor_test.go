@@ -338,8 +338,6 @@ type visitorService struct {
 	client   *Client
 }
 
-func (*visitorService) Commands() []gsr.CommandID { return []gsr.CommandID{commandVisitorAction} }
-
 func (s *visitorService) Init(serviceContext gsr.ServiceContext) error {
 	client, err := NewClient(serviceContext, s.registry)
 	if err != nil {

@@ -126,7 +126,6 @@ type serviceInstance struct {
 	ref        ServiceRef
 	name       ServiceName
 	service    Service
-	commands   *commandSet
 	mailbox    *mailbox
 	policy     ServicePolicy
 	context    *serviceContext

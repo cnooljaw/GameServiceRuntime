@@ -34,13 +34,6 @@ func NewService(executor RecoveryExecutor) (gsr.Service, error) {
 	return &service{executor: executor, entries: make(map[ServiceKey]*serviceEntry)}, nil
 }
 
-func (*service) Commands() []gsr.CommandID {
-	return []gsr.CommandID{
-		registerCommand, getCommand, failureCommand, recoveryStartedCommand,
-		recoveryPreparedCommand, recoveryCommittedCommand, recoveryFailedCommand,
-	}
-}
-
 func (s *service) Init(ctx gsr.ServiceContext) error {
 	if isNil(ctx) {
 		return ErrInvalidConfig
@@ -95,7 +88,7 @@ func (s *service) Handle(ctx gsr.CommandContext, command gsr.Command) error {
 		}
 		return ctx.Reply(operationResponse{Error: responseFromError(s.recoveryFailed(ctx.Source(), request))})
 	default:
-		return gsr.ErrCommandNotRegistered
+		return gsr.ErrUnknownCommand
 	}
 }
 

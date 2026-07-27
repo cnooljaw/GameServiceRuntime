@@ -81,16 +81,24 @@ func TestStartupCommandRunsThroughMailboxAfterServiceStarts(t *testing.T) {
 	}
 }
 
-func TestCreateServiceRejectsUndeclaredStartupCommand(t *testing.T) {
-	service := &invalidStartupCommandService{}
+func TestUnknownStartupCommandUsesNormalHandlerErrorPath(t *testing.T) {
+	service := &invalidStartupCommandService{handled: make(chan gsr.CommandID, 1)}
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 
-	if _, err := runtime.CreateService(gsr.ServiceSpec{Service: service}); !errors.Is(err, gsr.ErrInvalidServiceSpec) {
-		t.Fatalf("CreateService() error = %v, want ErrInvalidServiceSpec", err)
+	if _, err := runtime.CreateService(gsr.ServiceSpec{Service: service}); err != nil {
+		t.Fatalf("CreateService() error = %v", err)
 	}
-	if service.initCalls.Load() != 0 {
-		t.Fatalf("Init calls = %d, want 0", service.initCalls.Load())
+	if service.initCalls.Load() != 1 {
+		t.Fatalf("Init calls = %d, want 1", service.initCalls.Load())
+	}
+	select {
+	case command := <-service.handled:
+		if command != startupCommand+1 {
+			t.Fatalf("startup Command = %d", command)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("startup Command did not reach Handle")
 	}
 }
 
@@ -113,7 +121,6 @@ type startupCommandService struct {
 	handled chan startupCommandObservation
 }
 
-func (*startupCommandService) Commands() []gsr.CommandID { return []gsr.CommandID{startupCommand} }
 func (s *startupCommandService) StartupCommand() (gsr.Command, bool) {
 	return gsr.Command{ID: startupCommand}, true
 }
@@ -134,11 +141,9 @@ func (*startupCommandService) Close() error               { return nil }
 
 type invalidStartupCommandService struct {
 	initCalls atomic.Int32
+	handled   chan gsr.CommandID
 }
 
-func (*invalidStartupCommandService) Commands() []gsr.CommandID {
-	return []gsr.CommandID{startupCommand}
-}
 func (*invalidStartupCommandService) StartupCommand() (gsr.Command, bool) {
 	return gsr.Command{ID: startupCommand + 1}, true
 }
@@ -146,11 +151,13 @@ func (s *invalidStartupCommandService) Init(gsr.ServiceContext) error {
 	s.initCalls.Add(1)
 	return nil
 }
-func (*invalidStartupCommandService) Handle(gsr.CommandContext, gsr.Command) error { return nil }
-func (*invalidStartupCommandService) Stop(context.Context) error                   { return nil }
-func (*invalidStartupCommandService) Close() error                                 { return nil }
+func (s *invalidStartupCommandService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	s.handled <- command.ID
+	return gsr.ErrUnknownCommand
+}
+func (*invalidStartupCommandService) Stop(context.Context) error { return nil }
+func (*invalidStartupCommandService) Close() error               { return nil }
 
-func (*trackedBlockingInitService) Commands() []gsr.CommandID { return []gsr.CommandID{1} }
 func (s *trackedBlockingInitService) Init(gsr.ServiceContext) error {
 	close(s.started)
 	<-s.release
