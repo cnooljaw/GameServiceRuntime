@@ -175,6 +175,24 @@
 | RFC/决策 | RFC-0410、D-037 |
 | 备注 | 不复制旧 App 的固定 sleep、空 stop hook 或隐式 goroutine 收敛；也不创建通用 lifecycle group。Task 3 的真实连接和后续 factory 直接填入当前私有 owner 字段。 |
 
+### 4.5 Legacy BSHeader、origin 与 NHSK MessageID
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | Legacy wire 最小 Header、origin 和保留 NHSK MessageID |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/header.go`、`header_test.go` |
+| 参考入口 | `baison_middle/protocol/protocol.go`、`header.go`、`nbgame_core/transport/newnet/protocols/bspacket.go`、`nhsk/protocol/common.go` |
+| 参考测试/配置/录包 | `nhsk/protocol/protocol_test.go`；参考 `NewBSProtocol` 构造及 `ConnectedEvent` 自动发送 origin |
+| Legacy MessageID | `0x600`、`0x7400`、`0x7402`、`0x8605`、`0x8644`；`BS_MSG_GAME=0x7600`；客户端保留 `0x7601..0x7609`、`0x7611`、`0x7701`、`0x7702` |
+| 输入与校验 | BSHeader 少于 24 字节拒绝；字段按固定小端 offset 解码 |
+| 权威状态变化 | 无；wire 值不进入 Core 或 Battle 状态 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | GameLogic origin 为 107、GameMaster origin 为 100；两者 Type=`0x600`、Length=24，其余字段为零，精确匹配 golden bytes |
+| 生命周期结果 | 无 socket；Task 3 后续连接状态机在每个物理连接建立后使用同一 origin encoder |
+| 结论 | Header offset、字节序、origin 和保留 MessageID **已一致**；无发现遗漏 |
+| RFC/决策 | RFC-0410、D-036、D-044 |
+| 备注 | 本切片不定义 `0x7610` 解说或 Robot relay 输出。外部 AI 的 `0x7612` 由后续 AI provider wire 单独拥有，不进入客户端 Legacy codec。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

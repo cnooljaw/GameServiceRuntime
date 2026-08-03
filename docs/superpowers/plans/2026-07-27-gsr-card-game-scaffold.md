@@ -606,7 +606,7 @@ Composition Root
 - [x] 先写 `node` 关闭测试，验证当前 GameLogic 纵向切片的 readiness、连接、factory、Service 和 Runtime 按显式逆序关闭，重复关闭稳定，超时仍可诊断真实未返回 owner。
 - [x] 在 `node.go` 直接装配并持有本节点资源；第一版不创建通用 lifecycle group，等第二个真实节点出现后再评估是否上移到 Tooling。
 - [ ] 运行 `go test ./examples/nhsk -run 'Config|Logging|Node' -count=100` 与 `go test -race ./examples/nhsk -run 'Config|Logging|Node' -count=20`。
-- [ ] 提交：`feat(nhsk): 增加 GameLogic 节点组合根`。
+- [x] 提交：`d58057b`（配置）、`a0d171a`（BattleID）、`d8b439d`（日志）、`361be3a`（节点生命周期）。
 
 ### Task 3：冻结 Command 与 Legacy TCP Bridge
 
