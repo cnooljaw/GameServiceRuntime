@@ -85,8 +85,10 @@ func TestGameOutputServiceRejectsStaleOrMalformedBatchWithoutFailingConnection(t
 	}{
 		{name: "old generation", batch: testOutputBatch(1, 6), err: errOutputGenerationMismatch},
 		{name: "zero battle", batch: testOutputBatch(0, 7), err: errInvalidGameOutputBatch},
-		{name: "zero ref", batch: GameOutputBatch{BattleID: 1, ConnectionGeneration: 7, Outputs: []GameOutput{testGameOutput{value: 1}}}, err: errInvalidGameOutputBatch},
-		{name: "empty outputs", batch: GameOutputBatch{BattleID: 1, Ref: gsr.ServiceRef{Node: "nhsk", ID: 10}, ConnectionGeneration: 7}, err: errInvalidGameOutputBatch},
+		{name: "zero match", batch: func() GameOutputBatch { batch := testOutputBatch(1, 7); batch.MatchID = 0; return batch }(), err: errInvalidGameOutputBatch},
+		{name: "zero product", batch: func() GameOutputBatch { batch := testOutputBatch(1, 7); batch.ProductID = 0; return batch }(), err: errInvalidGameOutputBatch},
+		{name: "zero ref", batch: GameOutputBatch{BattleID: 1, MatchID: 88, ProductID: 82, ConnectionGeneration: 7, Outputs: []GameOutput{testGameOutput{value: 1}}}, err: errInvalidGameOutputBatch},
+		{name: "empty outputs", batch: GameOutputBatch{BattleID: 1, MatchID: 88, ProductID: 82, Ref: gsr.ServiceRef{Node: "nhsk", ID: 10}, ConnectionGeneration: 7}, err: errInvalidGameOutputBatch},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -147,6 +149,8 @@ func (testGameOutput) isNHSKGameOutput() {}
 func testOutputBatch(battleID game.BattleID, generation ConnectionGeneration) GameOutputBatch {
 	return GameOutputBatch{
 		BattleID:             battleID,
+		MatchID:              88,
+		ProductID:            82,
 		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: gsr.ServiceID(battleID + 10)},
 		ConnectionGeneration: generation,
 		Outputs:              []GameOutput{testGameOutput{value: int(battleID)}},

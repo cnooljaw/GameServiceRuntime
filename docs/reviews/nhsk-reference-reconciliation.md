@@ -274,7 +274,7 @@
 | 参考入口 | `gamelogic/internal/game/game_api.go` 的 `SendMsgToAll/SendMsgToUser`、`app/services/msgservice/gamemasterservice.go` 的 `PushMessageToUser` |
 | 参考测试/配置/录包 | 旧 BaseGame 逐玩家调用消息服务，最终共用同一 GM connection；没有跨连接代际缓存或独立每桌 socket |
 | Legacy MessageID | 无；Service 不认识 `0x8644`、`0x7400` 或 NHSK MessageID，后续 sink/codec 才编码 |
-| 输入与校验 | Batch 必须有非零 BattleID、完整 Battle Ref、匹配当前 Service 的非零 ConnectionGeneration 和至少一个非空类型化 GameOutput；旧代际或坏 Batch 不进入 sink |
+| 输入与校验 | Batch 必须有非零 BattleID/MatchID/ProductID、完整 Battle Ref、匹配当前 Service 的非零 ConnectionGeneration 和至少一个非空类型化 GameOutput；旧代际或坏 Batch 不进入 sink |
 | 权威状态变化 | Service 只拥有固定 ConnectionGeneration 与 sink/reporter capability；不拥有 Battle、socket、玩法状态或输出历史 |
 | Timer/Timeline | 无 |
 | 输出目标与顺序 | 一个连接代际的所有 Batch 经过同一 Mailbox，按接受顺序调用非阻塞 sink；Batch 内部 Outputs 保持原顺序 |
@@ -282,6 +282,24 @@
 | 结论 | 逐玩家输出最终汇入同一 GM connection 的线序目的与参考实现 **已一致**；协议无关批次、代际 fence、单 Mailbox 和失败类别是 GSR 边界下的 **有意偏差** |
 | RFC/决策 | RFC-0410、D-033、D-034、D-035 |
 | 备注 | 本切片不实现 Legacy 编码、有界 writer FIFO、连接关闭或 Battle 提交；它只建立这些后续 owner 共同使用的最小 seam。 |
+
+### 4.11 类型化 GAME_START Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `GameStartPayload` 经逐目标展开编码为 `0x8644 + 0x7400 + 0x7205` |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/game_start.go`、`game_start_test.go` |
+| 参考入口 | `gamelogic/internal/game/game_send_message.go:SendMsgGameStart`、`game.go:startGame`，`protocol/game/game.go:ReqGS2GCGameStart`、`tcpprotocol/game.go:BS_GAME_START` |
+| 参考测试/配置/录包 | NHSK 未实现自定义 `GetStartMsg`，因此参考路径固定使用只有 24 字节 BSHeader 的 `0x7205`；StartGame 线序为 GAME_START、GAME_STARTED、玩法 StartGame |
+| Legacy MessageID | 客户端 payload `0x7205`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Batch 冻结非零 MatchID/ProductID；Targets 必须是可表示为非零 `uint32` 的十进制 PlayerID，保持输入顺序且不得重复；Kind 与 `GameStartPayload` 必须匹配 |
+| 权威状态变化 | 无；MatchID/ProductID 是 Battle 已冻结身份的输出快照，adapter 不回查 Battle、不维护路由表 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | payload 只编码一次，再按 Targets 顺序生成独立 frame；每帧内外 UserID 相同，CntTID/CltTID/Reserved2 为零，外层 Length=114、内层 Length=80、suffix offset=56/size=24 |
+| 生命周期结果 | 编码任一输出或目标失败时整批不返回部分 frame，由后续 sink 将该提交视为失败并关闭匹配连接代际 |
+| 结论 | GAME_START 的 MessageID、空 body、StartGame 前置线序和逐玩家 relay 与参考实现 **已一致**；类型化 payload 与 Batch 路由快照是 GSR adapter 边界下的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-095、D-096 |
+| 备注 | 本切片只实现首个真实 ClientGameOutput，不添加无调用点的 `0x7206 GAME_END`，也不预建通用 MessageID→payload registry。 |
 
 ## 5. 切片追加模板
 

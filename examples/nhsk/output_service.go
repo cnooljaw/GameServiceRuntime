@@ -74,7 +74,7 @@ func (service *gameOutputService) Close() error {
 }
 
 func validGameOutputBatch(batch GameOutputBatch) bool {
-	if batch.BattleID == 0 || batch.Ref.Node == "" || batch.Ref.ID == 0 || batch.ConnectionGeneration == 0 || len(batch.Outputs) == 0 {
+	if batch.BattleID == 0 || batch.MatchID == 0 || batch.ProductID == 0 || batch.Ref.Node == "" || batch.Ref.ID == 0 || batch.ConnectionGeneration == 0 || len(batch.Outputs) == 0 {
 		return false
 	}
 	for _, output := range batch.Outputs {

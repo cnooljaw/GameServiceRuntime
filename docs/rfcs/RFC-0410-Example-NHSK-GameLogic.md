@@ -233,6 +233,10 @@ type OutputPayload interface {
     isNHSKOutputPayload()
 }
 
+const OutputGameStart OutputKind = "game_start"
+
+type GameStartPayload struct{}
+
 type GameOutput interface {
     isNHSKGameOutput()
 }
@@ -245,6 +249,8 @@ type ClientGameOutput struct {
 
 type GameOutputBatch struct {
     BattleID             game.BattleID
+    MatchID              uint32
+    ProductID            uint32
     Ref                  gsr.ServiceRef
     ConnectionGeneration ConnectionGeneration
     Outputs              []GameOutput
@@ -262,7 +268,7 @@ type ConnectionFailureReporter interface {
 }
 ```
 
-`NHSKBattleLogic` 产生类型化不可变输出，不产生 `0x8644`、GLHeader 或 GameHeader。Battle Handler 先在本地计算候选状态与完整输出；规则成功后提交状态，再把批次投递给当前连接代际的 `GameOutputService`。稳定拒绝或提交前 panic 丢弃未提交批次。该局部 staged-output seam 不依赖通用 BattleRevision。
+`NHSKBattleLogic` 产生类型化不可变输出，不产生 `0x8644`、GLHeader 或 GameHeader。Battle Handler 先在本地计算候选状态与完整输出；规则成功后提交状态，再把批次投递给当前连接代际的 `GameOutputService`。稳定拒绝或提交前 panic 丢弃未提交批次。该局部 staged-output seam 不依赖通用 BattleRevision。Batch 中的 MatchID、ProductID 是 `InitializeBattle` 已冻结身份的输出快照；sink 不回查 Battle，也不另存 BattleID→路由元数据。
 
 `GameOutput` 和 `OutputPayload` 是 NHSK 包拥有的封闭类型集合；导出的具体值类型分别描述客户端输出、GM 控制输出和结算请求。adapter 可以读取这些值，但不能注入任意 payload 或扩展业务变体。实现不得用 `any`、旧 wire struct 或原始字节替代该边界。
 
@@ -273,6 +279,8 @@ GameOutputService 的 `ServiceSpec` 固定使用 `DiscardMailbox`。连接关闭
 Targets 在 Battle Mailbox 内按 SeatID 升序冻结。所有 NHSK 玩法输出只过滤 Exited，不读取 ClientReady；`0x7246 ROUND_STAT` 是唯一例外，额外要求 ClientReady。后续玩家状态变化不撤回已提交 Targets。
 
 Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 GameHeader + payload`。内外 UserID 都等于目标用户，GameInnerID、MatchID、ProductID 取冻结身份，CntTID、CltTID、Reserved2 为 0。不生成 UserID=0 广播。Cluster/Agent adapter 仅消费 UserID 并使用自身 SessionRegistry 路由。
+
+`OutputGameStart` 使用无字段的 `GameStartPayload`，Legacy 编码为无 body 的 `0x7205 GAME_START`。它仍是普通 `ClientGameOutput`，按已冻结 Targets 逐用户展开，不因为 payload 为空而改用 GM 控制输出或裸 MessageID。
 
 ### 结算与回放
 

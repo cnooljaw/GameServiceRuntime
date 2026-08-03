@@ -18,6 +18,7 @@ const (
 	messageGLToGMGame       uint32 = 0x8644
 
 	messageNHSKBase            uint32 = 0x7600
+	messageGameStart           uint32 = 0x7205
 	messageNHSKGameInfo               = messageNHSKBase + 0x001
 	messageNHSKDeal                   = messageNHSKBase + 0x002
 	messageNHSKAskOutCard             = messageNHSKBase + 0x003

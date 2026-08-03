@@ -11,10 +11,20 @@ type ConnectionGeneration uint64
 // OutputKind identifies one protocol-independent NHSK output variant.
 type OutputKind string
 
+const (
+	// OutputGameStart tells clients that one NHSK subgame is starting.
+	OutputGameStart OutputKind = "game_start"
+)
+
 // OutputPayload is the closed set of typed NHSK client payload values.
 type OutputPayload interface {
 	isNHSKOutputPayload()
 }
+
+// GameStartPayload is the bodyless client GAME_START fact.
+type GameStartPayload struct{}
+
+func (GameStartPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {
@@ -33,6 +43,8 @@ func (ClientGameOutput) isNHSKGameOutput() {}
 // GameOutputBatch is one Battle's immutable, ordered output commit.
 type GameOutputBatch struct {
 	BattleID             game.BattleID
+	MatchID              uint32
+	ProductID            uint32
 	Ref                  gsr.ServiceRef
 	ConnectionGeneration ConnectionGeneration
 	Outputs              []GameOutput
