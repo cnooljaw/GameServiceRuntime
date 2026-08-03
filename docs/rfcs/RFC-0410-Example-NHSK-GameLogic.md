@@ -237,6 +237,10 @@ const OutputGameStart OutputKind = "game_start"
 
 type GameStartPayload struct{}
 
+type GameStartedOutput struct {
+    ReplayName string
+}
+
 type GameOutput interface {
     isNHSKGameOutput()
 }
@@ -281,6 +285,8 @@ Targets 在 Battle Mailbox 内按 SeatID 升序冻结。所有 NHSK 玩法输出
 Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 GameHeader + payload`。内外 UserID 都等于目标用户，GameInnerID、MatchID、ProductID 取冻结身份，CntTID、CltTID、Reserved2 为 0。不生成 UserID=0 广播。Cluster/Agent adapter 仅消费 UserID 并使用自身 SessionRegistry 路由。
 
 `OutputGameStart` 使用无字段的 `GameStartPayload`，Legacy 编码为无 body 的 `0x7205 GAME_START`。它仍是普通 `ClientGameOutput`，按已冻结 Targets 逐用户展开，不因为 payload 为空而改用 GM 控制输出或裸 MessageID。
+
+`GameStartedOutput` 是发给协调方的类型化控制事实，不携带客户端 Targets。Legacy adapter 将其编码为 `0x8654 GAME_STARTED`，GameInnerID 取 Batch 的 BattleID、UserID 为 0、Res 固定为 1，ReplayName 按参考 `[80]byte` 的 `copy` 语义零填充或截断。目标业务没有 Res=false 调用点，因此领域 API 不暴露该无用分支。
 
 ### 结算与回放
 

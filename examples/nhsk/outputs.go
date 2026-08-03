@@ -40,6 +40,13 @@ type ClientGameOutput struct {
 
 func (ClientGameOutput) isNHSKGameOutput() {}
 
+// GameStartedOutput tells the game coordinator that one subgame has started.
+type GameStartedOutput struct {
+	ReplayName string
+}
+
+func (GameStartedOutput) isNHSKGameOutput() {}
+
 // GameOutputBatch is one Battle's immutable, ordered output commit.
 type GameOutputBatch struct {
 	BattleID             game.BattleID

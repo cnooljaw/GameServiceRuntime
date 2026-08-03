@@ -36,6 +36,31 @@ func TestEncodeLegacyGameStartBatchExpandsTargetsInOrder(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyGameOutputBatchPreservesClientThenGMControlOrder(t *testing.T) {
+	batch := GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{
+			ClientGameOutput{Targets: []game.PlayerID{"42"}, Kind: OutputGameStart, Payload: GameStartPayload{}},
+			GameStartedOutput{ReplayName: "NHSK.xml"},
+		},
+	}
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{
+		decodeEgressGolden(t, "0000000000000000000000004486000000000000720000002200d20400002a0000000000000000000000000000000074000000000000500000002a00000000000000000000005800000052000000000000003800000018000000000000000000000000000000057200000000000018000000"),
+		decodeEgressGolden(t, "0000000000000000000000005486000000000000730000002200d204000000000000014e48534b2e786d6c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -67,6 +92,9 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"42"}, Kind: OutputGameStart, Payload: testOutputPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
+		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{GameStartedOutput{}}
+		}},
 		{name: "invalid output after valid output", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = append(batch.Outputs, unsupportedGameOutput{})
 		}},

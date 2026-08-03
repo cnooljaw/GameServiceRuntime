@@ -301,6 +301,24 @@
 | RFC/决策 | RFC-0410、D-033、D-095、D-096 |
 | 备注 | 本切片只实现首个真实 ClientGameOutput，不添加无调用点的 `0x7206 GAME_END`，也不预建通用 MessageID→payload registry。 |
 
+### 4.12 类型化 GAME_STARTED Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `GameStartedOutput` 编码为直接发给旧 GameMaster 的 `0x8654` 控制帧 |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/game_started.go`、`game_started_test.go` |
+| 参考入口 | `gamelogic/internal/game/game.go:startGame`、`app/services/msgservice/gamemasterservice.go:PushGameStarted`，`protocol/gamelogic/gl2gm.go:ReqBSGL2GMStarted` |
+| 参考测试/配置/录包 | 实际 startGame 调用固定 `Res=true`；协议结构为 34 字节 TGM2GLHeader、1 字节 Res、80 字节 ReplayName |
+| Legacy MessageID | `0x8654 BS_MSG_GL2GM_GAME_STARTED` |
+| 输入与校验 | ReplayName 在领域边界必须非空；wire 保留参考 `copy([80]byte, name)` 的零填充和按字节截断语义 |
+| 权威状态变化 | 无；ReplayName 由 Battle 的 StartSubgame 冻结，本 adapter 只消费不可变输出事实 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | frame 直接发 GM，不走客户端 relay；HeaderLen=34、GameInnerID=BattleID、UserID=0、Res=1、总长=115；Batch 中位于 GAME_START 后即可保持原业务线序 |
+| 生命周期结果 | 空 ReplayName 或同批其他非法输出使整批不返回部分 frame；连接失败仍由所属连接代际 owner 收敛 |
+| 结论 | MessageID、字段布局、成功值、ReplayName copy 语义及 GAME_START 后发送的线序与参考实现 **已一致**；删除无实际调用的 Res=false 领域分支是“无调用点不实现”规则的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-070、D-085、D-094 |
+| 备注 | 本切片不生成 ReplayName、不启动小局，也不提前实现 GAME_OVER、ROUND_STAT 或回放 writer。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

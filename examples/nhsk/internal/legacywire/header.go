@@ -11,11 +11,12 @@ const (
 	originGameMaster uint16 = 100
 	originGameLogic  uint16 = 107
 
-	messageOrigin           uint32 = 0x0600
-	messageGameToAgentRelay uint32 = 0x7400
-	messageAgentToGameRelay uint32 = 0x7402
-	messageGMToGLGame       uint32 = 0x8605
-	messageGLToGMGame       uint32 = 0x8644
+	messageOrigin            uint32 = 0x0600
+	messageGameToAgentRelay  uint32 = 0x7400
+	messageAgentToGameRelay  uint32 = 0x7402
+	messageGMToGLGame        uint32 = 0x8605
+	messageGLToGMGame        uint32 = 0x8644
+	messageGLToGMGameStarted uint32 = 0x8654
 
 	messageNHSKBase            uint32 = 0x7600
 	messageGameStart           uint32 = 0x7205

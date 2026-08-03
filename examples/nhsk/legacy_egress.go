@@ -17,30 +17,36 @@ func encodeLegacyGameOutputBatch(batch GameOutputBatch) ([][]byte, error) {
 	}
 	var frames [][]byte
 	for _, gameOutput := range batch.Outputs {
-		output, ok := gameOutput.(ClientGameOutput)
-		if !ok {
-			return nil, fmt.Errorf("%w: unsupported output type %T", errInvalidLegacyGameOutput, gameOutput)
-		}
-		payload, err := encodeLegacyClientPayload(output)
-		if err != nil {
-			return nil, err
-		}
-		targets, err := legacyTargetUserIDs(output.Targets)
-		if err != nil {
-			return nil, err
-		}
-		for _, userID := range targets {
-			frame, err := legacywire.EncodeOutboundGameRelay(legacywire.OutboundGameRelay{
-				BattleID:  uint32(batch.BattleID),
-				UserID:    userID,
-				MatchID:   batch.MatchID,
-				ProductID: batch.ProductID,
-				Payload:   payload,
-			})
+		switch output := gameOutput.(type) {
+		case ClientGameOutput:
+			payload, err := encodeLegacyClientPayload(output)
 			if err != nil {
-				return nil, fmt.Errorf("%w: relay: %v", errInvalidLegacyGameOutput, err)
+				return nil, err
 			}
-			frames = append(frames, frame)
+			targets, err := legacyTargetUserIDs(output.Targets)
+			if err != nil {
+				return nil, err
+			}
+			for _, userID := range targets {
+				frame, err := legacywire.EncodeOutboundGameRelay(legacywire.OutboundGameRelay{
+					BattleID:  uint32(batch.BattleID),
+					UserID:    userID,
+					MatchID:   batch.MatchID,
+					ProductID: batch.ProductID,
+					Payload:   payload,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("%w: relay: %v", errInvalidLegacyGameOutput, err)
+				}
+				frames = append(frames, frame)
+			}
+		case GameStartedOutput:
+			if output.ReplayName == "" {
+				return nil, fmt.Errorf("%w: empty GAME_STARTED replay name", errInvalidLegacyGameOutput)
+			}
+			frames = append(frames, legacywire.EncodeGameStarted(uint32(batch.BattleID), output.ReplayName))
+		default:
+			return nil, fmt.Errorf("%w: unsupported output type %T", errInvalidLegacyGameOutput, gameOutput)
 		}
 	}
 	return frames, nil
