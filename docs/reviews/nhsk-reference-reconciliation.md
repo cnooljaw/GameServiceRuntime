@@ -101,7 +101,27 @@
 | `PLAYER_OUT` 输出 | BaseGame 有 helper；NHSK 无调用点 | 新输出枚举不包含该能力 | 放弃 | D-044 | 当前 GM 注册不证明 NHSK 使用 |
 | `DEL_ONE_GAME`、金额限制、预扣/退款 | protocol 遗留定义，无当前完整调用链 | 新代码中完全不存在 | 放弃 | D-044 | 不写占位 |
 
-## 4. 切片追加模板
+## 4. 已完成切片核对
+
+### 4.1 GameLogic 应用配置
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | GameLogic 进程配置解析与校验 |
+| GSR 文件/测试 | `examples/nhsk/config.go`、`examples/nhsk/config_test.go`、`examples/nhsk/config.example.json` |
+| 参考入口 | `gamelogic/app/services/connectionservice/service.go`、`connecitons.go`，`nbgame_core/transport/newnet/tcp/connection/connection.go`、`protocols/bspacket.go`、`tcp/client.go` |
+| 参考测试/配置/录包 | `gamelogic/config.yaml`、`config-test.yaml`、`config-pro.yaml` 中的 `connections.gameMaster` |
+| Legacy MessageID | 本切片不编解码消息；确认 `NewBSProtocol(BS_CONNECTIONTYPE_GAME_LOGIC)` 在 client 创建时自动发送 origin 首包 |
+| 输入与校验 | JSON 配置加显式环境覆盖；拒绝未知字段、非法地址、容量、超时、退避和启用后缺失的外围工具字段；错误不打印 secret 值 |
+| 权威状态变化 | 无；只返回进程组合根私有的不可变配置值，不创建资源 |
+| Timer/Timeline | 无业务 Timeline；只配置未来连接 owner 使用的拨号、origin、退避和稳定重置时长 |
+| 输出目标与顺序 | 无网络输出 |
+| 生命周期结果 | 配置失败时节点尚未创建；MySQL、Redis、微信默认关闭且不成为 GameLogic 启动依赖 |
+| 结论 | GL 主动连接 GM、单地址配置和自动 origin **已一致**；持续指数退避、可配置超时及严格配置校验为 **有意偏差** |
+| RFC/决策 | RFC-0410、D-037 |
+| 备注 | 参考连接固定 3 秒 Dial，并以 timer/send 两套次数计数限制重连；新实现不复制该机制。参考配置的 reload 目前只发现初始化调用，没有把动态热更新提升为首版契约。Task 3 才创建连接并验证线序。 |
+
+## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
 

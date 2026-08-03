@@ -1,0 +1,37 @@
+{
+  "role": "gamelogic",
+  "node": {
+    "id": "nhsk-gamelogic-1",
+    "workers": 4,
+    "max_active_battles": 10000
+  },
+  "legacy_gm": {
+    "address": "127.0.0.1:9000",
+    "dial_timeout": "5s",
+    "origin_timeout": "5s",
+    "initial_backoff": "1s",
+    "max_backoff": "30s",
+    "backoff_multiplier": 2,
+    "jitter": 0.2,
+    "stable_reset": "60s"
+  },
+  "mysql": {
+    "enabled": false,
+    "dsn": ""
+  },
+  "redis": {
+    "enabled": false,
+    "address": "127.0.0.1:6379",
+    "password": "",
+    "db": 0
+  },
+  "wechat": {
+    "enabled": false,
+    "app_id": "",
+    "app_secret": ""
+  },
+  "logging": {
+    "level": "info"
+  },
+  "shutdown_timeout": "10s"
+}
