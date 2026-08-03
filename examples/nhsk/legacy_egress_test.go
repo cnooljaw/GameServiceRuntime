@@ -89,6 +89,33 @@ func TestEncodeLegacyGameInfoBatchMatchesReferenceRelayGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyDealBatchMatchesReferenceRelayGolden(t *testing.T) {
+	batch := GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"1002"},
+			Kind:    OutputDeal,
+			Payload: DealPayload{
+				Players: [4]game.PlayerID{"1001", "1002", "1003", "1004"},
+				SeatID:  1,
+				Cards:   testDealCards(),
+			},
+		}},
+	}
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000ea0000002200d2040000ea0300000000000000000000000000000074000000000000c8000000ea03000000000000000000005800000052000000000000003800000090000000000000000000000000000000027600000000000090000000e9030000ea030000eb030000ec03000000000000000000000000000000000000000000000000000000000102030405060708090a0b0c0d0e0f101112131415161718191a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy DEAL frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -121,6 +148,26 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong game info payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"42"}, Kind: OutputGameInfo, Payload: GameStartPayload{}}}
+		}},
+		{name: "deal has multiple targets", mutate: setDealOutput([]game.PlayerID{"1001", "1002"}, testDealPayload())},
+		{name: "deal target mismatches seat", mutate: setDealOutput([]game.PlayerID{"1001"}, testDealPayload())},
+		{name: "deal seat out of range", mutate: func(batch *GameOutputBatch) {
+			payload := testDealPayload()
+			payload.SeatID = 4
+			setDealOutput([]game.PlayerID{"1002"}, payload)(batch)
+		}},
+		{name: "deal has zero player", mutate: func(batch *GameOutputBatch) {
+			payload := testDealPayload()
+			payload.Players[2] = "0"
+			setDealOutput([]game.PlayerID{"1002"}, payload)(batch)
+		}},
+		{name: "deal has duplicate player", mutate: func(batch *GameOutputBatch) {
+			payload := testDealPayload()
+			payload.Players[2] = payload.Players[1]
+			setDealOutput([]game.PlayerID{"1002"}, payload)(batch)
+		}},
+		{name: "wrong deal payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputDeal, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -166,4 +213,22 @@ func decodeEgressGolden(t *testing.T, value string) []byte {
 		t.Fatalf("decode golden: %v", err)
 	}
 	return data
+}
+
+func testDealCards() [26]byte {
+	return [26]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26}
+}
+
+func testDealPayload() DealPayload {
+	return DealPayload{
+		Players: [4]game.PlayerID{"1001", "1002", "1003", "1004"},
+		SeatID:  1,
+		Cards:   testDealCards(),
+	}
+}
+
+func setDealOutput(targets []game.PlayerID, payload DealPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputDeal, Payload: payload}}
+	}
 }

@@ -16,6 +16,8 @@ const (
 	OutputGameStart OutputKind = "game_start"
 	// OutputGameInfo publishes the current NHSK subgame configuration and seat scores.
 	OutputGameInfo OutputKind = "game_info"
+	// OutputDeal privately delivers one seat's initial hand.
+	OutputDeal OutputKind = "deal"
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -37,6 +39,15 @@ type GameInfoPayload struct {
 }
 
 func (GameInfoPayload) isNHSKOutputPayload() {}
+
+// DealPayload is one seat's private immutable initial hand.
+type DealPayload struct {
+	Players [4]game.PlayerID
+	SeatID  uint8
+	Cards   [26]byte
+}
+
+func (DealPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

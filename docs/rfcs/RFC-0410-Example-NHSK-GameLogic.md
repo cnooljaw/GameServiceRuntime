@@ -236,6 +236,7 @@ type OutputPayload interface {
 const (
     OutputGameStart OutputKind = "game_start"
     OutputGameInfo  OutputKind = "game_info"
+    OutputDeal      OutputKind = "deal"
 )
 
 type GameStartPayload struct{}
@@ -245,6 +246,12 @@ type GameInfoPayload struct {
     ServiceFee     int32
     Scores         [4]int32
     GameNum        uint16
+}
+
+type DealPayload struct {
+    Players [4]game.PlayerID
+    SeatID  uint8
+    Cards   [26]byte
 }
 
 type GameStartedOutput struct {
@@ -299,6 +306,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `GameStartedOutput` 是发给协调方的类型化控制事实，不携带客户端 Targets。Legacy adapter 将其编码为 `0x8654 GAME_STARTED`，GameInnerID 取 Batch 的 BattleID、UserID 为 0、Res 固定为 1，ReplayName 按参考 `[80]byte` 的 `copy` 语义零填充或截断。目标业务没有 Res=false 调用点，因此领域 API 不暴露该无用分支。
 
 `OutputGameInfo` 使用独立的 `GameInfoPayload`。四个 Scores 槽位按 SeatID 0..3 排列；它们是四人玩法的固定领域槽位，不是旧 wire struct。Legacy 编码固定为 50 字节 `0x7601 NHSK_GAME_INFO`，字段顺序为 OutCardSec、ServiceFee、四座 GameScores、GameNum，不包含 suffix 或额外配置字段。
+
+`OutputDeal` 使用 `DealPayload{Players, SeatID, Cards}` 表达一名玩家的私有发牌事实。Players 按 SeatID 0..3 冻结且必须是四个非零、互异玩家；SeatID 必须位于 0..3；ClientGameOutput 必须只有一个 Target，且等于 Players[SeatID]。Cards 是该座最终不可变 26 张牌，直接复用玩法发牌和回放 Deal 的同一份牌序。Legacy adapter 编码 `0x7602 NHSK_DEAL` 时保留四个 UserID，只填写 SeatID 对应的 26 字节牌区，其余三座牌区固定为零；不得把完整四手牌交给 adapter 后再按 Target 临时裁剪。
 
 ### 结算与回放
 

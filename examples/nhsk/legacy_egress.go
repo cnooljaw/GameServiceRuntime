@@ -70,9 +70,44 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			Scores:         payload.Scores,
 			GameNum:        payload.GameNum,
 		}), nil
+	case OutputDeal:
+		payload, ok := output.Payload.(DealPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyDeal(output, payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyDeal(output ClientGameOutput, payload DealPayload) ([]byte, error) {
+	if len(output.Targets) != 1 {
+		return nil, fmt.Errorf("%w: DEAL target count %d", errInvalidLegacyGameOutput, len(output.Targets))
+	}
+	if payload.SeatID >= uint8(len(payload.Players)) {
+		return nil, fmt.Errorf("%w: DEAL seat %d", errInvalidLegacyGameOutput, payload.SeatID)
+	}
+	userIDs, err := legacyTargetUserIDs(payload.Players[:])
+	if err != nil {
+		return nil, err
+	}
+	targets, err := legacyTargetUserIDs(output.Targets)
+	if err != nil {
+		return nil, err
+	}
+	if targets[0] != userIDs[payload.SeatID] {
+		return nil, fmt.Errorf("%w: DEAL target %d does not match seat %d user %d", errInvalidLegacyGameOutput, targets[0], payload.SeatID, userIDs[payload.SeatID])
+	}
+	frame, err := legacywire.EncodeDeal(legacywire.Deal{
+		UserIDs: [4]uint32{userIDs[0], userIDs[1], userIDs[2], userIDs[3]},
+		SeatID:  payload.SeatID,
+		Cards:   payload.Cards,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: DEAL: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func legacyTargetUserIDs(targets []game.PlayerID) ([]uint32, error) {

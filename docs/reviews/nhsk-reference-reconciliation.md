@@ -337,6 +337,24 @@
 | RFC/决策 | RFC-0410、D-033、D-059、D-070、D-095、D-096 |
 | 备注 | 本切片只编码已形成的 GameInfo 快照；不实现 StartSubgame、玩家状态 owner、Deal 或 AskOutCard。 |
 
+### 4.14 类型化 NHSK DEAL Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 每个 `DealPayload` 编码一名玩家的私有 `0x7602`，再生成单目标 `0x8644 + 0x7400` relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/deal.go`、`deal_test.go` |
+| 参考入口 | `nhsk/game/flow_core.go:DoDeal`、`game/messages.go:SendMsgDeal`、`protocol/gs2gc.go:DealNotify.FormatToTcp`、`protocol/tcpprotocol/gs2gc.go:DealNotify` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestSendMsgDealOnlyIncludesReceiverHandCards` 明确验证逐用户一包、仅本座牌区有值、其他三座全零且没有广播 |
+| Legacy MessageID | 客户端 payload `0x7602`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Players 必须是 SeatID 0..3 的四个非零互异玩家；SeatID 位于 0..3；Cards 固定 26 字节；Targets 必须仅含 Players[SeatID]；Kind 与 `DealPayload` 必须匹配 |
+| 权威状态变化 | 无；DealPayload 持有玩法已经提交的该座最终不可变手牌，adapter 不读取或裁剪可变 Battle 手牌 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | payload 长 144，含四个 UserID 和四个 26 字节牌区；只填写接收座位牌区。完整 frame 长 234，suffix offset=56/size=144 |
+| 生命周期结果 | 身份、座位、目标或类型任一不一致时整批返回零 frame；不会向错误玩家泄漏手牌，也不修改玩法状态 |
+| 结论 | MessageID、字段布局、逐用户发送和仅接收座位可见手牌与参考代码及其隐私测试 **已一致**；领域值只携带单座手牌并在 adapter 重建零值牌区，是 GSR 深模块边界下的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-059、D-084、D-095、D-096 |
+| 备注 | 本切片不实现洗牌、发牌算法、自定义牌堆或 Replay Deal；后续 Battle 切片必须证明它们复用同一份最终牌序。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
