@@ -603,8 +603,8 @@ Composition Root
 - [x] 定义进程角色、节点、Runtime、MySQL、Redis、微信、日志、关闭超时与 Legacy GM 连接配置字段；连接默认值为 Dial 5 秒、origin 5 秒、初始退避 1 秒、最大退避 30 秒、倍数 2、jitter 0.2、稳定重置 60 秒。配置加载只解析和校验，不创建资源；拒绝非正超时、初始值大于上限、倍数小于等于 1、jitter 小于等于 0 或大于等于 1。Task 3 的组合根映射再把这些字段转换为 `legacywire.ConnectionConfig`。
 - [x] 先写日志测试，验证稳定字段、级别、JSON 输出、错误分类与 token/secret/proof/code 脱敏。
 - [x] 基于 `log/slog` 实现 logger 构造与领域字段 helper，不向 Core 增加通用 logger API。
-- [ ] 先写 `node` 关闭测试，验证当前 GameLogic 纵向切片的 readiness、连接、factory、Service 和 Runtime 按显式逆序关闭，重复关闭稳定，超时仍可诊断真实未返回 owner。
-- [ ] 在 `node.go` 直接装配并持有本节点资源；第一版不创建通用 lifecycle group，等第二个真实节点出现后再评估是否上移到 Tooling。
+- [x] 先写 `node` 关闭测试，验证当前 GameLogic 纵向切片的 readiness、连接、factory、Service 和 Runtime 按显式逆序关闭，重复关闭稳定，超时仍可诊断真实未返回 owner。
+- [x] 在 `node.go` 直接装配并持有本节点资源；第一版不创建通用 lifecycle group，等第二个真实节点出现后再评估是否上移到 Tooling。
 - [ ] 运行 `go test ./examples/nhsk -run 'Config|Logging|Node' -count=100` 与 `go test -race ./examples/nhsk -run 'Config|Logging|Node' -count=20`。
 - [ ] 提交：`feat(nhsk): 增加 GameLogic 节点组合根`。
 

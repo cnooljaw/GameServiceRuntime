@@ -157,6 +157,24 @@
 | RFC/决策 | RFC-0410 |
 | 备注 | 不复制参考实现的 `%+v` 全 payload/配置、`%p` Round 地址或错误 cause 输出。随着 Command Record、Subgame、TurnRevision 和 TimelineRevision 类型在后续切片出现，再把真实字段加入对应日志点。 |
 
+### 4.4 GameLogic 节点 readiness 与关闭
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | GameLogic 组合根 readiness、逆序关闭与卡住 owner 诊断 |
+| GSR 文件/测试 | `examples/nhsk/node.go`、`examples/nhsk/node_test.go` |
+| 参考入口 | `gamelogic/app/server/serverstart.go`、`serverstop.go`，`nbgame_core/app.go` |
+| 参考测试/配置/录包 | 旧 GL `BeforeStart` 依次初始化 handler、RoundManager、Game factory、连接和消息服务；`BeforeStop/AfterStop` 为空；nbgame_core 默认 stop timeout 为 10 秒 |
+| Legacy MessageID | 无 |
+| 输入与校验 | shutdown timeout 必须为正；组合根依赖和 root ServiceRef 必须有效；关闭 parent context 继续向每个 owner 传播 |
+| 权威状态变化 | 节点只拥有 closing/closed、当前关闭 owner 和失败 owner 诊断；GM link 与 Quarantined 数量继续由各自 owner 提供只读健康快照 |
+| Timer/Timeline | 无业务 Timeline |
+| 输出目标与顺序 | shutdown 先使 readiness 为 NotReady，再按 connection、factory、root Services 逆创建顺序、Runtime 关闭；单步失败不跳过后续 owner |
+| 生命周期结果 | 重复 Close 不重复调用 owner；卡住期间 `shutdownStatus` 精确显示尚未返回的 owner；全部调用收敛后 Closed 为 true，并保留失败 owner 名单 |
+| 结论 | 启动依赖方向与旧 GL **已一致**；显式逆序关闭、Degraded readiness 和卡住 owner 诊断为 **有意偏差** |
+| RFC/决策 | RFC-0410、D-037 |
+| 备注 | 不复制旧 App 的固定 sleep、空 stop hook 或隐式 goroutine 收敛；也不创建通用 lifecycle group。Task 3 的真实连接和后续 factory 直接填入当前私有 owner 字段。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
