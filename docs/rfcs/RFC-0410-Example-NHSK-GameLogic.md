@@ -132,6 +132,7 @@ CommandID 不复用 Legacy MessageID。已导出常量是 Cluster Service 的公
 | `0x0410f008` | `legacyContinue` | Legacy no-op ordering compatibility |
 | `0x0410f009` | `applyDiagnosticExportResult` | diagnostic runner result |
 | `0x0410f00a` | `applyQuarantinedReleaseResult` | Host lifecycle runner result |
+| `0x0410f00b` | `deliverGameOutputBatch` | GameOutputService |
 
 Legacy bridge 必须使用显式映射表。Envelope `0x7402`、`0x8605`、`0x8644` 不是 Command，不分配 CommandID。Legacy TCP 不等待 GSR Reply；它使用 `Send`。Cluster 调用者需要当前结果时可以对表中标记 Send/Call 的同一 Command 使用 `Call`。
 
@@ -248,11 +249,26 @@ type GameOutputBatch struct {
     ConnectionGeneration ConnectionGeneration
     Outputs              []GameOutput
 }
+
+type ConnectionFailureKind string
+
+const (
+    ConnectionFailureOutputSendRejected ConnectionFailureKind = "output_send_rejected"
+    ConnectionFailureOutputSinkRejected ConnectionFailureKind = "output_sink_rejected"
+)
+
+type ConnectionFailureReporter interface {
+    FailConnection(ConnectionGeneration, ConnectionFailureKind)
+}
 ```
 
 `NHSKBattleLogic` 产生类型化不可变输出，不产生 `0x8644`、GLHeader 或 GameHeader。Battle Handler 先在本地计算候选状态与完整输出；规则成功后提交状态，再把批次投递给当前连接代际的 `GameOutputService`。稳定拒绝或提交前 panic 丢弃未提交批次。该局部 staged-output seam 不依赖通用 BattleRevision。
 
 `GameOutput` 和 `OutputPayload` 是 NHSK 包拥有的封闭类型集合；导出的具体值类型分别描述客户端输出、GM 控制输出和结算请求。adapter 可以读取这些值，但不能注入任意 payload 或扩展业务变体。实现不得用 `any`、旧 wire struct 或原始字节替代该边界。
+
+Battle 向 GameOutputService 的 `Send` 在进入目标 Mailbox 前同步失败时，报告 `ConnectionFailureOutputSendRejected`。Batch 已进入 GameOutputService，但有界 sink 拒绝提交时，Service 报告 `ConnectionFailureOutputSinkRejected`。Reporter 只接收这两类跨边界失败；socket writer 失败由拥有该 writer 的 LegacyGMConnection 直接关闭当前代际，不再绕回 Reporter。Reporter 必须非阻塞、并发安全且幂等，旧 ConnectionGeneration 的迟到报告不得关闭新连接。
+
+GameOutputService 的 `ServiceSpec` 固定使用 `DiscardMailbox`。连接关闭先禁止新 Batch，再 Stop 当代 OutputService；已经进入 Handler 的一次非阻塞 sink 提交允许收敛，仍排队的 Batch 直接丢弃，不在旧代际关闭过程中继续排空输出。OutputService 不关闭 sink；sink 和 socket 的生命周期只由 LegacyGMConnection 拥有。
 
 Targets 在 Battle Mailbox 内按 SeatID 升序冻结。所有 NHSK 玩法输出只过滤 Exited，不读取 ClientReady；`0x7246 ROUND_STAT` 是唯一例外，额外要求 ClientReady。后续玩家状态变化不撤回已提交 Targets。
 

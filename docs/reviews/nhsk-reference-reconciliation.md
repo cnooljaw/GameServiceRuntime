@@ -265,6 +265,24 @@
 | RFC/决策 | RFC-0410、D-037 |
 | 备注 | 默认值只由 `DefaultConnectionConfig` 定义，应用 JSON 默认配置从该值映射，不维护第二份常量。 |
 
+### 4.10 每连接代际 GameOutputService
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 协议无关的 `GameOutputBatch`、稳定连接失败类别和单代际输出 Service |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`output_service.go`、`output_service_test.go` |
+| 参考入口 | `gamelogic/internal/game/game_api.go` 的 `SendMsgToAll/SendMsgToUser`、`app/services/msgservice/gamemasterservice.go` 的 `PushMessageToUser` |
+| 参考测试/配置/录包 | 旧 BaseGame 逐玩家调用消息服务，最终共用同一 GM connection；没有跨连接代际缓存或独立每桌 socket |
+| Legacy MessageID | 无；Service 不认识 `0x8644`、`0x7400` 或 NHSK MessageID，后续 sink/codec 才编码 |
+| 输入与校验 | Batch 必须有非零 BattleID、完整 Battle Ref、匹配当前 Service 的非零 ConnectionGeneration 和至少一个非空类型化 GameOutput；旧代际或坏 Batch 不进入 sink |
+| 权威状态变化 | Service 只拥有固定 ConnectionGeneration 与 sink/reporter capability；不拥有 Battle、socket、玩法状态或输出历史 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | 一个连接代际的所有 Batch 经过同一 Mailbox，按接受顺序调用非阻塞 sink；Batch 内部 Outputs 保持原顺序 |
+| 生命周期结果 | `ServiceSpec` 固定使用 `DiscardMailbox`，停止时不排空旧代际队列；Service 不关闭 sink。sink 拒绝报告 `output_sink_rejected`，Battle 入箱前拒绝保留独立的 `output_send_rejected` |
+| 结论 | 逐玩家输出最终汇入同一 GM connection 的线序目的与参考实现 **已一致**；协议无关批次、代际 fence、单 Mailbox 和失败类别是 GSR 边界下的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-034、D-035 |
+| 备注 | 本切片不实现 Legacy 编码、有界 writer FIFO、连接关闭或 Battle 提交；它只建立这些后续 owner 共同使用的最小 seam。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
