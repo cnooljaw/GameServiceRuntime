@@ -125,7 +125,7 @@ Archive 是组合根或外部 adapter 的所有者。它只能消费已经从 Re
 
 Replay 要求 TargetFactory 创建全新的隔离 Runtime、目标 Service 和可选初始业务状态。它验证 Bundle、Entry 版本、Key 与严格连续 Sequence，然后按顺序 `Send` Decode 后的 Command。Replay 不连接生产 Transport，不复用原 Ref，不调用原 Runtime，也不直接调用 Handle。
 
-普通 Replay 只保证输入顺序。需要确定性时，目标服务必须从业务注入的 `Clock`、`Random` 和外部输入 provider 读取值：Record 负责保存相应 Command payload（例如 timer fire、随机 seed、IO result），不试图劫持 `time.Now` 或全局随机数。Battle 的随机 seed、`BattleEpoch`、`TimelineID/Revision` 和结算结果必须包含在其业务 Command/Snapshot 投影中。
+普通 Replay 只保证输入顺序。需要确定性时，目标服务必须从业务注入的 `Clock`、`Random` 和外部输入 provider 读取值：Record 负责保存相应 Command payload（例如 timer fire、随机 seed、IO result），不试图劫持 `time.Now` 或全局随机数。Battle 的完整 ServiceRef、Command Record Sequence、随机 seed、`TimelineID/Revision`、小局身份和结算结果必须包含在其业务 Command/Snapshot 投影中。
 
 ## 错误与失败语义
 

@@ -1,0 +1,353 @@
+# RFC-0410：宁海双扣 GameLogic 替换示例
+
+> 状态：待实现
+> 目标阶段：Phase 14
+> 范围：Business Layer、Examples、Legacy Adapter
+> 依赖：[RFC-0110](RFC-0110-Core-ServiceRef.md)、[RFC-0130](RFC-0130-Core-Send-Call-Reply.md)、[RFC-0180](RFC-0180-Core-Lifecycle.md)、[RFC-0280](RFC-0280-Tooling-Command-Record-Replay.md)、[RFC-0310](RFC-0310-Business-Battle.md)、[RFC-0320](RFC-0320-Business-Timeline.md)、[RFC-0370](RFC-0370-Business-Templates.md)
+> 依据：`nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core` 的可达源码与测试
+
+## 目的
+
+本文定义 GSR 第一个完整棋牌游戏纵向切片。它先替换旧系统的 GameLogic，保持旧 GameMaster、Agent、客户端和 Legacy TCP 二进制协议不变。同一套宁海双扣规则同时通过 GSR `Send`/`Call` 开放给 Cluster Service，不建立第二套玩法实现。
+
+本 RFC 是 Phase 14 中 NHSK GameLogic 切片的设计与公开 API 权威。[`RFC-0500`](RFC-0500-Roadmap.md) 只记录实施顺序；[`nhsk-capability-matrix`](../reviews/nhsk-capability-matrix.md)、[`nhsk-legacy-message-matrix`](../reviews/nhsk-legacy-message-matrix.md) 和 [`nhsk-reference-reconciliation`](../reviews/nhsk-reference-reconciliation.md) 只记录证据与核对结果，不定义第二份契约。
+
+## 目标
+
+- 以一个 `BattleService` 串行拥有一桌宁海双扣的玩家、手牌、回合、Timeline、结算和回放事实。
+- 以 `NHSKHostService` 拥有 `BattleID -> BattleRef` 索引、容量、异步创建/停止操作和隔离条目。
+- 保持单条 GameLogic→GameMaster 主动 TCP 连接、双向 origin、8 KiB frame 上限和已确认的 MessageID/二进制布局。
+- Legacy TCP 与 Cluster `Send`/`Call` 映射到同一套类型化 Command，并进入同一 Battle Mailbox。
+- 保留 NHSK 当前可达的规则、客户端输出、综合结算、回放 XML、外部 AI 和白名单自定义牌堆。
+- 每个可验证切片都回查参考仓库，并记录“已一致、有意偏差、发现遗漏”。
+
+## 非目标
+
+- 本阶段不替换 GameMaster、Agent、Gateway、Login 或 Auth，也不改变客户端协议。
+- 不引入 Protobuf、通用 RPC façade、MessageID→CommandID 算术转换或另一套 Cluster 玩法逻辑。
+- 不让 MySQL 或 Redis 接管牌局权威状态。两者在 Phase 14 只提供独立工具模块。
+- 不实现无目标使用证据的约局、旁观、投票、回放上传、战绩、惩罚、GL 骰子定座、偏置洗牌、Robot relay、暂停和无调用点的遗留消息。
+- 不为未来宁海麻将、新 GameMaster 或整场回放索引预造通用 Catalog、Manager 或空 adapter。
+
+## 参考核对规则
+
+参考仓库是知识来源，不是新系统的运行时依赖。生产代码不引用旧 `gamelogic`、`gamemaster`、`gamecore`、`nbgame_core` 或其全局单例。`baison_middle/protocol` 和上层 `protocol` 仅用于产生、解读和复核 golden fixture；新生产 codec 在 `examples/nhsk/internal/legacywire` 实现最小子集。
+
+每完成一个功能切片，实施者必须：
+
+1. 核对对应参考入口、调用链和现有测试。
+2. 把结论写入 `docs/reviews/nhsk-reference-reconciliation.md`。
+3. 将与本 RFC 一致的结论标记为“已一致”。
+4. 有意偏差必须链接已有决策。未裁决的偏差或遗漏必须先停止实现并修订 RFC。
+
+## 分层与依赖
+
+```text
+LegacyGMConnection (socket/frame/origin/single writer)
+  -> LegacyBridgeService (decode/identity/map Command)
+       -> NHSKHostService (BattleID index/lifecycle/quarantine)
+            -> BattleService (mailbox authoritative state)
+                 -> NHSKBattleLogic (rules + immutable outputs)
+                 -> Timeline
+                 -> GameOutputService (one per connection generation)
+                 -> bounded AI/CustomDeck/Replay runners
+```
+
+| 模块 | 拥有 | 不得拥有 |
+|---|---|---|
+| `LegacyGMConnection` | socket、frame buffer、ConnectionGeneration、origin 状态、有界写队列 | Battle 状态、玩法规则、跨代重放 |
+| `LegacyBridgeService` | Legacy codec、冗余身份核对、MessageID→CommandID 映射、当前连接代际的派生路由缓存 | 牌局权威状态、原始字节透传到 Battle |
+| `NHSKHostService` | BattleID 索引、容量、创建/停止操作、隔离元数据 | 手牌、出牌、结算细节、直接 Runtime 生命周期调用 |
+| `BattleService` | 四座玩家、阶段、规则、Timeline、结算、回放事实和窄业务 Revision | socket、Legacy header、其他 Service 指针、直接 goroutine、通用 BattleRevision |
+| `GameOutputService` | 已提交输出批次的代际、顺序和 sink 交付 | 修改 Battle 状态、跨连接代际重放 |
+| 外部 runner | 有界任务、I/O 生命周期、取消与结果 Command | 在 Handler 外修改 Battle，保存 `ServiceContext` |
+
+Core Runtime 不得引用 `examples/nhsk`、Legacy wire 或任何宁海双扣类型。Battle 只保存其他 Service 的完整 `ServiceRef`，不保存 Service 对象指针。
+
+## 公开契约
+
+### 身份与实例
+
+```go
+type ConnectionGeneration uint64
+type HostOperationID uint64
+
+type GameDescriptor struct {
+    GameID   uint32
+    GameName string
+}
+
+var NHSKDescriptor = GameDescriptor{
+    GameID:   82,
+    GameName: "宁海双扣",
+}
+```
+
+`BattleID` 沿用 `game.BattleID` 的 `uint32` 表示，0 无效，默认编号池为 `1..10000` 且可配置。第一阶段由旧 GM 分配 GameInnerID，Host 不自行生成业务编号。运行实例使用当前节点进程内有效的 `ServiceRef{NodeID, ServiceID}`；不定义 BattleEpoch。节点断线或重启后，Host 名字与业务关系重新解析，不恢复旧 BattleRef。
+
+NHSK Host 以稳定 Service 名 `.nhsk-game-host` 发布。Cluster 调用者先解析该名字，再用 `ResolveBattle` 取得当前完整 Battle Ref；Host 不替调用者代理玩法 Command。
+
+`HostOperationID` 在当前 Host Service 实例内单调且不复用，0 无效。它只关联异步创建/停止结果，不代替 BattleID 或 ServiceRef。
+
+### CommandID
+
+CommandID 不复用 Legacy MessageID。已导出常量是 Cluster Service 的公开 API；`0x0410f0xx` 常量保持包内私有。
+
+| CommandID | 名称 | 目标 | 调用模式 | Reply |
+|---:|---|---|---|---|
+| `0x04100101` | `BeginCreateBattle` | Host | Send/Call | `CreateBattleOperation` |
+| `0x04100102` | `GetCreateBattleOperation` | Host | Call | `CreateBattleOperation` |
+| `0x04100103` | `ResolveBattle` | Host | Call | `ResolveBattleResult` |
+| `0x04100104` | `RequestDeleteBattle` | Host | Send/Call | `HostCommandResult` |
+| `0x04100105` | `GetHostSnapshot` | Host | Call | `HostSnapshot` |
+| `0x04100201` | `InitializeBattle` | Battle | Send/Call | `CommandResult` |
+| `0x04100202` | `UpdatePlayers` | Battle | Send/Call | `CommandResult` |
+| `0x04100203` | `PrepareSubgame` | Battle | Send/Call | `CommandResult` |
+| `0x04100204` | `StartSubgame` | Battle | Send/Call | `CommandResult` |
+| `0x04100205` | `UpdateRoundContext` | Battle | Send | 无 |
+| `0x04100206` | `ExitPlayer` | Battle | Send/Call | `CommandResult` |
+| `0x04100207` | `UpdatePlayerDress` | Battle | Send | 无 |
+| `0x04100208` | `ForceFinishSubgame` | Battle | Send/Call | `CommandResult` |
+| `0x04100301` | `PlayCards` | Battle | Send/Call | `ActionResult` |
+| `0x04100302` | `PreviewCardSelection` | Battle | Send/Call | `ActionResult` |
+| `0x04100303` | `SetPlayerAutoState` | Battle | Send/Call | `CommandResult` |
+| `0x04100304` | `SetPlayerOffline` | Battle | Send | 无 |
+| `0x04100305` | `ReconnectPlayer` | Battle | Send/Call | `CommandResult` |
+| `0x04100306` | `RequestGameScene` | Battle | Send/Call | `CommandResult` |
+| `0x04100307` | `RecordPropUse` | Battle | Send | 无 |
+| `0x04100401` | `CompleteSettlement` | Battle | Send/Call | `SettlementCommandResult` |
+| `0x04100402` | `GetNHSKBattleSnapshot` | Battle | Call | `NHSKBattleSnapshot` |
+
+包内私有 CommandID 固定为：
+
+| CommandID | 名称 | owner |
+|---:|---|---|
+| `0x0410f001` | `applyBattleCreated` | Host lifecycle runner result |
+| `0x0410f002` | `applyBattleStopped` | Host lifecycle runner result |
+| `0x0410f003` | `timelineFired` | Battle Timeline |
+| `0x0410f004` | `applyAIResult` | AI runner result |
+| `0x0410f005` | `applyCustomDeckResult` | CustomDeck runner result |
+| `0x0410f006` | `applyReplayResult` | Replay writer result |
+| `0x0410f007` | `applyDeleteBarrier` | Host/Battle stop barrier |
+| `0x0410f008` | `legacyContinue` | Legacy no-op ordering compatibility |
+| `0x0410f009` | `applyDiagnosticExportResult` | diagnostic runner result |
+| `0x0410f00a` | `applyQuarantinedReleaseResult` | Host lifecycle runner result |
+
+Legacy bridge 必须使用显式映射表。Envelope `0x7402`、`0x8605`、`0x8644` 不是 Command，不分配 CommandID。Legacy TCP 不等待 GSR Reply；它使用 `Send`。Cluster 调用者需要当前结果时可以对表中标记 Send/Call 的同一 Command 使用 `Call`。
+
+### 通用结果
+
+```go
+type Rejection string
+
+type HostCommandResult struct {
+    Accepted   bool
+    Rejection  Rejection
+    OperationID HostOperationID
+}
+
+type CommandResult struct {
+    Accepted  bool
+    Rejection Rejection
+}
+
+type ActionResult struct {
+    Accepted  bool
+    Rejection Rejection
+}
+
+type SettlementCommandResult struct {
+    Accepted  bool
+    Rejection Rejection
+}
+```
+
+`Reply` 只表达 Command 是否应用。它不携带客户端消息、`GameOutput`、ReplayDocument、GAME_OVER 或 NOTICE。通过 `Send` 到达时，Handler 对同一结果的 `Reply` 无副作用。
+
+`RequestDeleteBattle` 的 Call Reply 只表示 Host 已接受或拒绝停止请求；接受时返回停止 OperationID，不承诺 Battle 已经 Stop。最终释放以 Host Snapshot、ResolveBattle 返回不存在，或对应生命周期结果为准。
+
+### Host 创建与解析
+
+```go
+type CreateBattleRequest struct {
+    BattleID             game.BattleID
+    IsNewbie             bool
+    ConnectionGeneration ConnectionGeneration
+}
+
+type HostOperationPhase string
+
+const (
+    HostOperationCreating  HostOperationPhase = "creating"
+    HostOperationCompleted HostOperationPhase = "completed"
+    HostOperationFailed    HostOperationPhase = "failed"
+)
+
+type CreateBattleOperation struct {
+    OperationID HostOperationID
+    BattleID    game.BattleID
+    Phase       HostOperationPhase
+    Ref         gsr.ServiceRef
+    Rejection   Rejection
+}
+```
+
+`BeginCreateBattle` 只在 Host Mailbox 内检查编号、容量和连接代际，并提交有界 `BattleLifecycleRunner`。Runner 在 Handler 外执行 `Runtime.CreateService` 和 Init，再以 `applyBattleCreated` 返回结果。Host 进入 Active 并绑定完整 Ref 后，Legacy bridge 才可以发送 `NEW_GAME ACK Res=1`。
+
+`ResolveBattle` 只返回 Active 条目的当前 Ref。Creating、Stopping、Quarantined 和不存在条目分别返回稳定错误。Cluster 调用者解析后直接向 Battle Ref `Send`/`Call`，Host 不代理玩法 Command。
+
+Legacy bridge 不为每个玩法 frame 同步 Call Host。创建操作完成并准备发送成功 ACK 时，Host 同时把 Active Ref 发布给当前连接代际的 bridge；bridge 只把它缓存为派生路由。进入 Stopping、隔离、同号替换或连接断代时必须先使相应缓存失效。缓存缺失、BattleID→Ref 绑定不匹配或连接代际不匹配的消息直接拒绝并计量，不猜测 ServiceID，也不回退到旧 Ref。BattleID→Ref 的权威映射始终只在 Host。
+
+### Battle 初始化与玩家
+
+NEW_GAME 成功只建立 AwaitingInit 的 Service。`InitializeBattle` 一次性冻结 BattleID、ProductID、MatchID、RoundID、RoundUniCode、局数上限、Fee、ScoreBase/Denominator 和回放 Metadata。完全相同的重复 INIT 是成功 no-op；冲突 INIT 拒绝但不隔离。INIT 前其他 Battle Command 不缓存、不重排。
+
+`UpdatePlayers` 按批次原子 upsert。零 UserID、越界座位、批内重复用户或冲突座位使整批拒绝。UserID、SeatID、Score、Exp、AI、PlayerState、NickName 和 CltID 保存；CltID 只在小局开始时冻结为回放 Platform。CntID、Flag、PlayerFlag、ScoreChangeReason、ScoreChange 和 ForceExit 解码后丢弃。
+
+`ExitPlayer` 只标记 Exited，不删除身份和座位。后续 `UpdatePlayers` 可以重新激活。StartSubgame 前必须恰有四个非零 UserID，完整占用 SeatID 0..3 且全部非 Exited。本小局开始后到完成前，UserID↔SeatID 关系冻结；局中换人、换座或占用冻结座位使整批拒绝，其他玩家字段仍可更新。
+
+### 小局阶段
+
+```text
+AwaitingInit -> Preparing -> Playing -> AwaitingSettlement
+             -> FinalizingReplay -> SubgameFinished
+```
+
+`PrepareSubgame` 消费 UPDATE_GAME 的 GameNum/SubGameNum；`StartSubgame` 是唯一进入 Playing 的 Command。`UpdateRoundContext` 只更新下一小局的 SecRoundTotal、SecRoundUsed 和 RoomInfo，不改阶段。Legacy CONTINUE 是包内私有 no-op，不对 Cluster 导出。
+
+StartSubgame 只读一次 Battle Clock，冻结 SubgameStartedAt、ReplayName、ReplayUID、回放目录和四座 `ReplayPlayerSnapshot`。ReplayName 只属于当前小局，下一局替换；不保存历史列表。
+
+### 玩法与 Timeline
+
+NHSK 使用两副不含大小王的 52 张牌，四座每人 26 张。牌型仅包含单张、对子、三张、三带二和 4～8 张同点炸弹。点数顺序为 `3..K < A < 2`。两组对家固定为 0/2 和 1/3。首出不能过；跟牌可以过。已出完玩家按参考规则跳过，任一组对家都出完时小局结束。抓分、名次、单扣/双扣和 `100/105/200` 阈值逐案例保持参考结果。
+
+每个 TurnRevision 只允许一个有效 ActionDeadline。普通玩家使用首次/普通出牌期限；托管、机器人和外部 AI 使用已冻结的专用期限，专用值为 0 时回退普通期限。不复制参考同时保留自动 Timer 和硬超时 Timer 的双 Timer 模型。Timer 只投递私有 Command，不执行业务回调。无启动点的 Deal、ContinueDelay 和 TimerGameOver 不实现。
+
+`PlayCards` 对手牌、重复牌、牌型、首出/跟牌和压制关系执行参考校验。`PreviewCardSelection` 保持参考宽松语义：只校验 wire 与数组上限，不校验手牌所有权或牌型。
+
+### GameOutput
+
+```go
+type OutputPayload interface {
+    isNHSKOutputPayload()
+}
+
+type GameOutput interface {
+    isNHSKGameOutput()
+}
+
+type ClientGameOutput struct {
+    Targets []game.PlayerID
+    Kind    OutputKind
+    Payload OutputPayload
+}
+
+type GameOutputBatch struct {
+    BattleID             game.BattleID
+    Ref                  gsr.ServiceRef
+    ConnectionGeneration ConnectionGeneration
+    Outputs              []GameOutput
+}
+```
+
+`NHSKBattleLogic` 产生类型化不可变输出，不产生 `0x8644`、GLHeader 或 GameHeader。Battle Handler 先在本地计算候选状态与完整输出；规则成功后提交状态，再把批次投递给当前连接代际的 `GameOutputService`。稳定拒绝或提交前 panic 丢弃未提交批次。该局部 staged-output seam 不依赖通用 BattleRevision。
+
+`GameOutput` 和 `OutputPayload` 是 NHSK 包拥有的封闭类型集合；导出的具体值类型分别描述客户端输出、GM 控制输出和结算请求。adapter 可以读取这些值，但不能注入任意 payload 或扩展业务变体。实现不得用 `any`、旧 wire struct 或原始字节替代该边界。
+
+Targets 在 Battle Mailbox 内按 SeatID 升序冻结。所有 NHSK 玩法输出只过滤 Exited，不读取 ClientReady；`0x7246 ROUND_STAT` 是唯一例外，额外要求 ClientReady。后续玩家状态变化不撤回已提交 Targets。
+
+Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 GameHeader + payload`。内外 UserID 都等于目标用户，GameInnerID、MatchID、ProductID 取冻结身份，CntTID、CltTID、Reserved2 为 0。不生成 UserID=0 广播。Cluster/Agent adapter 仅消费 UserID 并使用自身 SessionRegistry 路由。
+
+### 结算与回放
+
+小局结束后产生一次 `SettlementRequestOutput` 并进入 AwaitingSettlement。Legacy `BSAck | 0x8650` 以 `Send(CompleteSettlement)` 完成；Cluster 可以 Send 或 Call 同一 Command。Battle Handler 不在 Mailbox 内同步 Call 外部结算 Service。
+
+成功响应必须完整覆盖当前四名玩家，TeamID 唯一且等于 SeatID，TeamCount=4，交易只引用有效 TeamID，非零 Score 为正数，同一有向交易不重复。坏包整包拒绝并保持 AwaitingSettlement，不部分提交。通过后只消费身份、Flag 和 ResultDetail 交易矩阵；PlayerData.Score/Exp、ResultType 只解码。
+
+`IsSuccess=false` 保持旧客户端外观：Dissolve(4)、平局、四座零分，但内部另记 `SettlementFailed`。MATCH_STOP 在 Playing/AwaitingSettlement 废止当前 Timeline/结算单飞，按 Success(0) 本地强制收尾；其他阶段 no-op。
+
+客户端 GameResult 先提交，再把不可变 ReplayDocument 交给有界 writer。writer 成功、失败或有界超时中第一个有效结果使 Battle 产生 ROUND_STAT 和 GAME_OVER，然后进入 SubgameFinished。回放失败仍使用已冻结 ReplayName，不隔离 Battle，不原子改名、`fsync`、自动重试或上传。
+
+ROUND_STAT 在已放弃战绩模块的首版保持 PlayerCount=0。GAME_OVER 固定 PlayerCount=4，PlayerDatas 严格按 SeatID 0..3 编码；Score 取交易矩阵结果，Exp 取结算前最新玩家值，Auto 取本局最终托管认定。四座不完整是内部不变量缺陷，不发送错位数组。
+
+## Legacy TCP 契约
+
+### 连接与 frame
+
+GameLogic 启动时主动建立一条到旧 GameMaster 的全双工 TCP 连接。每次物理连接分配新 ConnectionGeneration，先发送 GameLogic origin=107，再读取并校验 GameMaster origin=100，随后创建当代 GameOutputService，才进入 Ready。Ready 前不投递业务 frame。
+
+BSHeader 固定为 24 字节小端：`Magic uint32, Serial uint32, Origine uint16, Reserve uint16, Type uint32, Param uint32, Length uint32`。单帧上限为 8192 字节。`Length < 24`、`Length > 8192` 或无法恢复边界时关闭当前代际；边界完整的未知 MessageID 或坏 body/suffix 只丢弃当前帧、告警和计量。
+
+### 分层 relay
+
+Legacy 入站为：
+
+```text
+client -> Agent:       0x7402 + NHSK payload
+Agent -> GameMaster:   0x7402 + GameHeader + payload
+GameMaster -> GL:      0x8605 GLHeader + 0x7402 GameHeader + payload
+```
+
+外层 GameInnerID/UserID 是权威路由身份。内层 UserID 必须一致；INIT 完成后 MatchID/ProductID 也必须等于 Battle 冻结值。CntTID、CltTID、Reserved2 不进入 Command。校验后 adapter 丢弃所有 envelope，Battle 不感知输入来自 TCP 还是 Cluster。
+
+Legacy 出站为：
+
+```text
+GL -> GameMaster: 0x8644 GLHeader + 0x7400 GameHeader + payload
+```
+
+广播按座位展开为逐用户包。Magic、Reserve、Serial 保持零；Param 只由具体 codec 写入。Header.Length 必须一次写成最终长度，所有 suffix 同时校验固定区下界和当前 frame 上界，不接受尾部多余字节。
+
+### 消息范围
+
+Legacy bridge 只实现能映射到本 RFC Command 的消息。客户端玩法输入只保留 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` 和通用 USER_STATE_CHANGE。GAME_MSG 外围事实只保留离线、重连、场景和道具成功广播。未知内层 ID 丢弃并计量。无效的 `0x7200` 直传、`0x8655` 旧输出、PLAYER_LIMIT、GAME_END、旧结算 ACK、投票和骰子不进入 codec switch。
+
+客户端 NHSK 输出保留 `0x7601..0x7609` 和 `0x7611` 中已确认可达的 GameInfo、Deal、AskOutCard、OutCardInfo、TurnEnd、ShowCards、GameResult、GameScene、OutCardResult 和 CardActionWatch。托管状态继续使用参考代码中的通用消息，不把它伪装成 NHSK `0x76xx` 消息。已放弃的 `0x7610 COMMENTATE_TIME` 和客户端 `0x7612 ROBOT_RELAY` 不因为相邻编号而自动实现；外部 AI adapter 使用的 `0x7612` 只属于其 provider wire。
+
+## 状态与生命周期
+
+Host 条目状态为 Creating、Active、Stopping、Quarantined。`Creating + Active + Stopping + Quarantined` 共同占用 MaxActiveBattles。正常 Cluster 创建遇到任一非终态同号条目都返回 `ErrBattleIDInUse`。Legacy 同号替换只对 Active 保留：先完全 Stop 旧 Ref，再用同一 BattleID 创建新 Ref。Quarantined 绝不自动替换。
+
+DEL_GAME 使 Host 进入 Stopping，先向精确 Battle Ref 投递 Mailbox 删除屏障，再由 runner Stop。屏障后取消 Timeline、禁止新输出并 fence AI、自定义牌堆、结算和回放结果；不等待已开始的磁盘 I/O，允许孤立回放文件，不补发 GAME_OVER/NOTICE。Runtime Stop 真实返回后才删除索引和释放 BattleID。
+
+GM 连接断开后，当代 Creating、Active、Stopping Battle 进入停止收敛，Quarantined 保留。进程不退出，以有上限指数退避和 jitter 持续重连。新连接代际不缓存、重放、迁移或恢复旧牌局。
+
+## 错误与失败语义
+
+稳定拒绝包括：无效 BattleID、编号占用、容量耗尽、未初始化、非法阶段、非参与者、身份冲突、旧 TurnRevision/TimelineRevision/VerifyCode、非法动作、停止中、已隔离和找不到。稳定拒绝不产生未声明的客户端输出。
+
+普通 Handler 或 Timer Handler 的 panic、状态机不变量失败和 Handler/Stop 超时是程序缺陷。它们只使当前 Battle 进入 Quarantined，保留编号和取证状态；其他 Battle 继续，节点报告 Degraded 但继续接收不同编号新局。隔离 Battle 收到 DEL_GAME 只记录外部结束事实，不 Stop、替换或释放。
+
+诊断 runner 自动导出最后稳定 Snapshot、Command Record、seed、Clock、失败 Command、Command Record Sequence、TurnRevision、TimelineRevision、stack 和 Runtime Inspection。只有材料原子发布并产生绑定 BattleID、完整 Ref 和摘要的 receipt 后，本地 CLI 才能精确释放该隔离实例。
+
+Call 超时只表示未及时收到 Reply，不取消已进 Mailbox 的 Command。普通玩法不增加通用 RequestID 或幂等缓存。调用方在超时后先查询 Snapshot，不自动重发原动作。
+
+## 并发与所有权
+
+Battle 业务状态只能在其 Mailbox Handler 中修改。Stop 和 Close 只执行 Runtime 串行清理，不补做结算。Battle、Host 和 adapter Service 不直接创建 goroutine。TCP I/O owner 和固定上限 runner 可按 RFC 约束使用 goroutine，但必须拥有取消/Close 入口并等待真实返回。
+
+Timeline、AI、CustomDeck 和 Replay 结果都必须携带完整 BattleRef、小局身份与各自 Revision。迟到、重复、旧 Ref、旧小局或旧连接代际结果不得修改当前状态。Snapshot、Targets、手牌和 ReplayDocument 对外返回深拷贝或不可变值。
+
+## 可观测性
+
+Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 通过只读 Command 暴露。日志、Record 和诊断至少携带 BattleID、完整 Ref、ConnectionGeneration、Command Record Sequence、Subgame identity、TurnRevision、TimelineRevision、CommandID 和稳定错误类别。
+
+日志不记录 token、secret、proof、微信 code、完整身份材料或未脱敏结算响应。节点健康必须区分 GM-link NotReady、业务 Ready 和存在 Quarantined 时的 Degraded。
+
+## 验收
+
+- 以参考 formatter 生成的 golden bytes 覆盖双向 origin、NEW_GAME/ACK、INIT、UPDATE_PLAYER、`0x8605+0x7402`、`0x8644+0x7400`、`0x8650`、GAME_STARTED、ROUND_STAT、GAME_OVER、NOTICE 和 DEL_GAME。
+- 同一玩法输入分别通过 Legacy `Send` 和 Cluster `Send`/`Call` 进入同一 Battle，Snapshot、窄业务 Revision 和 GameOutput 序列一致；Call Reply 不复制客户端输出。
+- 固定 seed 覆盖 104 张牌、牌型、压制、抓分、对家、名次、单扣/双扣、新手换牌、散牌调整、自定义牌堆与外部 AI。
+- fake Clock 和 Timeline 覆盖唯一 ActionDeadline、托管/离线最小延迟、超时、迟到 AI、重连与旧 Revision。测试不用 `time.Sleep` 猜测业务顺序。
+- 结算覆盖成功、坏响应、失败、重复、迟到、MATCH_STOP、回放成功/失败/超时和 DEL_GAME 竞争。
+- 隔离覆盖 Handler/Timer panic、诊断队列满、导出重试、receipt 精确释放、同号创建、GM 断线和容量占用。
+- 连接覆盖 origin 失败、半帧、超长帧、坏 suffix、输出队列满、writer 失败、指数退避、稳定重置和连接代际 fencing。
+- 100,000 次 Battle 创建/停止 churn 后，Registry、Timer、PendingCall、Mailbox 和 goroutine 回到基线。不预创建或复用 ServiceRef 池。
+- `go test ./...`、`go vet ./...`、`go test -race ./...` 和 `git diff --check` 全部通过；Core Runtime 的 import graph 不含 `examples/nhsk`。
+
+## 实际作用与后续阶段
+
+本切片完成后，旧 GameMaster 可以把整个宁海双扣 GameLogic 进程切换到 GSR，无需同时修改 Agent 或客户端。它证明了 GSR Service、Command、Mailbox、Timeline、adapter 和外部 runner 可承载一个完整棋牌游戏。
+
+本切片不解决 GameMaster 的编号分配、跨局协调、Agent SessionRegistry、认证或权威持久化。后续替换 GameMaster 时，新协调 Service 直接使用本 RFC 的 Host/Battle Command，并删除 Legacy envelope；替换 Agent 时，新 adapter 消费同一 ClientGameOutput Targets 并使用自身 SessionRegistry。

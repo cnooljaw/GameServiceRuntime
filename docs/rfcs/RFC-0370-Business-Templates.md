@@ -74,7 +74,7 @@ PlayerService (long-lived player state)
 
 ## 可观测性
 
-每个流程必须能由 `(owner stable ID, RequestID, phase, error category)` 关联。重连使用 BattleSnapshot 的 Epoch/Timeline Revision；复盘使用 Record Bundle；资金审计使用 LedgerStore。Metric 快照仍只通过 Runtime Inspect 获取，业务视图以只读 Command/Snapshot 暴露。
+每个可重试流程必须能由 `(owner stable ID, RequestID, phase, error category)` 关联。重连重新取得当前 BattleRef 并读取 BattleSnapshot 的实际状态；回合和计时迟到判断使用玩法拥有的 TurnRevision、TimelineRevision 等窄版本。复盘使用 Record Bundle，资金审计使用 LedgerStore。Metric 快照仍只通过 Runtime Inspect 获取，业务视图以只读 Command/Snapshot 暴露。
 
 ## 验收
 

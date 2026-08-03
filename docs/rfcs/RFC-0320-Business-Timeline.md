@@ -29,7 +29,7 @@ Timeline 将一个 Battle 内的业务计时意图转换为 Core `After` 投递�
 BattleLogic -> BattleContext.Timeline()
   -> BattleService owns Timeline state
   -> ServiceContext.After(delay, TimelineFire, envelope)
-  -> BattleService validates id/revision/epoch -> Logic command
+  -> BattleService validates id/revision -> Logic command
 ```
 
 Timeline 不持有 Runtime、ServiceRef 或 goroutine；它只借用当前 Battle Handle 的 ServiceContext。Timer 触发后仍通过 Battle 的 Mailbox，所以不会绕过 Battle 的串行状态边界。
@@ -67,11 +67,11 @@ type Timeline interface {
 
 delay 必须非负；At 早于 BattleContext.Now 时按零 delay 调度；Command 不能是 `TimelineFire`、保留 Battle Command 或零值。After/At 产生新的 ID、Revision=1。Replace 只允许 scheduled Item，使其 Revision 加一且投递一个新的 Core timer；Cancel 只改变状态并返回是否实际取消。所有返回 payload 必须在投递前深拷贝或由调用方提供不可变值；第一版只接受 JSON 可编码 payload，并在配置不合法时失败，而不是延迟到 timer 到达。
 
-私有 `TimelineFire` payload 固定为 `{BattleID, Epoch, ID, Revision, Command, Payload}`；它不得通过 Gateway 或 Codec 作为外部业务 Command 编码。
+私有 `TimelineFire` payload 固定为 `{ID, Revision, Command, Payload}`；它不得通过 Gateway 或 Codec 作为外部业务 Command 编码。Core Timer 已把消息绑定到安排它的完整 ServiceRef，因此 payload 不重复携带 BattleID 或业务实例代际。
 
 ## 状态与生命周期
 
-Item 的合法转移为 `scheduled -> fired` 或 `scheduled -> cancelled`；Replace 使旧 Revision 逻辑上取消并创建同 ID 的新 scheduled Revision。Fire 仅在 BattleID、Epoch、ID、Revision、State 和 Command 全匹配时生效，先标记 fired，再交给 Logic；任一不匹配即静默计数并忽略。Battle 进入 Finished/Failed 时取消全部 scheduled Item。
+Item 的合法转移为 `scheduled -> fired` 或 `scheduled -> cancelled`；Replace 使旧 Revision 逻辑上取消并创建同 ID 的新 scheduled Revision。Fire 仅在 ID、Revision、State 和 Command 全匹配时生效，先标记 fired，再交给 Logic；任一不匹配即静默计数并忽略。旧 ServiceRef 的 timer 即使迟到，也只能投向旧 Runtime 实例或已停止的 Service，不会命中新 Battle。Battle 进入 Finished/Failed 时取消全部 scheduled Item。
 
 Snapshot 以 Item ID 排序，包含非终态和可诊断的终态项；实现可按固定上限淘汰最旧 fired/cancelled 项，但不得淘汰 scheduled 项。
 
@@ -90,5 +90,5 @@ Battle Snapshot/Record 包含 TimelineID、Revision、DueAt、State 与忽略事
 ## 验收
 
 - After/At 到达后只以 Command 进入 Battle，Logic 从不被 timer goroutine 直接调用。
-- Cancel、Replace、旧 Revision、旧 Epoch、重复/迟到 fire、After 失败和 Battle 终态清理均覆盖测试。
+- Cancel、Replace、旧 Revision、旧 ServiceRef、重复/迟到 fire、After 失败和 Battle 终态清理均覆盖测试。
 - 排序 Snapshot 与返回副本在 race 检查下不暴露可变内部状态。

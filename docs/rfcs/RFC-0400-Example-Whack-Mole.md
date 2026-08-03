@@ -50,7 +50,6 @@ const (
 type KickRequest struct {
     Player PlayerID
     Shrew  ShrewID
-    Epoch  BattleEpoch
 }
 type KickResult struct { Hit bool; Score int64; Reason string }
 type Snapshot struct {
@@ -68,17 +67,17 @@ const (
 )
 ```
 
-Kick 只能在 BattleRunning、Epoch 相等、Player 为参与者且 ShrewVisible 时命中；第一个有效 Kick 原子地标记 Hit、加一分并返回 `KickResult{Hit:true}`。同一 Shrew 的后续/迟到 Kick 返回 `Hit:false`，不改变分数。Spawn 分配递增 ShrewID，使用 Timeline After 固定 TTL 投递 Expire；Expire 仅对仍 Visible 的 Shrew 生效。Start、Finish 和 Timer 私有 Command 不能从外部协议直接伪造。
+Kick 只能投递到当前 Battle 的完整 ServiceRef，并在 BattleRunning、Player 为参与者且 ShrewVisible 时命中；第一个有效 Kick 原子地标记 Hit、加一分并返回 `KickResult{Hit:true}`。同一 Shrew 的后续/迟到 Kick 返回 `Hit:false`，不改变分数。Spawn 分配递增 ShrewID，使用 Timeline After 固定 TTL 投递 Expire；Expire 仅对仍 Visible 的 Shrew 生效。Start、Finish 和 Timer 私有 Command 不能从外部协议直接伪造。
 
 ## 状态与生命周期
 
 Room 成功创建 Battle 后，composition root 使用 `Runtime.Send` 投递通用 Start 和玩法 Start；它们不需要当前结果。随后客户端输入使用 `Runtime.Call` 投递 Kick 并取得 `KickResult`。同一 Battle Mailbox 保证先接受的 Start 在 Kick 前完成，Logic 中的 `ctx.Reply` 对 Send 是成功无副作用。Start 使用固定 RandomSeed 选择/生成首个 Shrew 并调度下一项；每个 Spawn/Expire/Kick 都写入 Logic 私有状态并可取得 Snapshot。Finish 冻结所有 Player 分数为 `SettlementRequest`，转入 BattleSettling；Wallet committed 后 BattleFinished，并向 Room 发送 `{BattleID, Ref}`。外层读取 Finished Snapshot、导出 Record 后调用 `Runtime.Stop`；Battle Handler 绝不 Stop 自己。
 
-重连以 PlayerService/Mapper Call `GetBattleSnapshot`，返回 BattleEpoch、Timeline Snapshot、玩家可见 Shrew/Scores 投影；它不重新生成 timer 或重置分数。Record Bundle 初始状态在 Start 后捕获，记录每个 Battle 输入（包括 Timeline fire 和随机 seed Command）。
+重连以 PlayerService/Mapper Call 当前 BattleRef 的 `GetBattleSnapshot`，返回 Timeline Snapshot、玩家可见 Shrew/Scores 投影；它不重新生成 timer 或重置分数。Record Bundle 初始状态在 Start 后捕获，记录每个 Battle 输入（包括 Timeline fire 和随机 seed Command）。
 
 ## 错误与失败语义
 
-无效 Player/Shrew/Epoch、Battle 未运行、重复 Start/Finish 和非法 Command 产生稳定业务拒绝。Timer 迟到/重复、Expire 已 Hit 与 Kick 已 Expired 都是正常 no-op。Wallet reject/unknown 使 Battle 保持 Failed/Settling，Room 不删除索引，外层不得 Stop；只有 all committed 后才 Finished。Call 超时由 caller 查询 Snapshot/Settlement，不重发不同 RequestID。
+无效 Player/Shrew、Battle 未运行、重复 Start/Finish 和非法 Command 产生稳定业务拒绝。Timer 迟到/重复、Expire 已 Hit 与 Kick 已 Expired 都是正常 no-op。Wallet reject/unknown 使 Battle 保持 Failed/Settling，Room 不删除索引，外层不得 Stop；只有 all committed 后才 Finished。Call 超时由 caller 查询 Snapshot/Settlement，不重发不同 RequestID。
 
 ## 并发与所有权
 
@@ -86,10 +85,10 @@ Shrew、Score、seed、next ID 和 timeline 全部属于一个 BattleLogic/Servi
 
 ## 可观测性
 
-测试输出/Record 至少携带 BattleID、Epoch、ShrewID、PlayerID、Timeline Revision、RequestID 和结算状态。示例故意使用 MemoryLedgerStore，输出明确标记为非持久；真实余额、身份凭据或网络 payload 不写入 Record。
+测试输出/Record 至少携带 BattleID、完整 ServiceRef、Command Record Sequence、ShrewID、PlayerID、Timeline Revision、RequestID 和结算状态。示例故意使用 MemoryLedgerStore，输出明确标记为非持久；真实余额、身份凭据或网络 payload 不写入 Record。
 
 ## 验收
 
 - 正常路径从 Room 创建到 Battle Stop 完成，并验证 Stop 在 composition root，而不在 Handler。
-- 竞争 Kick 只命中一次；Expire/Kick 顺序、旧 Epoch、重复 Finish、Wallet reject/unknown 和重连 Snapshot 都有场景测试。
+- 竞争 Kick 只命中一次；Expire/Kick 顺序、旧 ServiceRef、重复 Finish、Wallet reject/unknown 和重连 Snapshot 都有场景测试。
 - 相同 seed + 初始 Snapshot + Record Bundle 在隔离 Runtime 重放得到相同 Scores/Shrew 终态；Core/Tooling 的 import 图不含 examples。

@@ -120,7 +120,7 @@ if ref.Node == localNode {
 }
 ```
 
-`ServiceID(0)` 保留为节点内 Runtime caller 和节点级 Core endpoint。进程外部直接调用 `Runtime.Send` 或 `Runtime.Call` 时，Envelope 的 Source 使用 `{Node: localNode, ID: 0}`；Service 发起调用时仍使用该 Service 自己的 `ServiceRef`。
+`ServiceID(0)` 保留为节点内 Runtime caller 和节点级 Core endpoint。进程外部直接调用 `Runtime.Send` 或 `Runtime.Call` 时，Envelope 的 Source 使用 `{Node: localNode, ID: 0}`；Service 发起调用时仍使用该 Service 自己的完整 `ServiceRef`。
 
 ## 节点级名字查询
 
@@ -133,10 +133,10 @@ ref, err := runtime.ResolveRemote(ctx, node, ".config")
 这对应 Skynet `cluster.query(node, name)` 的启动职责。实现规则：
 
 1. 请求和响应继续使用 `WireEnvelope`、Session、PendingCall 和 Call 错误语义。
-2. Target 和 responder 使用 `{Node, ID: 0}`。
+2. Target 和 responder 使用 `{Node, ID: 0}`；已知 NodeID 足以定位节点端点。
 3. 只允许一个 Core 私有 Resolve Command，且必须是 `Session > 0` 的 Call。
-4. Core 自己编码名字请求和 ServiceID 响应，不交给业务 `ClusterCodec`。
-5. 目标节点只查询自己的 `LocalRegistry`；返回的 `ServiceRef.Node` 必须等于目标节点。
+4. Core 自己编码名字请求和 `ServiceID` 响应，不交给业务 `ClusterCodec`。
+5. 目标节点只查询自己的 `LocalRegistry`；返回的 `ServiceRef.Node` 必须等于目标 NodeID。
 6. 其它发往 ServiceID 0 的 Command 或 Send 均视为 `ErrInvalidClusterEnvelope`。
 
 该能力只解决已知节点上的启动名字，不实现全局 Discovery、负载均衡或动态 peer 更新。
@@ -212,10 +212,10 @@ Reply:   Source=responder, Target=caller
 
 ## 入站边界
 
-Transport 握手得到的 peer NodeID 是连接身份。Runtime 接收入站 WireEnvelope 时必须验证：
+Transport 握手得到的 peer `NodeID` 是当前连接关联的节点身份。Runtime 接收入站 WireEnvelope 时必须验证：
 
 1. `Source.Node` 等于握手 peer。
-2. `Target.Node` 等于本地 NodeID。
+2. `Target.Node` 等于本地 Runtime。
 3. Command 帧允许 `Session=0`，Reply 帧必须 `Session>0`。
 4. Command 的 `CallPath` 末项必须是 Target；Send 不携带 `CallPath`。
 
@@ -227,7 +227,7 @@ Reply payload 编码失败时，responder 必须发送一个不含业务 Payload
 
 ## 断线与关闭
 
-Transport 只在当前有效连接断开时通知节点不可用。Runtime 收到通知后立即失败所有以该节点为远端的 PendingCall；后续 Send/Call 返回 `ErrRemoteUnavailable`，或由调用方 context 超时。
+Transport 只在当前有效连接断开时通知该 NodeID 不可用。Runtime 收到通知后立即失败该节点相关的 PendingCall。重新连接后，长期 Service 通过 `ResolveRemote` 重新查询名字；临时 ServiceRef 由业务重新建立。调用方不得继续信任断线前缓存的 Ref。Core 不承诺跨节点进程重启的旧 Ref 绝不命中新实例。
 
 `Runtime.Close` 先阻止新的消息，再关闭 Transport，随后收敛本地 Service、PendingCall、Timer 和 Scheduler。关闭 Transport 不得启动第二套 Service 清理流程。
 
@@ -257,3 +257,4 @@ Node + Service Address + Command
 10. Cluster 启动失败必须通过可失败构造函数返回，不能让半启动 Runtime 对业务可见。
 11. Cluster 启动失败后的 Transport 和 Runtime 清理错误必须与启动错误一起返回，不能静默丢弃。
 12. 节点级名字查询必须绕过业务 Codec，但仍遵守 Envelope 校验和 PendingCall responder 校验。
+13. 节点断线或重启后必须失败旧 PendingCall，并丢弃该节点的名字解析结果和临时 ServiceRef；稳定名字重新查询，临时关系由业务重建。

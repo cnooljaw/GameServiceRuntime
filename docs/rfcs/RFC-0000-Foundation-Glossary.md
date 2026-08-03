@@ -22,7 +22,7 @@
 | Game Layer | Business Layer 的游戏业务部分，提供 Battle、Room、Player、Timeline、Broadcast 等能力。 |
 | Business Template | 业务模板。为某类业务提供职责划分、Command 流程和测试样例；不是 Core Runtime 的内建实体，也不是所有业务必须继承的基类。 |
 | Service | 可寻址的运行时实体，拥有状态、生命周期、Mailbox 和 Command 入口。 |
-| ServiceRef | Service 的运行时地址，不是对象指针。 |
+| ServiceRef | Service 的运行时地址，由 NodeID 与 ServiceID 组成，不是对象指针。它只在当前节点进程生命周期内可靠。 |
 | ServiceID | 单节点内的动态 Service 实例编号。系统 Service 不使用特殊 ID；只有 `ServiceID(0)` 保留给 Core 节点端点和 Runtime caller。 |
 | ServiceName | 长生命周期逻辑服务名，例如 `.db`、`.match`、`.config`。 |
 | ServiceGroup | 一组承担同一职责的 Service。它是发现和路由层概念，不是 Core Runtime 实体。 |
@@ -89,7 +89,6 @@
 | Timeline | Game Layer 中的游戏时间轴，底层基于 Timer。 |
 | Broadcast | Game Layer 的玩家广播封装，底层基于 Send。 |
 | PlayerModule | PlayerService 内的业务模块组合单元，属于 Business Layer。 |
-| BattleEpoch | Battle 版本号，用于重连、并发校验和旧消息过滤。 |
 | TimelineRev | Timeline 版本号，用于同步和重连校验。 |
 | Timeline Revision | Timeline 条目的取消/替换 fencing 版本；同一 TimelineID 的旧 Revision 到达时不得触发业务逻辑。 |
 | 状态 owner | 唯一有权写入一份权威状态的 Service。其他 Service 只能通过 Command 请求其变更。 |

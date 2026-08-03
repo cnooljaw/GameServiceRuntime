@@ -35,9 +35,11 @@ type ServiceRef struct {
 特点：
 
 - 生命周期短。
-- 节点内唯一。
+- 同一 Runtime 进程内单调分配、唯一且不复用。
 - Service 关闭后失效。
 - 不适合当长期业务名字。
+
+节点进程重启后，`ServiceID` 可以从初始值重新分配，新的 ID 段可以与旧进程重合。`ServiceRef` 因此只在当前节点进程生命周期内可靠；它不是跨重启的永久实例身份。需要跨重启定位的长期 Service 必须保存 `NodeID + ServiceName` 并重新解析，临时 Service 在节点重启后视为整体失效，由业务重新建立关系，不依赖旧 Ref 自动恢复。
 
 ## ServiceName
 
@@ -90,7 +92,7 @@ NameRegistry
   ServiceName -> ServiceRef
 ```
 
-`LocalRegistry` 解决实例查找。
+`LocalRegistry` 解决当前进程内的实例查找。
 
 `NameRegistry` 解决长期服务解析。
 
@@ -108,7 +110,7 @@ ref, err := runtime.ResolveRemote(ctx, node, name)
 
 ## Cluster 下的地址
 
-`ServiceID` 只在节点内唯一。
+`ServiceID` 只在当前节点进程内唯一。
 
 完整地址必须包含：
 
@@ -119,6 +121,8 @@ NodeID + ServiceID
 Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 
 `ServiceID(0)` 保留为节点级 Runtime endpoint 和 Runtime caller。业务 Service 不会获得 ID 0；Cluster 只允许该 endpoint 处理 Core 私有的名字查询 Call。
+
+该节点端点通过已知 `NodeID` 寻址，不要求调用方先知道远端动态 ServiceID，因此 `ResolveRemote(node, name)` 不存在先取得远端实例身份才能查询名字的循环依赖。
 
 ## 规则
 
@@ -131,6 +135,9 @@ Router 根据 `ServiceRef.Node` 决定本地投递还是远程投递。
 7. 关闭地址记录必须有 TTL 和容量上限。
 8. 远程启动配置只保存节点地址和稳定 `ServiceName`，不得依赖动态分配的 ServiceID。
 9. 基础 Cluster 默认使用静态节点配置和节点内名字解析，不依赖 Discovery。
+10. ServiceID 在同一 Runtime 进程内单调分配且不复用；节点重启后可以重新从初始值分配。
+11. 节点断线或重启后，调用方必须丢弃该节点的旧 ServiceRef 和名字解析缓存；长期 Service 通过 ServiceName 重新解析，临时 Service 由业务重新建立。
+12. Core 不承诺旧 ServiceRef 在节点重启后绝不命中新实例。继续使用跨进程生命周期的旧 Ref 属于调用方生命周期错误，不为此增加 RuntimeEpoch 或随机 ServiceID 起点。
 
 ## 为什么不用对象指针
 

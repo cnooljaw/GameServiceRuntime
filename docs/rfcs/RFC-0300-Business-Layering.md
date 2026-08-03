@@ -43,10 +43,9 @@ application / examples composition root
 ```go
 type PlayerID string
 type AccountID string
-type BattleID string
+type BattleID uint32
 type RoomID string
 type RequestID string
-type BattleEpoch uint64
 type TimelineID uint64
 type TimelineRevision uint64
 

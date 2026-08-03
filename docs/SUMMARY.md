@@ -68,4 +68,5 @@
 ## 示例和路线图
 
 - [RFC-0400：打地鼠示例](rfcs/RFC-0400-Example-Whack-Mole.md)
+- [RFC-0410：宁海双扣 GameLogic 替换示例](rfcs/RFC-0410-Example-NHSK-GameLogic.md)
 - [RFC-0500：开发路线图](rfcs/RFC-0500-Roadmap.md)

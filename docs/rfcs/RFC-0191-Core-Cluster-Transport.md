@@ -164,7 +164,9 @@ Connected
 
 TCP 帧使用 `uint32` 大端长度前缀。实现必须限制 NodeID 长度、CallPath 长度、payload 长度和总帧长度，不能按不可信长度无限分配内存。
 
-第一版握手协议版本固定为 `1`，WireEnvelope 二进制格式版本固定为 `1`。默认最大帧为 16 MiB，NodeID 最长 255 bytes，CallPath 最多 64 项；这些限制在读取 payload 前检查。
+握手协议版本与 WireEnvelope 二进制格式版本固定为 `1`。默认最大帧为 16 MiB，NodeID 最长 255 bytes，CallPath 最多 64 项；这些限制在读取 payload 前检查。
+
+Transport 连接表以 `NodeID` 选择当前连接。入站 Source 的 NodeID 必须与该连接握手一致。连接对象可以在内部使用不暴露给 ServiceRef 的连接代际，避免被替换的旧读循环删除新连接或重复报告断线；该代际只管理 I/O 生命周期，不成为 Runtime 公开地址字段。
 
 出站编码也必须在复制 payload 前计算完整帧大小。超限消息直接返回 `ErrFrameTooLarge`，不能先复制超大 payload 再拒绝。
 
@@ -185,7 +187,7 @@ TCP 帧使用 `uint32` 大端长度前缀。实现必须限制 NodeID 长度、C
 3. 后续 Call 返回 `ErrRemoteUnavailable` 或进入重连策略。
 4. 不把底层 `EOF` 暴露给业务。
 
-只有从连接表移除当前连接的 goroutine 可以发送一次 `Unavailable(peer)`。被新连接替换的旧读循环不得把新连接误判为断线。
+只有从连接表移除当前连接的 goroutine 可以发送一次 `Unavailable(peer)`。被同 NodeID 新连接替换的旧读循环不得把新连接误判为断线，也不得失败新连接建立后的 PendingCall。
 
 ## Proxy
 
@@ -214,5 +216,7 @@ runtime.Call(ctx, ref, cmd, req)
 - 超时后晚到 Reply 被丢弃。
 - 本地和远程同一 Command 行为一致。
 - 握手版本或节点身份不匹配时拒绝连接。
+- Source NodeID 与握手不一致时拒绝消息。
+- 同 NodeID 的旧连接退出不得删除新连接或错误触发新连接的不可用通知。
 - 超限帧在分配 payload 前拒绝。
 - 同时建连后每个 peer 只保留同一条逻辑连接。
