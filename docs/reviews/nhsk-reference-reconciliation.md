@@ -229,6 +229,24 @@
 | RFC/决策 | RFC-0410、D-049、D-096 |
 | 备注 | 本切片不解析 payload 内层 NHSK MessageID，也不做身份归一化或 Command 映射；因此坏 relay 不会在本层产生 Battle Command、Reply 或 GameOutput。 |
 
+### 4.8 Legacy 双向 origin 握手
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 单次物理连接的 GameLogic→GameMaster origin 握手原语 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/handshake.go`、`handshake_test.go` |
+| 参考入口 | `gamelogic/app/server/serverstart.go`、`gamemaster/app/server/tcpserver.go`、`nbgame_core/transport/newnet/protocols/bspacket.go`、`tcp/client.go` |
+| 参考测试/配置/录包 | `BSProtocol.ConnectedEvent` 在连接建立后发送预生成 origin；GM 接受端按 origin=107 选择 GameController，并由自身协议回发 origin=100 |
+| Legacy MessageID | 双方首包 Type=`0x600` |
+| 输入与校验 | origin timeout 必须为正；先完整写出本方 24 字节 origin，再读取一帧；对端必须 Type=`0x600`、Origin=100、Length=24；Magic、Serial、Reserve、Param 不作为认证字段 |
+| 权威状态变化 | 无；成功只证明连接来源握手完成，尚不发布 Ready 或创建 Battle |
+| Timer/Timeline | 使用 socket deadline 限制握手，不创建业务 Timer |
+| 输出目标与顺序 | 即使底层短写也循环写完本方 origin；成功后清除 deadline，后续业务 frame 才能由连接状态机读取 |
+| 生命周期结果 | 写失败、无写进展、截断、错误 origin/type/body 或 deadline 操作失败均由未来连接 owner 关闭本代际；本原语不自行重连 |
+| 结论 | 双向 origin 的发送方、值和“本方先写、对端后读”线序与参考实现 **已一致**；显式 timeout 与成功后清除 deadline 是 RFC 的确定化实现 |
+| RFC/决策 | RFC-0410、D-036 |
+| 备注 | 本切片不创建 ConnectionGeneration、OutputService 或重连循环；这些状态只有完整连接 owner 才能拥有。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
