@@ -233,9 +233,19 @@ type OutputPayload interface {
     isNHSKOutputPayload()
 }
 
-const OutputGameStart OutputKind = "game_start"
+const (
+    OutputGameStart OutputKind = "game_start"
+    OutputGameInfo  OutputKind = "game_info"
+)
 
 type GameStartPayload struct{}
+
+type GameInfoPayload struct {
+    OutCardSeconds uint32
+    ServiceFee     int32
+    Scores         [4]int32
+    GameNum        uint16
+}
 
 type GameStartedOutput struct {
     ReplayName string
@@ -287,6 +297,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputGameStart` 使用无字段的 `GameStartPayload`，Legacy 编码为无 body 的 `0x7205 GAME_START`。它仍是普通 `ClientGameOutput`，按已冻结 Targets 逐用户展开，不因为 payload 为空而改用 GM 控制输出或裸 MessageID。
 
 `GameStartedOutput` 是发给协调方的类型化控制事实，不携带客户端 Targets。Legacy adapter 将其编码为 `0x8654 GAME_STARTED`，GameInnerID 取 Batch 的 BattleID、UserID 为 0、Res 固定为 1，ReplayName 按参考 `[80]byte` 的 `copy` 语义零填充或截断。目标业务没有 Res=false 调用点，因此领域 API 不暴露该无用分支。
+
+`OutputGameInfo` 使用独立的 `GameInfoPayload`。四个 Scores 槽位按 SeatID 0..3 排列；它们是四人玩法的固定领域槽位，不是旧 wire struct。Legacy 编码固定为 50 字节 `0x7601 NHSK_GAME_INFO`，字段顺序为 OutCardSec、ServiceFee、四座 GameScores、GameNum，不包含 suffix 或额外配置字段。
 
 ### 结算与回放
 

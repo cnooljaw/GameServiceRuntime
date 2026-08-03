@@ -61,6 +61,34 @@ func TestEncodeLegacyGameOutputBatchPreservesClientThenGMControlOrder(t *testing
 	}
 }
 
+func TestEncodeLegacyGameInfoBatchMatchesReferenceRelayGolden(t *testing.T) {
+	batch := GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"42"},
+			Kind:    OutputGameInfo,
+			Payload: GameInfoPayload{
+				OutCardSeconds: 10,
+				ServiceFee:     2,
+				Scores:         [4]int32{-10, 20, -30, 40},
+				GameNum:        7,
+			},
+		}},
+	}
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "00000000000000000000000044860000000000008c0000002200d20400002a00000000000000000000000000000000740000000000006a0000002a000000000000000000000058000000520000000000000038000000320000000000000000000000000000000176000000000000320000000a00000002000000f6ffffff14000000e2ffffff280000000700")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy GAME_INFO frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -90,6 +118,9 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"42"}, Kind: OutputGameStart, Payload: testOutputPayload{}}}
+		}},
+		{name: "wrong game info payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"42"}, Kind: OutputGameInfo, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {

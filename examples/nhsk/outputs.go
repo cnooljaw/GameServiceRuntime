@@ -14,6 +14,8 @@ type OutputKind string
 const (
 	// OutputGameStart tells clients that one NHSK subgame is starting.
 	OutputGameStart OutputKind = "game_start"
+	// OutputGameInfo publishes the current NHSK subgame configuration and seat scores.
+	OutputGameInfo OutputKind = "game_info"
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -25,6 +27,16 @@ type OutputPayload interface {
 type GameStartPayload struct{}
 
 func (GameStartPayload) isNHSKOutputPayload() {}
+
+// GameInfoPayload is the protocol-independent NHSK game information snapshot.
+type GameInfoPayload struct {
+	OutCardSeconds uint32
+	ServiceFee     int32
+	Scores         [4]int32
+	GameNum        uint16
+}
+
+func (GameInfoPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

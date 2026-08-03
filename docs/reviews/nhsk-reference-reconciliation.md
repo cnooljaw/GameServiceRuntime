@@ -319,6 +319,24 @@
 | RFC/决策 | RFC-0410、D-033、D-070、D-085、D-094 |
 | 备注 | 本切片不生成 ReplayName、不启动小局，也不提前实现 GAME_OVER、ROUND_STAT 或回放 writer。 |
 
+### 4.13 类型化 NHSK GAME_INFO Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `GameInfoPayload` 编码为客户端 `0x7601`，再按目标展开为 `0x8644 + 0x7400` relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/game_info.go`、`game_info_test.go` |
+| 参考入口 | `nhsk/game/flow_core.go:DoGameStart`、`game/messages.go:SendMsgGameInfo`、`protocol/gs2gc.go:GameInfoNotify.FormatToTcp`、`protocol/tcpprotocol/gs2gc.go:GameInfoNotify` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestDoGameStartDealsAndBroadcastsGameInfo` 验证首个玩法广播及 ServiceFee；生产结构固定为 50 字节 |
+| Legacy MessageID | 客户端 payload `0x7601`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Kind 必须匹配 `GameInfoPayload`；字段为 OutCardSeconds、ServiceFee、SeatID 0..3 的四个 Scores、GameNum，不接受任意旧协议值或额外配置 |
+| 权威状态变化 | 无；payload 是 StartSubgame 已提交状态的不可变快照，编码不读取玩家或配置 owner |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | payload 长 50；完整单目标 frame 长 140，suffix offset=56/size=50；Targets 仍按 Batch 已冻结顺序逐用户展开 |
+| 生命周期结果 | 类型不匹配或同批其他非法输出使整批返回零 frame；没有部分输出或状态回滚 |
+| 结论 | MessageID、字段顺序、整数宽度、四座分数顺序和无 suffix 结构与参考实现 **已一致**；领域字段使用可读名称且不暴露旧 `GameInfoNotify` 是 GSR adapter 边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-059、D-070、D-095、D-096 |
+| 备注 | 本切片只编码已形成的 GameInfo 快照；不实现 StartSubgame、玩家状态 owner、Deal 或 AskOutCard。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
