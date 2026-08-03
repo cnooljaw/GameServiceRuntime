@@ -211,6 +211,24 @@
 | RFC/决策 | RFC-0410、D-049 |
 | 备注 | 未知 MessageID 与已知消息坏 body 具有完整 frame 边界，下一层负责局部丢弃并继续；本层不告警、不投递 Command。 |
 
+### 4.7 Legacy 普通 relay 编解码
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `0x8605 + 0x7402` 入站与 `0x8644 + 0x7400` 出站的最小 relay codec |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/codec.go`、`codec_test.go` |
+| 参考入口 | `protocol/gamelogic/common/header.go`、`gm2gl.go`、`gl2gm.go`，`baison_middle/protocol/structs_add/common/gameheader.go`、`agent/game.go` |
+| 参考测试/配置/录包 | 参考 formatter 的 `TGM2GLHeader=34`、`TGameHeader=24`、`BSSUFFIXIDX=8` 及普通 relay 组装顺序；golden hex 逐字段人工复算并与 formatter 写法核对 |
+| Legacy MessageID | 入站外层 `0x8605`、内层 `0x7402`；出站外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | 外层 HeaderLen 必须为 34；外层 Length 等于整帧；内层 Length 等于外层余量；suffix offset 必须为 56 且 offset+size 精确落在内层末尾；零 Length、错误方向、缺失固定区、间隙与尾随字节均拒绝 |
+| 权威状态变化 | 无；codec 返回独立 payload 和完整重复身份，BattleID/UserID/MatchID/ProductID 一致性由后续 bridge 在进入 Command 前裁决 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | 出站只写 BattleID、双层相同 UserID、MatchID、ProductID 和 payload；CntTID、CltTID、Reserved2、Magic、Reserve、Serial、Param 保持零；最终 Length 一次写对 |
+| 生命周期结果 | 边界完整的 relay codec 错误由后续 classifier 局部丢帧，不关闭连接代际 |
+| 结论 | Header 尺寸、字段顺序、方向 MessageID、suffix 相对起点和出站零值字段与参考实现 **已一致**；不接受 formatter 的 Length=0 中间态是 RFC 已批准的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-049、D-096 |
+| 备注 | 本切片不解析 payload 内层 NHSK MessageID，也不做身份归一化或 Command 映射；因此坏 relay 不会在本层产生 Battle Command、Reply 或 GameOutput。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
