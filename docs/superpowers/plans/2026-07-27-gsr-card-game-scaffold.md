@@ -598,6 +598,7 @@ Composition Root
 - Create: `examples/nhsk/node_test.go`
 - Create: `examples/nhsk/config.example.json`
 
+- [x] 在 Phase 14 应用代码扩散前，把通用 `game.BattleID` 从 `string` 迁移为已冻结的 `uint32`；拒绝 0，并以数值键完成 Room 索引、排序和 Snapshot 回归。WhackMole 示例同步改用数值编号，不增加字符串转换兼容层。
 - [x] 先写失败测试，覆盖缺失必填配置、非法地址/容量/超时、环境覆盖、未知字段拒绝和 secret 不出现在格式化错误中。
 - [x] 定义进程角色、节点、Runtime、MySQL、Redis、微信、日志、关闭超时与 Legacy GM 连接配置字段；连接默认值为 Dial 5 秒、origin 5 秒、初始退避 1 秒、最大退避 30 秒、倍数 2、jitter 0.2、稳定重置 60 秒。配置加载只解析和校验，不创建资源；拒绝非正超时、初始值大于上限、倍数小于等于 1、jitter 小于等于 0 或大于等于 1。Task 3 的组合根映射再把这些字段转换为 `legacywire.ConnectionConfig`。
 - [ ] 先写日志测试，验证稳定字段、级别、JSON 输出、错误分类与 token/secret/proof/code 脱敏。

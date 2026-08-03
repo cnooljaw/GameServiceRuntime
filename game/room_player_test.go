@@ -40,7 +40,7 @@ func TestRoomIndexesOnlyTrustedFactoryResults(t *testing.T) {
 	if len(factory.requests) != 1 {
 		t.Fatalf("factory requests = %#v", factory.requests)
 	}
-	created := BattleCreatedResult{RequestID: "create-42", Battle: "battle-42", Ref: gsr.ServiceRef{Node: "battle", ID: 1}}
+	created := BattleCreatedResult{RequestID: "create-42", Battle: 42, Ref: gsr.ServiceRef{Node: "battle", ID: 1}}
 	if err := room.Handle(&roomPlayerCommandContext{source: gsr.ServiceRef{Node: "other", ID: 1}}, gsr.Command{ID: ApplyBattleCreatedCommand, Payload: created}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("untrusted result error = %v, want ErrUnauthorized", err)
 	}
@@ -48,10 +48,10 @@ func TestRoomIndexesOnlyTrustedFactoryResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := room.snapshot()
-	if snapshot.Battles["battle-42"] != created.Ref || len(snapshot.Members) != 2 {
+	if snapshot.Battles[42] != created.Ref || len(snapshot.Members) != 2 {
 		t.Fatalf("Room snapshot = %#v", snapshot)
 	}
-	if err := room.Handle(&roomPlayerCommandContext{source: created.Ref}, gsr.Command{ID: ApplyBattleFinishedCommand, Payload: BattleFinishedNotice{Battle: "battle-42", Ref: created.Ref}}); err != nil {
+	if err := room.Handle(&roomPlayerCommandContext{source: created.Ref}, gsr.Command{ID: ApplyBattleFinishedCommand, Payload: BattleFinishedNotice{Battle: 42, Ref: created.Ref}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(room.snapshot().Battles) != 0 {

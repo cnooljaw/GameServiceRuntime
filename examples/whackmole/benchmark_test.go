@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -46,7 +45,7 @@ func newBenchmarkBattles(b *testing.B, count int) (*gsr.Runtime, []gsr.ServiceRe
 	refs := make([]gsr.ServiceRef, count)
 	for index := range refs {
 		battle, err := game.NewBattleService(game.BattleConfig{
-			ID:           game.BattleID("benchmark-" + strconv.Itoa(index+1)),
+			ID:           game.BattleID(index + 1),
 			Participants: []game.Participant{{Player: "alice"}},
 			Logic:        newWhackMoleLogic(uint64(index + 1)),
 		})

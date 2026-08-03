@@ -51,7 +51,7 @@ func validateSettlementIntent(intent SettlementIntent) error {
 }
 
 func validateBattleConfig(config BattleConfig) error {
-	if validateID(config.ID) != nil || isNil(config.Logic) || len(config.Participants) == 0 {
+	if config.ID == 0 || isNil(config.Logic) || len(config.Participants) == 0 {
 		return ErrInvalidConfig
 	}
 	seenPlayers := make(map[PlayerID]struct{}, len(config.Participants))

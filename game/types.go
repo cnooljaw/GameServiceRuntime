@@ -63,7 +63,7 @@ type PlayerID string
 type AccountID string
 
 // BattleID identifies one short-lived game activity.
-type BattleID string
+type BattleID uint32
 
 // RoomID identifies one room-owned member and Battle index.
 type RoomID string

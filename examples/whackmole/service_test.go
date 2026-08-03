@@ -12,7 +12,7 @@ import (
 func TestWhackMoleSendStartThenCallKick(t *testing.T) {
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: "whack-test", Workers: 1})
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
-	battle, err := game.NewBattleService(game.BattleConfig{ID: "battle-42", Participants: []game.Participant{{Player: "alice"}}, Logic: newWhackMoleLogic(7)})
+	battle, err := game.NewBattleService(game.BattleConfig{ID: 42, Participants: []game.Participant{{Player: "alice"}}, Logic: newWhackMoleLogic(7)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestWhackMoleSendStartThenCallKick(t *testing.T) {
 
 func TestWhackMoleKickHitsOnlyOnceAndFinishesThroughBattleContext(t *testing.T) {
 	logic := newWhackMoleLogic(7)
-	ctx := &whackTestContext{battle: "battle-42"}
+	ctx := &whackTestContext{battle: 42}
 	if err := logic.HandleBattle(ctx, gsr.Command{ID: StartCommand, Payload: struct{}{}}); err != nil {
 		t.Fatal(err)
 	}

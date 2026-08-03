@@ -179,7 +179,7 @@ func (s *RoomService) applyCreated(commandContext gsr.CommandContext, created Ba
 	if !exists {
 		return ErrNotFound
 	}
-	if validateID(created.Battle) != nil || !validServiceRef(created.Ref) {
+	if created.Battle == 0 || !validServiceRef(created.Ref) {
 		return ErrInvalidCommand
 	}
 	if _, exists := s.battles[created.Battle]; exists {
@@ -191,7 +191,7 @@ func (s *RoomService) applyCreated(commandContext gsr.CommandContext, created Ba
 }
 
 func (s *RoomService) applyFinished(commandContext gsr.CommandContext, notice BattleFinishedNotice) error {
-	if validateID(notice.Battle) != nil || !validServiceRef(notice.Ref) {
+	if notice.Battle == 0 || !validServiceRef(notice.Ref) {
 		return ErrInvalidCommand
 	}
 	ref, exists := s.battles[notice.Battle]

@@ -121,6 +121,24 @@
 | RFC/决策 | RFC-0410、D-037 |
 | 备注 | 参考连接固定 3 秒 Dial，并以 timer/send 两套次数计数限制重连；新实现不复制该机制。参考配置的 reload 目前只发现初始化调用，没有把动态热更新提升为首版契约。Task 3 才创建连接并验证线序。 |
 
+### 4.2 BattleID 数值表示
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 通用 `game.BattleID` 从字符串迁移为 `uint32` |
+| GSR 文件/测试 | `game/types.go`、`game/validation.go`、`game/room.go`、`game/battle_id_test.go` 及既有 Battle/Room/WhackMole 回归测试 |
+| 参考入口 | `protocol/gamelogic/common/header.go`、`protocol/gamelogic/tcpprotocol/gm2gl.go`、`gamelogic/internal/roundmanager/round_manager.go` |
+| 参考测试/配置/录包 | `TGM2GLHeader.GameInnerId uint32`；旧 GL 使用 `map[uint]*Round` 按同号查找、删除和复用 |
+| Legacy MessageID | 本切片不编解码消息；所有 GLHeader 中的 GameInnerId 仍由 Task 3 codec 逐帧核对 |
+| 输入与校验 | `BattleID(0)` 无效；非零 `uint32` 可作为 Battle/Room 数值索引，第一阶段由 Legacy mapper 直接接收 GameInnerId |
+| 权威状态变化 | Battle 保存不可变数值 ID；Room 以同一数值键索引 Ref，不维护字符串映射 |
+| Timer/Timeline | Timeline 继续只由当前 BattleRef 与 TimelineRevision fencing，不复制 BattleID 到内部 timer fire |
+| 输出目标与顺序 | Snapshot 原样返回数值 BattleID；无网络输出 |
+| 生命周期结果 | Battle 完全结束并从 Host/Room 索引移除后，协调者可以复用编号；当前 Core 不承担编号分配 |
+| 结论 | wire 的 `uint32` 表示和旧 GL 数值索引 **已一致**；0 无效及活动编号冲突规则由 RFC 明确收紧 |
+| RFC/决策 | RFC-0310、RFC-0410、D-022 |
+| 备注 | WhackMole 只是通用 Battle API 消费者，改用小范围数值编号；未增加十进制字符串或 `legacy/` 前缀兼容层。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

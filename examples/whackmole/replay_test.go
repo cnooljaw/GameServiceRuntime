@@ -22,7 +22,7 @@ func TestWhackMoleRecordReplayReproducesScoreInIsolatedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	originalLogic := newWhackMoleLogic(7)
-	originalBattle, err := game.NewBattleService(game.BattleConfig{ID: "battle-replay", Participants: []game.Participant{{Player: "alice"}}, Logic: originalLogic})
+	originalBattle, err := game.NewBattleService(game.BattleConfig{ID: 1, Participants: []game.Participant{{Player: "alice"}}, Logic: originalLogic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestWhackMoleRecordReplayReproducesScoreInIsolatedRuntime(t *testing.T) {
 	err = record.Replay(context.Background(), bundle, whackRecordCodec{}, func(context.Context, record.RecordBundle) (record.ReplayTarget, error) {
 		replayRuntime = gsr.NewRuntime(gsr.Config{NodeID: "replay", Workers: 1})
 		replayLogic = newWhackMoleLogic(7)
-		battle, createErr := game.NewBattleService(game.BattleConfig{ID: "battle-replay", Participants: []game.Participant{{Player: "alice"}}, Logic: replayLogic})
+		battle, createErr := game.NewBattleService(game.BattleConfig{ID: 1, Participants: []game.Participant{{Player: "alice"}}, Logic: replayLogic})
 		if createErr != nil {
 			return record.ReplayTarget{}, createErr
 		}

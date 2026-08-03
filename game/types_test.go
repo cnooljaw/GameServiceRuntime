@@ -46,7 +46,7 @@ func TestBusinessIdentifiersAndSettlementRequestsAreCanonical(t *testing.T) {
 
 func TestBattleConfigRejectsInvalidParticipantsAndLogic(t *testing.T) {
 	valid := BattleConfig{
-		ID:           "battle-42",
+		ID:           42,
 		Participants: []Participant{{Player: "alice"}, {Player: "bob"}},
 		Logic:        &testBattleLogic{},
 	}

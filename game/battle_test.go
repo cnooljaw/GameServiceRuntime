@@ -22,7 +22,7 @@ const (
 func TestBattleContextReplyAllowsSend(t *testing.T) {
 	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
 	logic := &contextTestLogic{}
-	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice"}}, Logic: logic})
+	battle, err := NewBattleService(BattleConfig{ID: 42, Participants: []Participant{{Player: "alice"}}, Logic: logic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestBattleContextRejectsEffectsAfterHandler(t *testing.T) {
 	target := gsr.ServiceRef{Node: "player-node", ID: 1}
 	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
 	logic := &contextTestLogic{}
-	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
+	battle, err := NewBattleService(BattleConfig{ID: 42, Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestBattleContextRejectsEffectsAfterHandlerPanic(t *testing.T) {
 	target := gsr.ServiceRef{Node: "player-node", ID: 1}
 	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
 	logic := &contextTestLogic{}
-	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
+	battle, err := NewBattleService(BattleConfig{ID: 42, Participants: []Participant{{Player: "alice", Ref: target}}, Logic: logic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBattleTimelineFencesCancelledAndReplacedTimers(t *testing.T) {
 	clock := time.Unix(100, 0)
 	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: clock}
 	logic := &timelineTestLogic{}
-	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice"}}, Logic: logic})
+	battle, err := NewBattleService(BattleConfig{ID: 42, Participants: []Participant{{Player: "alice"}}, Logic: logic})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestBattleTimelineFencesCancelledAndReplacedTimers(t *testing.T) {
 func TestBattleFinishUsesSelfAsWalletSourceAndWaitsForResult(t *testing.T) {
 	serviceContext := &battleTestServiceContext{self: gsr.ServiceRef{Node: "battle-node", ID: 1}, now: time.Unix(100, 0)}
 	wallet := gsr.ServiceRef{Node: "wallet-node", ID: 2}
-	battle, err := NewBattleService(BattleConfig{ID: "battle-42", Participants: []Participant{{Player: "alice"}}, Wallet: wallet, Logic: &timelineTestLogic{}})
+	battle, err := NewBattleService(BattleConfig{ID: 42, Participants: []Participant{{Player: "alice"}}, Wallet: wallet, Logic: &timelineTestLogic{}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	battle, err := game.NewBattleService(game.BattleConfig{ID: "whackmole-demo", Participants: []game.Participant{{Player: "alice"}}, Wallet: walletRef, Logic: newWhackMoleLogic(7)})
+	battle, err := game.NewBattleService(game.BattleConfig{ID: 1, Participants: []game.Participant{{Player: "alice"}}, Wallet: walletRef, Logic: newWhackMoleLogic(7)})
 	if err != nil {
 		panic(err)
 	}
