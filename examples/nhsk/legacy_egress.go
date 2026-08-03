@@ -76,9 +76,30 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyDeal(output, payload)
+	case OutputAskOutCard:
+		payload, ok := output.Payload.(AskOutCardPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyAskOutCard(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyAskOutCard(payload AskOutCardPayload) ([]byte, error) {
+	if payload.VerifyCode == 0 {
+		return nil, fmt.Errorf("%w: ASK_OUT_CARD zero verify code", errInvalidLegacyGameOutput)
+	}
+	active, err := legacyTargetUserIDs([]game.PlayerID{payload.ActivePlayer})
+	if err != nil {
+		return nil, err
+	}
+	return legacywire.EncodeAskOutCard(legacywire.AskOutCard{
+		UserID:             active[0],
+		VerifyCode:         payload.VerifyCode,
+		ActionMilliseconds: payload.ActionMilliseconds,
+	}), nil
 }
 
 func encodeLegacyDeal(output ClientGameOutput, payload DealPayload) ([]byte, error) {

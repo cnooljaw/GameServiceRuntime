@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"reflect"
@@ -116,6 +117,54 @@ func TestEncodeLegacyDealBatchMatchesReferenceRelayGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyAskOutCardBatchMatchesReferenceRelayGolden(t *testing.T) {
+	batch := GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"1001"},
+			Kind:    OutputAskOutCard,
+			Payload: AskOutCardPayload{
+				ActivePlayer:       "1001",
+				VerifyCode:         3,
+				ActionMilliseconds: 9000,
+			},
+		}},
+	}
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "00000000000000000000000044860000000000007e0000002200d2040000e903000000000000000000000000000000740000000000005c000000e903000000000000000000005800000052000000000000003800000024000000000000000000000000000000037600000000000024000000e90300000300000028230000")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy ASK_OUT_CARD frames = %x, want %x", got, want)
+	}
+}
+
+func TestEncodeLegacyAskOutCardAllowsObserverTargetsWhenActiveExcluded(t *testing.T) {
+	batch := testAskOutCardBatch([]game.PlayerID{"1002", "1003"}, AskOutCardPayload{
+		ActivePlayer:       "1001",
+		VerifyCode:         3,
+		ActionMilliseconds: 9000,
+	})
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode broadcast ASK_OUT_CARD: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ASK_OUT_CARD frame count = %d, want 2", len(got))
+	}
+	if binary.LittleEndian.Uint32(got[1][30:34]) != 1003 || binary.LittleEndian.Uint32(got[1][58:62]) != 1003 {
+		t.Fatalf("second ASK_OUT_CARD route users = %d/%d, want 1003/1003", binary.LittleEndian.Uint32(got[1][30:34]), binary.LittleEndian.Uint32(got[1][58:62]))
+	}
+	if !reflect.DeepEqual(got[0][90:], got[1][90:]) {
+		t.Fatal("broadcast ASK_OUT_CARD payload changed between targets")
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -168,6 +217,12 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong deal payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputDeal, Payload: GameStartPayload{}}}
+		}},
+		{name: "ask has zero active player", mutate: setAskOutput([]game.PlayerID{"1001"}, AskOutCardPayload{VerifyCode: 3, ActionMilliseconds: 9000})},
+		{name: "ask has non-numeric active player", mutate: setAskOutput([]game.PlayerID{"1001"}, AskOutCardPayload{ActivePlayer: "active", VerifyCode: 3, ActionMilliseconds: 9000})},
+		{name: "ask has zero verify code", mutate: setAskOutput([]game.PlayerID{"1001"}, AskOutCardPayload{ActivePlayer: "1001", ActionMilliseconds: 9000})},
+		{name: "wrong ask payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputAskOutCard, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -230,5 +285,22 @@ func testDealPayload() DealPayload {
 func setDealOutput(targets []game.PlayerID, payload DealPayload) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputDeal, Payload: payload}}
+	}
+}
+
+func testAskOutCardBatch(targets []game.PlayerID, payload AskOutCardPayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs:              []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputAskOutCard, Payload: payload}},
+	}
+}
+
+func setAskOutput(targets []game.PlayerID, payload AskOutCardPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputAskOutCard, Payload: payload}}
 	}
 }

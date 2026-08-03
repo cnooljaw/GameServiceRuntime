@@ -18,6 +18,8 @@ const (
 	OutputGameInfo OutputKind = "game_info"
 	// OutputDeal privately delivers one seat's initial hand.
 	OutputDeal OutputKind = "deal"
+	// OutputAskOutCard publishes the current player's action opportunity.
+	OutputAskOutCard OutputKind = "ask_out_card"
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -48,6 +50,15 @@ type DealPayload struct {
 }
 
 func (DealPayload) isNHSKOutputPayload() {}
+
+// AskOutCardPayload is one current NHSK action opportunity snapshot.
+type AskOutCardPayload struct {
+	ActivePlayer       game.PlayerID
+	VerifyCode         uint32
+	ActionMilliseconds uint32
+}
+
+func (AskOutCardPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

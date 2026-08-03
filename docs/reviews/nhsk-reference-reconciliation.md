@@ -355,6 +355,24 @@
 | RFC/决策 | RFC-0410、D-033、D-059、D-084、D-095、D-096 |
 | 备注 | 本切片不实现洗牌、发牌算法、自定义牌堆或 Replay Deal；后续 Battle 切片必须证明它们复用同一份最终牌序。 |
 
+### 4.15 类型化 NHSK ASK_OUT_CARD Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `AskOutCardPayload` 编码为 `0x7603`，再按正常广播或场景恢复的 Targets 展开 relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/ask_out_card.go`、`ask_out_card_test.go` |
+| 参考入口 | `nhsk/game/flow_core.go:DoAskOutCard`、`game/messages.go:SendMsgAskOutCard/SendMsgGameScene`、`protocol/gs2gc.go:AskOutCardNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/protocol/protocol_test.go:TestAskOutCardNotifyHeader`；`game/game_flow_test.go:TestSendMsgGameSceneResendsActiveAskOutCard` 明确验证 UserID、VertifyCode 和 `SecRemain=9000` |
+| Legacy MessageID | 客户端 payload `0x7603`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | ActivePlayer 必须可表示为非零 `uint32`，VerifyCode 非零，Kind 与 `AskOutCardPayload` 匹配；Targets 独立按通用规则校验，不要求包含 ActivePlayer |
+| 权威状态变化 | 无；payload 是当前出牌机会的不可变展示快照，不创建、取消、替换或延长 ActionDeadline |
+| Timer/Timeline | `ActionMilliseconds` 映射旧字段 SecRemain，但单位为毫秒且取玩家当前允许出牌时长；它不是动态 Timeline 剩余时间，编码无 Timer 副作用 |
+| 输出目标与顺序 | payload 长 36，完整单目标 frame 长 126，suffix offset=56/size=36；正常流程面向过滤 Exited 后的全桌，场景恢复仅对当前行动者定向重发 |
+| 生命周期结果 | 类型、行动者或 VerifyCode 非法时整批返回零 frame；合法 observer Targets 即使不含行动者也照常编码 |
+| 结论 | MessageID、字段顺序、VerifyCode、毫秒值、正常广播及行动者场景恢复与参考实现 **已一致**；领域字段改名为 ActionMilliseconds、且不让 wire 展示值拥有 Timeline，是 GSR 边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-026、D-033、D-059、D-095、D-096 |
+| 备注 | 本切片不生成 VerifyCode、不创建 TurnRevision/TimelineRevision，也不实现 ActionDeadline；后续 Battle 切片负责保证 `3,5,7...` 和唯一期限。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
