@@ -10,8 +10,6 @@ import (
 )
 
 type timelineFire struct {
-	BattleID BattleID
-	Epoch    BattleEpoch
 	ID       TimelineID
 	Revision TimelineRevision
 	Command  gsr.CommandID
@@ -140,7 +138,7 @@ func (t *battleTimeline) schedule(record timelineRecord) error {
 	if delay < 0 {
 		delay = 0
 	}
-	_, err := t.battle.service.After(delay, TimelineFireCommand, timelineFire{BattleID: t.battle.id, Epoch: t.battle.epoch, ID: record.item.ID, Revision: record.item.Revision, Command: record.item.Command})
+	_, err := t.battle.service.After(delay, TimelineFireCommand, timelineFire{ID: record.item.ID, Revision: record.item.Revision, Command: record.item.Command})
 	return err
 }
 

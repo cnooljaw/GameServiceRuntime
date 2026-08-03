@@ -12,7 +12,7 @@ import (
 
 func BenchmarkKickSingleBattle(b *testing.B) {
 	runtime, refs := newBenchmarkBattles(b, 1)
-	request := KickRequest{Player: "alice", Shrew: 1, Epoch: 1}
+	request := KickRequest{Player: "alice", Shrew: 1}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
@@ -24,7 +24,7 @@ func BenchmarkKickSingleBattle(b *testing.B) {
 
 func BenchmarkKickAcrossBattles(b *testing.B) {
 	runtime, refs := newBenchmarkBattles(b, 64)
-	request := KickRequest{Player: "alice", Shrew: 1, Epoch: 1}
+	request := KickRequest{Player: "alice", Shrew: 1}
 	var next atomic.Uint64
 	b.ReportAllocs()
 	b.ResetTimer()

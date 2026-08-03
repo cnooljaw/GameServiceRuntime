@@ -70,16 +70,9 @@ Revision 2：五秒后过期
 
 物理 Timer 1 可能已经触发或取消失败。它到达时 Revision 不匹配，只增加 ignored 指标，不改变状态。
 
-## Epoch 为什么还需要
+## 为什么不再增加 Battle 代际
 
-Revision 只在一个 Battle Timeline 内有效。逻辑替换或重建可能复用 TimelineID，因此还需要 BattleEpoch 隔离代际。
-
-```text
-old epoch 1 / timeline 7 / revision 2
-new epoch 2 / timeline 7 / revision 1
-```
-
-旧事件不能进入新局。
+Core Timer 已经绑定安排它的完整 `ServiceRef`。同一 Runtime 进程内，每局创建新的 BattleService 和 ServiceRef，旧 timer 只能投向旧实例或已经停止的地址；节点进程重启时旧 timer 不恢复。因此 Timeline payload 只需要 `TimelineID + TimelineRevision + Command`，不再重复携带 BattleID 或 Battle 代际。
 
 ## Context 有效期
 

@@ -71,9 +71,6 @@ type RoomID string
 // RequestID identifies one idempotent cross-Service business request.
 type RequestID string
 
-// BattleEpoch fences delayed Battle and Timeline input after a logical replacement.
-type BattleEpoch uint64
-
 // TimelineID identifies one timer intention within a Battle.
 type TimelineID uint64
 
@@ -168,7 +165,6 @@ type ParticipantConnection struct {
 // BattleSnapshot is an independent read-only projection of one Battle.
 type BattleSnapshot struct {
 	ID           BattleID
-	Epoch        BattleEpoch
 	Phase        BattlePhase
 	Participants map[PlayerID]ParticipantStatus
 	Timeline     TimelineSnapshot
@@ -184,7 +180,6 @@ type BattleLogic interface {
 // BattleConfig configures a BattleService before composition-root creation.
 type BattleConfig struct {
 	ID           BattleID
-	Epoch        BattleEpoch
 	Participants []Participant
 	Wallet       gsr.ServiceRef
 	Logic        BattleLogic
@@ -195,7 +190,6 @@ type BattleConfig struct {
 type BattleContext interface {
 	gsr.CommandContext
 	BattleID() BattleID
-	Epoch() BattleEpoch
 	Now() time.Time
 	Timeline() Timeline
 	Finish(FinishBattle) error

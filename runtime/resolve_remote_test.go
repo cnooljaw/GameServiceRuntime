@@ -46,6 +46,43 @@ func TestResolveRemoteQueriesNamedServiceWithoutBusinessCodec(t *testing.T) {
 	}
 }
 
+func TestResolveRemoteRequeriesAfterNodeReconnectEvenWhenIDsOverlap(t *testing.T) {
+	network := newMemoryCluster()
+	nodeA := newTestClusterRuntime(t, "node-a", network)
+	oldNodeB := newTestClusterRuntime(t, "node-b", network)
+
+	oldRef, err := oldNodeB.CreateService(gsr.ServiceSpec{Name: ".config", Service: &fixedReplyService{reply: "old"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := nodeA.ResolveRemote(context.Background(), "node-b", ".config")
+	if err != nil || resolved != oldRef {
+		t.Fatalf("initial ResolveRemote = %#v, %v; want %#v", resolved, err, oldRef)
+	}
+
+	network.disconnect("node-b")
+	newNodeB := newTestClusterRuntime(t, "node-b", network)
+	newRef, err := newNodeB.CreateService(gsr.ServiceSpec{Name: ".config", Service: &fixedReplyService{reply: "new"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newRef != oldRef {
+		t.Fatalf("restarted node allocated %#v, want overlapping address %#v", newRef, oldRef)
+	}
+
+	resolved, err = nodeA.ResolveRemote(context.Background(), "node-b", ".config")
+	if err != nil || resolved != newRef {
+		t.Fatalf("ResolveRemote after reconnect = %#v, %v; want %#v", resolved, err, newRef)
+	}
+	value, err := nodeA.Call(context.Background(), resolved, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "new" {
+		t.Fatalf("Call after reconnect = %#v, want new", value)
+	}
+}
+
 func TestResolveRemotePreservesRegistryErrors(t *testing.T) {
 	network := newMemoryCluster()
 	nodeA := newTestClusterRuntime(t, "node-a", network)

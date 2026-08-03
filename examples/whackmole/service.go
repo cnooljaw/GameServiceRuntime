@@ -43,7 +43,6 @@ const (
 type KickRequest struct {
 	Player game.PlayerID
 	Shrew  ShrewID
-	Epoch  game.BattleEpoch
 }
 
 // KickResult is the idempotent visible result of one target hit attempt.
@@ -87,7 +86,7 @@ func (l *whackMoleLogic) HandleBattle(ctx game.BattleContext, command gsr.Comman
 		return l.spawn(ctx)
 	case KickCommand:
 		request, ok := command.Payload.(KickRequest)
-		if !ok || request.Epoch != ctx.Epoch() {
+		if !ok {
 			return game.ErrInvalidCommand
 		}
 		state, exists := l.shrews[request.Shrew]
@@ -152,7 +151,7 @@ func (l *whackMoleLogic) spawn(ctx game.BattleContext) error {
 }
 
 func (l *whackMoleLogic) snapshot(ctx game.BattleContext) Snapshot {
-	return Snapshot{Battle: game.BattleSnapshot{ID: ctx.BattleID(), Epoch: ctx.Epoch()}, Shrews: cloneShrews(l.shrews), Scores: cloneScores(l.scores)}
+	return Snapshot{Battle: game.BattleSnapshot{ID: ctx.BattleID()}, Shrews: cloneShrews(l.shrews), Scores: cloneScores(l.scores)}
 }
 
 func cloneShrews(values map[ShrewID]ShrewState) map[ShrewID]ShrewState {

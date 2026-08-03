@@ -149,7 +149,6 @@ panic 展开也会通过 defer 立即失效。
 ```go
 type BattleSnapshot struct {
     ID           BattleID
-    Epoch        BattleEpoch
     Phase        BattlePhase
     Participants map[PlayerID]ParticipantStatus
     Timeline     TimelineSnapshot

@@ -12,7 +12,6 @@ import (
 // BattleService owns one Battle's phase, participant reachability, Timeline and game Logic.
 type BattleService struct {
 	id           BattleID
-	epoch        BattleEpoch
 	wallet       gsr.ServiceRef
 	logic        BattleLogic
 	participants map[PlayerID]Participant
@@ -29,16 +28,13 @@ func NewBattleService(config BattleConfig) (*BattleService, error) {
 	if err := validateBattleConfig(config); err != nil {
 		return nil, err
 	}
-	if config.Epoch == 0 {
-		config.Epoch = 1
-	}
 	participants := make(map[PlayerID]Participant, len(config.Participants))
 	statuses := make(map[PlayerID]ParticipantStatus, len(config.Participants))
 	for _, participant := range config.Participants {
 		participants[participant.Player] = participant
 		statuses[participant.Player] = ParticipantOffline
 	}
-	return &BattleService{id: config.ID, epoch: config.Epoch, wallet: config.Wallet, logic: config.Logic, participants: participants, statuses: statuses, phase: BattleCreated, settlements: make(map[RequestID]SettlementResult)}, nil
+	return &BattleService{id: config.ID, wallet: config.Wallet, logic: config.Logic, participants: participants, statuses: statuses, phase: BattleCreated, settlements: make(map[RequestID]SettlementResult)}, nil
 }
 
 // CreateBattle creates a BattleService through a composition-root ServiceCreator.
@@ -229,10 +225,6 @@ func (s *BattleService) applySettlement(commandContext gsr.CommandContext, resul
 }
 
 func (s *BattleService) fire(commandContext gsr.CommandContext, fire timelineFire) error {
-	if fire.BattleID != s.id || fire.Epoch != s.epoch {
-		s.service.Metrics().Inc("battle_timeline_ignored_total")
-		return nil
-	}
 	record, exists := s.timeline.items[fire.ID]
 	if !exists || record.item.State != TimelineScheduled || record.item.Revision != fire.Revision || record.item.Command != fire.Command {
 		s.service.Metrics().Inc("battle_timeline_ignored_total")
@@ -270,7 +262,7 @@ func (s *BattleService) snapshot(commandContext gsr.CommandContext) (BattleSnaps
 	for player, status := range s.statuses {
 		participants[player] = status
 	}
-	return cloneBattleSnapshot(BattleSnapshot{ID: s.id, Epoch: s.epoch, Phase: s.phase, Participants: participants, Timeline: s.timeline.snapshot(), State: state}), nil
+	return cloneBattleSnapshot(BattleSnapshot{ID: s.id, Phase: s.phase, Participants: participants, Timeline: s.timeline.snapshot(), State: state}), nil
 }
 
 func (s *BattleService) withContext(commandContext gsr.CommandContext, fn func(*battleContext) error) error {
@@ -295,7 +287,6 @@ func (c *battleContext) Reply(value any) error {
 	return reply(c.command, value)
 }
 func (c *battleContext) BattleID() BattleID { return c.battle.id }
-func (c *battleContext) Epoch() BattleEpoch { return c.battle.epoch }
 func (c *battleContext) Now() time.Time     { return c.battle.service.Now() }
 func (c *battleContext) Timeline() Timeline {
 	return timelineHandle{timeline: c.battle.timeline, active: c.active}

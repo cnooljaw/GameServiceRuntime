@@ -68,7 +68,6 @@ Cluster
 type BattleContext interface {
     gsr.CommandContext
     BattleID() BattleID
-    Epoch() BattleEpoch
     Now() time.Time
     Timeline() Timeline
     Finish(FinishBattle) error

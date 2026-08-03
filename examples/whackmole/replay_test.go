@@ -37,7 +37,7 @@ func TestWhackMoleRecordReplayReproducesScoreInIsolatedRuntime(t *testing.T) {
 	for _, command := range []gsr.Command{
 		{ID: game.StartBattleCommand, Payload: struct{}{}},
 		{ID: StartCommand, Payload: struct{}{}},
-		{ID: KickCommand, Payload: KickRequest{Player: "alice", Shrew: 1, Epoch: 1}},
+		{ID: KickCommand, Payload: KickRequest{Player: "alice", Shrew: 1}},
 	} {
 		if _, err := originalRuntime.Call(context.Background(), originalRef, command.ID, command.Payload); err != nil {
 			t.Fatalf("original Call(%d) error = %v", command.ID, err)

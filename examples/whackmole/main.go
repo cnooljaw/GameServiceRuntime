@@ -36,7 +36,7 @@ func main() {
 	if err := startWhackMole(runtime, battleRef); err != nil {
 		panic(err)
 	}
-	value, err := runtime.Call(context.Background(), battleRef, KickCommand, KickRequest{Player: "alice", Shrew: 1, Epoch: 1})
+	value, err := runtime.Call(context.Background(), battleRef, KickCommand, KickRequest{Player: "alice", Shrew: 1})
 	if err != nil {
 		panic(err)
 	}
