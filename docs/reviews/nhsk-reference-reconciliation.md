@@ -247,6 +247,24 @@
 | RFC/决策 | RFC-0410、D-036 |
 | 备注 | 本切片不创建 ConnectionGeneration、OutputService 或重连循环；这些状态只有完整连接 owner 才能拥有。 |
 
+### 4.9 Legacy 连接配置与退避策略
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | GameMaster 连接默认值、校验和有上限的指数退避计算 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/connection_config.go`、`connection_config_test.go`；`examples/nhsk/config.go` |
+| 参考入口 | `nbgame_core/transport/newnet/tcp/connection/connection.go` 的 `Send`、`Check`、`Connect`、`dial` |
+| 参考测试/配置/录包 | 旧连接使用固定 3 秒 Dial，并分别以发送重试 5 次、定时检查 20 次限制重连；`Send` 会隐式触发 `Connect` |
+| Legacy MessageID | 无 |
+| 输入与校验 | Dial/origin/initial/max/stable 时长必须为正；initial 不得超过 max；multiplier 必须有限且大于 1；jitter 必须有限且位于 `(0,1)`；随机源必须存在 |
+| 权威状态变化 | 私有策略只保存下一档基础等待；不拥有 socket、ConnectionGeneration、readiness 或 Battle |
+| Timer/Timeline | 不创建 Runtime Timer 或 goroutine；未来连接 owner 使用可取消等待执行策略结果 |
+| 输出目标与顺序 | 默认基础序列为 `1s,2s,4s,8s,16s,30s,30s`，每项再落入 ±20% 区间；连续 Ready 满 60 秒后重置到 1 秒 |
+| 生命周期结果 | 本切片只计算等待，不 Dial、不 sleep、不重连；关闭时立即取消等待由下一连接 owner 切片负责 |
+| 结论 | 保留“断线后重新连接”的业务目的；无限有界退避、稳定重置和 `Send` 不触发连接是 RFC 已批准的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-037 |
+| 备注 | 默认值只由 `DefaultConnectionConfig` 定义，应用 JSON 默认配置从该值映射，不维护第二份常量。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

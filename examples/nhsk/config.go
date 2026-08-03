@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lijiawang/GameServiceRuntime/examples/nhsk/internal/legacywire"
 )
 
 type processRole string
@@ -108,15 +110,16 @@ func loadConfig(path string) (appConfig, error) {
 }
 
 func defaultConfig() appConfig {
+	connection := legacywire.DefaultConnectionConfig()
 	return appConfig{
 		LegacyGM: legacyGMConfig{
-			DialTimeout:       configDuration(5 * time.Second),
-			OriginTimeout:     configDuration(5 * time.Second),
-			InitialBackoff:    configDuration(time.Second),
-			MaxBackoff:        configDuration(30 * time.Second),
-			BackoffMultiplier: 2,
-			Jitter:            0.2,
-			StableReset:       configDuration(60 * time.Second),
+			DialTimeout:       configDuration(connection.DialTimeout),
+			OriginTimeout:     configDuration(connection.OriginTimeout),
+			InitialBackoff:    configDuration(connection.InitialBackoff),
+			MaxBackoff:        configDuration(connection.MaxBackoff),
+			BackoffMultiplier: connection.BackoffMultiplier,
+			Jitter:            connection.JitterRatio,
+			StableReset:       configDuration(connection.StableResetAfter),
 		},
 		Logging: loggingConfig{Level: "info"},
 	}
