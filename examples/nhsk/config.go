@@ -279,7 +279,7 @@ func (config appConfig) validate() error {
 	if config.ShutdownTimeout <= 0 {
 		return configFieldError("shutdown_timeout", "must be positive")
 	}
-	if !validLogLevel(config.Logging.Level) {
+	if _, err := parseLogLevel(config.Logging.Level); err != nil {
 		return configFieldError("logging.level", "must be debug, info, warn, or error")
 	}
 	if config.MySQL.Enabled && strings.TrimSpace(config.MySQL.DSN) == "" {
@@ -314,15 +314,6 @@ func validateAddress(address string) error {
 		return errors.New("invalid port")
 	}
 	return nil
-}
-
-func validLogLevel(level string) bool {
-	switch level {
-	case "debug", "info", "warn", "error":
-		return true
-	default:
-		return false
-	}
 }
 
 func configFieldError(field, rule string) error {

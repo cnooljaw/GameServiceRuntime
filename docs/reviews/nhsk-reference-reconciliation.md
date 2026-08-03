@@ -139,6 +139,24 @@
 | RFC/决策 | RFC-0310、RFC-0410、D-022 |
 | 备注 | WhackMole 只是通用 Battle API 消费者，改用小范围数值编号；未增加十进制字符串或 `legacy/` 前缀兼容层。 |
 
+### 4.3 GameLogic 结构化日志
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | GameLogic 组合根 JSON 日志与脱敏 |
+| GSR 文件/测试 | `examples/nhsk/logging.go`、`examples/nhsk/logging_test.go` |
+| 参考入口 | `gamelogic/app/handler/game.go`、`internal/roundmanager/round_manager.go`、`internal/roundmanager/round.go`、`internal/game/game.go`，以及 `config.yaml` 的 `log` 配置 |
+| 参考测试/配置/录包 | 旧 GL 使用 debug/info/error 级别，并在主要入口记录 GameInnerId、MessageID、handler 和结果；没有结构化日志测试 |
+| Legacy MessageID | 日志可用 `command_id` 记录映射后的稳定命令编号；本切片不解释或编解码 Legacy payload |
+| 输入与校验 | 日志级别仅允许 debug/info/warn/error；固定 JSON；token、secret、proof、微信 code 及原始 error/err/cause 属性按 key 脱敏 |
+| 权威状态变化 | 无；logger 不是状态 owner |
+| Timer/Timeline | 无；未来真实 Timeline 日志再加入其已定义的窄 Revision，不预建通用 Revision 字段 |
+| 输出目标与顺序 | 进程 logger 固定带 node_id/process_role；Battle logger 追加数值 BattleID、完整 ServiceRef 和 ConnectionGeneration；错误使用稳定 error_category |
+| 生命周期结果 | logger 由组合根构造并注入；不修改 Core Runtime 的 logger API |
+| 结论 | 旧日志用于定位 handler、GameInnerId 和 MessageID 的目的 **已一致**；JSON、稳定字段和强制脱敏为 RFC 要求的 **有意偏差** |
+| RFC/决策 | RFC-0410 |
+| 备注 | 不复制参考实现的 `%+v` 全 payload/配置、`%p` Round 地址或错误 cause 输出。随着 Command Record、Subgame、TurnRevision 和 TimelineRevision 类型在后续切片出现，再把真实字段加入对应日志点。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
