@@ -193,6 +193,24 @@
 | RFC/决策 | RFC-0410、D-036、D-044 |
 | 备注 | 本切片不定义 `0x7610` 解说或 Robot relay 输出。外部 AI 的 `0x7612` 由后续 AI provider wire 单独拥有，不进入客户端 Legacy codec。 |
 
+### 4.6 Legacy TCP frame 边界
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 单条 TCP 字节流的有界 frame reader |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/packet.go`、`packet_test.go` |
+| 参考入口 | `nbgame_core/transport/newnet/protocols/bspacket.go`、`tcp/client.go` |
+| 参考测试/配置/录包 | 参考 `BSProtocol.UnpackDetect/PackDetect` 的 24 字节下界和 8 KiB 上界；RFC-0410 已裁决线上零 Length 不接受 |
+| Legacy MessageID | frame reader 只读取 Header.Type，不判断已知或未知 ID |
+| 输入与校验 | 精确读 24 字节 Header，再按最终 Length 读剩余 body；Length 必须为 `24..8192`；部分 Header/Body 是不可恢复截断 |
+| 权威状态变化 | 无 |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | 每次只返回一个独立存储的完整 frame；连续 frame 不吞并，完整消费后返回 EOF |
+| 生命周期结果 | 非法长度或截断返回稳定 framing 错误，由后续连接 owner 关闭当前 ConnectionGeneration |
+| 结论 | Header 下界、frame 上限和连续读取 **已一致**；拒绝线上 `Length=0` 是 RFC 已批准的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-049 |
+| 备注 | 未知 MessageID 与已知消息坏 body 具有完整 frame 边界，下一层负责局部丢弃并继续；本层不告警、不投递 Command。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
