@@ -165,6 +165,50 @@ func TestEncodeLegacyAskOutCardAllowsObserverTargetsWhenActiveExcluded(t *testin
 	}
 }
 
+func TestEncodeLegacyOutCardInfoBatchMatchesReferenceRelayGolden(t *testing.T) {
+	batch := GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"1002"},
+			Kind:    OutputOutCardInfo,
+			Payload: OutCardInfoPayload{
+				Player:    "1001",
+				Cards:     [8]byte{0x03, 0x13},
+				CardCount: 2,
+			},
+		}},
+	}
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000910000002200d2040000ea03000000000000000000000000000000740000000000006f000000ea03000000000000000000005800000052000000000000003800000037000000000000000000000000000000047600000000000037000000e9030000031300000000000000000000000000000000000000000000000002")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy OUT_CARD_INFO frames = %x, want %x", got, want)
+	}
+}
+
+func TestEncodeLegacyOutCardInfoAllowsPass(t *testing.T) {
+	batch := testOutCardInfoBatch(OutCardInfoPayload{Player: "1001"})
+	got, err := encodeLegacyGameOutputBatch(batch)
+	if err != nil {
+		t.Fatalf("encode pass OUT_CARD_INFO: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("pass OUT_CARD_INFO frame count = %d, want 1", len(got))
+	}
+	if len(got[0]) != 145 {
+		t.Fatalf("pass OUT_CARD_INFO frame length = %d, want 145", len(got[0]))
+	}
+	if got[0][144] != 0 {
+		t.Fatalf("pass OUT_CARD_INFO card count = %d, want 0", got[0][144])
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -223,6 +267,12 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		{name: "ask has zero verify code", mutate: setAskOutput([]game.PlayerID{"1001"}, AskOutCardPayload{ActivePlayer: "1001", ActionMilliseconds: 9000})},
 		{name: "wrong ask payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputAskOutCard, Payload: GameStartPayload{}}}
+		}},
+		{name: "out card info has zero player", mutate: setOutCardInfoOutput(OutCardInfoPayload{CardCount: 1})},
+		{name: "out card info has non-numeric player", mutate: setOutCardInfoOutput(OutCardInfoPayload{Player: "player", CardCount: 1})},
+		{name: "out card info exceeds rule card count", mutate: setOutCardInfoOutput(OutCardInfoPayload{Player: "1001", CardCount: 9})},
+		{name: "wrong out card info payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputOutCardInfo, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -302,5 +352,22 @@ func testAskOutCardBatch(targets []game.PlayerID, payload AskOutCardPayload) Gam
 func setAskOutput(targets []game.PlayerID, payload AskOutCardPayload) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputAskOutCard, Payload: payload}}
+	}
+}
+
+func testOutCardInfoBatch(payload OutCardInfoPayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs:              []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputOutCardInfo, Payload: payload}},
+	}
+}
+
+func setOutCardInfoOutput(payload OutCardInfoPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = testOutCardInfoBatch(payload).Outputs
 	}
 }

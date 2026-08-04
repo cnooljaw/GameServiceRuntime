@@ -82,9 +82,33 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyAskOutCard(payload)
+	case OutputOutCardInfo:
+		payload, ok := output.Payload.(OutCardInfoPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyOutCardInfo(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyOutCardInfo(payload OutCardInfoPayload) ([]byte, error) {
+	if int(payload.CardCount) > len(payload.Cards) {
+		return nil, fmt.Errorf("%w: OUT_CARD_INFO card count %d", errInvalidLegacyGameOutput, payload.CardCount)
+	}
+	players, err := legacyTargetUserIDs([]game.PlayerID{payload.Player})
+	if err != nil {
+		return nil, err
+	}
+	frame, err := legacywire.EncodeOutCardInfo(legacywire.OutCardInfo{
+		UserID: players[0],
+		Cards:  payload.Cards[:payload.CardCount],
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: OUT_CARD_INFO: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyAskOutCard(payload AskOutCardPayload) ([]byte, error) {

@@ -20,6 +20,8 @@ const (
 	OutputDeal OutputKind = "deal"
 	// OutputAskOutCard publishes the current player's action opportunity.
 	OutputAskOutCard OutputKind = "ask_out_card"
+	// OutputOutCardInfo publishes one committed play or pass.
+	OutputOutCardInfo OutputKind = "out_card_info"
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -59,6 +61,15 @@ type AskOutCardPayload struct {
 }
 
 func (AskOutCardPayload) isNHSKOutputPayload() {}
+
+// OutCardInfoPayload is one committed NHSK play or pass fact.
+type OutCardInfoPayload struct {
+	Player    game.PlayerID
+	Cards     [8]byte
+	CardCount uint8
+}
+
+func (OutCardInfoPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

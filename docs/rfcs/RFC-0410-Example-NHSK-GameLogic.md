@@ -234,10 +234,11 @@ type OutputPayload interface {
 }
 
 const (
-    OutputGameStart  OutputKind = "game_start"
-    OutputGameInfo   OutputKind = "game_info"
-    OutputDeal       OutputKind = "deal"
-    OutputAskOutCard OutputKind = "ask_out_card"
+    OutputGameStart   OutputKind = "game_start"
+    OutputGameInfo    OutputKind = "game_info"
+    OutputDeal        OutputKind = "deal"
+    OutputAskOutCard  OutputKind = "ask_out_card"
+    OutputOutCardInfo OutputKind = "out_card_info"
 )
 
 type GameStartPayload struct{}
@@ -259,6 +260,12 @@ type AskOutCardPayload struct {
     ActivePlayer       game.PlayerID
     VerifyCode         uint32
     ActionMilliseconds uint32
+}
+
+type OutCardInfoPayload struct {
+    Player    game.PlayerID
+    Cards     [8]byte
+    CardCount uint8
 }
 
 type GameStartedOutput struct {
@@ -317,6 +324,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputDeal` 使用 `DealPayload{Players, SeatID, Cards}` 表达一名玩家的私有发牌事实。Players 按 SeatID 0..3 冻结且必须是四个非零、互异玩家；SeatID 必须位于 0..3；ClientGameOutput 必须只有一个 Target，且等于 Players[SeatID]。Cards 是该座最终不可变 26 张牌，直接复用玩法发牌和回放 Deal 的同一份牌序。Legacy adapter 编码 `0x7602 NHSK_DEAL` 时保留四个 UserID，只填写 SeatID 对应的 26 字节牌区，其余三座牌区固定为零；不得把完整四手牌交给 adapter 后再按 Target 临时裁剪。
 
 `OutputAskOutCard` 使用 `AskOutCardPayload{ActivePlayer, VerifyCode, ActionMilliseconds}`。ActivePlayer 必须是非零玩家，但不要求出现在 Targets 中：正常出牌机会面向过滤 Exited 后的全桌，场景恢复只在请求者正是当前行动者时定向发送。VerifyCode 必须非零。ActionMilliseconds 映射到旧 wire 的 `SecRemain`，但严格保持参考语义：单位是毫秒，值是该玩家当前配置的允许出牌时长，不是从 ActionDeadline 动态计算的剩余时间；生成输出和场景恢复都不得创建、替换或延长 Timeline。Legacy payload 固定为 36 字节 `0x7603 NHSK_ASK_OUT_CARD`，依次编码 ActivePlayer、VerifyCode、ActionMilliseconds。
+
+`OutputOutCardInfo` 使用 `OutCardInfoPayload{Player, Cards[8], CardCount}` 表达一次已经提交的出牌或过牌事实。Player 必须是非零玩家，但不要求出现在 Targets 中；正常路径面向过滤 Exited 后的全桌广播。CardCount 必须位于 0..8，0 表示过牌；只有 Cards 的前 CardCount 项进入 wire。8 是 NHSK 合法牌组上限，领域模型不暴露旧协议预留的 26 张容量。Legacy adapter 将其编码为固定 55 字节 `0x7604 NHSK_OUT_CARD_INFO`：Player、26 字节 CardData 和 CardCount，未使用的 CardData 保持零。
 
 ### 结算与回放
 

@@ -373,6 +373,24 @@
 | RFC/决策 | RFC-0410、D-026、D-033、D-059、D-095、D-096 |
 | 备注 | 本切片不生成 VerifyCode、不创建 TurnRevision/TimelineRevision，也不实现 ActionDeadline；后续 Battle 切片负责保证 `3,5,7...` 和唯一期限。 |
 
+### 4.16 类型化 NHSK OUT_CARD_INFO Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `OutCardInfoPayload` 编码为广播事实 `0x7604`，再按 Targets 展开逐用户 relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/out_card_info.go`、`out_card_info_test.go` |
+| 参考入口 | `nhsk/game/flow_core.go:DoOutCard`、`game/messages.go:SendMsgOutCardInfo`、`protocol/gs2gc.go:OutCardInfoNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestDoOutCardRemovesCardsAndBroadcasts` 验证合法动作后 UserID、CardCount=2 和广播；协议 formatter 的 `copyCardsToFixed` 保留过牌 count=0 |
+| Legacy MessageID | 客户端 payload `0x7604`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Player 必须可表示为非零 `uint32`；领域 CardCount 位于 0..8，0 表示过牌；Kind 与 `OutCardInfoPayload` 必须匹配；Player 不要求出现在 Targets 中 |
+| 权威状态变化 | 无；payload 只描述已经由 Battle 提交的动作事实，codec 不移除手牌、不更新上一手或回合状态 |
+| Timer/Timeline | 无；成功动作后的旧期限失效和下一 Ask 由 Battle 负责，本输出不操作 Timeline |
+| 输出目标与顺序 | payload 固定 55 字节：Player、26 字节 CardData、CardCount；只复制前 CardCount 张，其余为零。完整单目标 frame 长 145，suffix offset=56/size=55 |
+| 生命周期结果 | 类型、Player 或领域牌数非法时整批返回零 frame；CardCount=0 正常产生过牌广播；成功输出不是 GSR Reply 或 error=0 ACK |
+| 结论 | MessageID、字段布局、过牌表达、广播目标以及合法动作后才发送的语义与参考实现 **已一致**；领域只暴露 NHSK 最大 8 张而由 adapter 扩展旧 26 字节容量，是 GSR 边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
+| 备注 | 本切片不实现出牌校验、手牌 mutation、ShowCards、TurnEnd 或下一 Ask；这些后续输出仍必须保持 D-059 线序。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
