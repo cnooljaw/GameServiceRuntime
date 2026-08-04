@@ -515,7 +515,7 @@
 | 生命周期结果 | 解码不持有 caller storage；短包、长包、错误 MessageID、错误 Length、超量 count 和非零尾部均稳定失败 |
 | 结论 | MessageID、51 字节布局、26 字节容量、空选择和不做玩法校验与参考实现 **已一致**；显式拒绝非零未使用牌区是严格 wire 边界下的 **有意收紧**，不改变合法客户端行为 |
 | RFC/决策 | RFC-0410、D-062、D-068 |
-| 备注 | 本切片不实现 relay 身份校验、MessageID→CommandID 映射、Battle 阶段/当前玩家门禁或 `0x7611` 广播决策。 |
+| 备注 | 本切片不实现 relay 身份一致性校验、Battle 阶段/当前玩家门禁或 `0x7611` 广播决策。 |
 
 ### 4.24 NHSK OUT_CARD Legacy payload 解码
 
@@ -533,7 +533,25 @@
 | 生命周期结果 | 解码不持有 caller storage；短包、长包、错误 MessageID、错误 Length、超过 26 的 count 和非零尾部均稳定失败 |
 | 结论 | MessageID、55 字节布局、26 字节 wire 容量、过牌和 VerifyCode 原样传递与参考实现 **已一致**；显式拒绝非零未使用牌区是严格 wire 边界下的 **有意收紧**，不改变合法客户端行为 |
 | RFC/决策 | RFC-0410、D-026、D-062、D-068 |
-| 备注 | 本切片不实现 relay 身份校验、MessageID→CommandID 映射、当前玩家/VerifyCode/牌数/手牌/牌型校验或出牌状态变化。 |
+| 备注 | 本切片不实现 relay 身份一致性校验、当前玩家/VerifyCode/牌数/手牌/牌型校验或出牌状态变化。 |
+
+### 4.25 NHSK Legacy gameplay Command 映射
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将已校验的 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` payload 显式映射为公开 GSR gameplay Command |
+| GSR 文件/测试 | `examples/nhsk/commands.go`、`commands_external_test.go`、`legacy_mapper.go`、`legacy_mapper_test.go`；`internal/legacywire/client_gameplay.go`、`client_gameplay_test.go` |
+| 参考入口 | `nhsk/game/interface.go:OnMsg`、`nhsk/game/handlers.go:OnMsgOutCard/OnMsgCardAction` |
+| 参考测试/配置/录包 | 两条已冻结 payload golden 复用真实 MessageID 与字段布局；参考仓库没有 CARD_ACTION 专项测试，OUT_CARD 业务拒绝继续由后续 handler 测试负责 |
+| Legacy MessageID | 显式 `0x7701 -> PlayCardsCommand(0x04100301)`；`0x7702 -> PreviewCardSelectionCommand(0x04100302)`；不做数值复用或算术转换 |
+| 输入与校验 | 外层归一化 UserID 必须非零并转为十进制 `game.PlayerID`；Cards 深拷贝为领域 `[]byte`，丢弃 Header 与 CardCount；OUT_CARD 保留 VerifyCode；未知 MessageID、坏 frame 或坏 body 拒绝 |
+| 权威状态变化 | 无；mapper 只产生 `gsr.Command`，不发送、不触达 Mailbox、不保存 Battle 状态 |
+| Timer/Timeline | 无；VerifyCode、行动机会和 Deadline 尚未判定 |
+| 输出目标与顺序 | 无；Legacy bridge 后续只需把返回 Command Send 到已解析 BattleRef；Cluster 调用者直接构造同一公开 request |
+| 生命周期结果 | 返回 payload 不持有 Legacy frame storage；空 CARD_ACTION 与 9..26 张 OUT_CARD 均保持可映射，玩法拒绝留给 Battle；`package nhsk` 可由 Cluster 调用方直接导入 |
+| 结论 | 两条 MessageID 分发、请求 UserID、Cards 与 VerifyCode 的业务流向和参考 `OnMsg` **已一致**；使用独立 CommandID、领域 slice 和类型化 request 是 D-097 下的 **有意边界调整** |
+| RFC/决策 | RFC-0410、D-042、D-062、D-068、D-097 |
+| 备注 | 本切片不实现 `0x8605 + 0x7402` relay 身份核对、BattleRef 路由、Runtime Send/Call、Battle handler 或客户端输出。 |
 
 ## 5. 切片追加模板
 

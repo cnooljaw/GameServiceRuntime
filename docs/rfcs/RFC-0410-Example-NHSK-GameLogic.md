@@ -118,6 +118,30 @@ CommandID 不复用 Legacy MessageID。已导出常量是 Cluster Service 的公
 | `0x04100401` | `CompleteSettlement` | Battle | Send/Call | `SettlementCommandResult` |
 | `0x04100402` | `GetNHSKBattleSnapshot` | Battle | Call | `NHSKBattleSnapshot` |
 
+玩法 Command 的公开 Go 契约为：
+
+```go
+const (
+    PlayCardsCommand            gsr.CommandID = 0x04100301
+    PreviewCardSelectionCommand gsr.CommandID = 0x04100302
+)
+
+type PlayCardsRequest struct {
+    Player     game.PlayerID
+    Cards      []byte
+    VerifyCode uint32
+}
+
+type PreviewCardSelectionRequest struct {
+    Player game.PlayerID
+    Cards  []byte
+}
+```
+
+`Cards` 是领域列表，不暴露 Legacy 固定数组或重复的 CardCount。Command payload 进入 Send/Call 后按不可变值使用；Legacy mapper 必须为它分配独立 slice，不保留 frame 缓冲区。`PlayCardsRequest` 允许携带 0..26 张 Legacy 输入，Battle 再应用 8 张玩法上限及完整合法性校验。`PreviewCardSelectionRequest` 允许 0..26 张，只应用已冻结的宽松预览门禁。
+
+`examples/nhsk` 是可导入的 `package nhsk`，Cluster 调用方直接引用上述 CommandID 和 request。可执行组合根后续放在独立 `cmd/` 目录；不得把该业务包改成不可导入的 `package main`，也不为导出常量增加一层转发 package。
+
 包内私有 CommandID 固定为：
 
 | CommandID | 名称 | owner |

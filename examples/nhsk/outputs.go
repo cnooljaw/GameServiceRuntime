@@ -1,4 +1,4 @@
-package main
+package nhsk
 
 import (
 	"github.com/lijiawang/GameServiceRuntime/game"
