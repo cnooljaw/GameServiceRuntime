@@ -94,9 +94,31 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyTurnEnd(payload)
+	case OutputShowCards:
+		payload, ok := output.Payload.(ShowCardsPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyShowCards(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyShowCards(payload ShowCardsPayload) ([]byte, error) {
+	players, err := legacyTargetUserIDs(payload.Players[:])
+	if err != nil {
+		return nil, err
+	}
+	frame, err := legacywire.EncodeShowCards(legacywire.ShowCards{
+		UserIDs:    [4]uint32{players[0], players[1], players[2], players[3]},
+		Cards:      payload.Cards,
+		CardCounts: payload.HandCounts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: SHOW_CARDS: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyTurnEnd(payload TurnEndPayload) ([]byte, error) {

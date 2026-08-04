@@ -240,6 +240,7 @@ const (
     OutputAskOutCard  OutputKind = "ask_out_card"
     OutputOutCardInfo OutputKind = "out_card_info"
     OutputTurnEnd     OutputKind = "turn_end"
+    OutputShowCards   OutputKind = "show_cards"
 )
 
 type GameStartPayload struct{}
@@ -272,6 +273,12 @@ type OutCardInfoPayload struct {
 type TurnEndPayload struct {
     Winner         game.PlayerID
     CapturedPoints uint32
+}
+
+type ShowCardsPayload struct {
+    Players    [4]game.PlayerID
+    HandCounts [4]uint8
+    Cards      [4][26]byte
 }
 
 type GameStartedOutput struct {
@@ -334,6 +341,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputOutCardInfo` 使用 `OutCardInfoPayload{Player, Cards[8], CardCount}` 表达一次已经提交的出牌或过牌事实。Player 必须是非零玩家，但不要求出现在 Targets 中；正常路径面向过滤 Exited 后的全桌广播。CardCount 必须位于 0..8，0 表示过牌；只有 Cards 的前 CardCount 项进入 wire。8 是 NHSK 合法牌组上限，领域模型不暴露旧协议预留的 26 张容量。Legacy adapter 将其编码为固定 55 字节 `0x7604 NHSK_OUT_CARD_INFO`：Player、26 字节 CardData 和 CardCount，未使用的 CardData 保持零。
 
 `OutputTurnEnd` 使用 `TurnEndPayload{Winner, CapturedPoints}` 表达一墩已经结算完成。Winner 是取得该墩的非零玩家，但不要求出现在 Targets 中；CapturedPoints 是本墩刚归属给 Winner 的抓分，允许为 0，不是玩家累计 Point。Legacy payload 固定为 32 字节 `0x7605 NHSK_TURN_END`，依次编码 Winner 和 CapturedPoints。它只在最后一个 `OutCardInfo` 之后、下一次 `AskOutCard` 之前广播，不负责更新累计分、重置墩状态或推进 Timeline。
+
+`OutputShowCards` 使用 `ShowCardsPayload{Players, HandCounts, Cards}` 表达一次按接收者视角冻结的四座手牌展示。Players 按 SeatID 0..3 排列且必须是四个非零、互异玩家；HandCounts 是各座真实剩余张数，必须位于 0..26，即使该座牌面隐藏也保留；Cards 的某一行全零表示该座牌面隐藏，否则只有前 HandCounts 项可以非零，尾部必须为零。玩家先出完且对家仍有牌时，Battle 只把该玩家放入 Targets，并只填写对家 Cards；终局则把过滤 Exited 后的全桌放入 Targets，并填写所有仍持牌玩家的 Cards。Legacy payload 固定为 148 字节 `0x7606 NHSK_SHOW_CARDS`：四个 UserID、四段 26 字节 Cards、四个 CardsCount。它不改变手牌、名次、结算阶段或 Timeline；展示等待由 Battle 的后续阶段和 Timer Command 管理。
 
 ### 结算与回放
 

@@ -409,6 +409,24 @@
 | RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
 | 备注 | 本切片不实现抓分计算、累计 Point、墩重置、下一行动者或下一 Ask。 |
 
+### 4.18 类型化 NHSK SHOW_CARDS Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `ShowCardsPayload` 编码为手牌展示 `0x7606`，再按接收者视角冻结的 Targets 展开 relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/show_cards.go`、`show_cards_test.go` |
+| 参考入口 | `nhsk/game/messages.go:SendMsgShowCard`、`game/flow_core.go:DoOutCard/DoGameOver`、`protocol/gs2gc.go:ShowCardsNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestDoOutCardSendsShowCardsToFinishedPlayerWhenPartnerHasCards`、终局 ShowCards 广播断言；`nhsk/protocol/protocol_test.go:TestShowCardsNotifyKeepsCountsForHiddenCards` |
+| Legacy MessageID | 客户端 payload `0x7606`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Players 必须是 SeatID 顺序的四个非零、互异玩家；HandCounts 为 0..26；每座 Cards 在 HandCount 后必须全零；Kind 与 `ShowCardsPayload` 必须匹配 |
+| 权威状态变化 | 无；HandCounts 是 Battle 已冻结的真实剩余张数，Cards 只表达该接收者可见牌面；adapter 不持有或裁剪权威手牌 |
+| Timer/Timeline | 无；终局展示等待仍由后续 Battle 阶段和 Timer Command 驱动，不由编码器启动 |
+| 输出目标与顺序 | 玩家先出完且对家仍有牌时只定向本人并只展示对家；终局面向过滤 Exited 后的全桌并展示剩余牌；payload 固定 148 字节，完整单目标 frame 长 238，suffix offset=56/size=148 |
+| 生命周期结果 | 类型、玩家、张数或尾部牌区非法时整批返回零 frame；隐藏牌仍保留真实 HandCount，牌区保持零 |
+| 结论 | MessageID、四座布局、隐藏牌张数、定向/全桌两条路径与参考实现 **已一致**；将接收者视角在 Battle 内冻结、adapter 不再根据 Target 临时决定可见牌是 GSR 输出边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
+| 备注 | 本切片不实现出完判定、终局判定、名次、展示 Timer 或结算推进。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

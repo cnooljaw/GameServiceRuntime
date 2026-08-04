@@ -234,6 +234,17 @@ func TestEncodeLegacyTurnEndAllowsZeroCapturedPoints(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyShowCardsBatchMatchesReferenceRelayGolden(t *testing.T) {
+	got, err := encodeLegacyGameOutputBatch(testShowCardsBatch(testShowCardsPayload()))
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000ee0000002200d2040000e90300000000000000000000000000000074000000000000cc000000e903000000000000000000005800000052000000000000003800000094000000000000000000000000000000067600000000000094000000e9030000ea030000eb030000ec030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000515000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010201")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy SHOW_CARDS frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -303,6 +314,29 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		{name: "turn end has non-numeric winner", mutate: setTurnEndOutput(TurnEndPayload{Winner: "winner", CapturedPoints: 10})},
 		{name: "wrong turn end payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputTurnEnd, Payload: GameStartPayload{}}}
+		}},
+		{name: "show cards has zero player", mutate: func(batch *GameOutputBatch) {
+			payload := testShowCardsPayload()
+			payload.Players[2] = "0"
+			setShowCardsOutput(payload)(batch)
+		}},
+		{name: "show cards has duplicate player", mutate: func(batch *GameOutputBatch) {
+			payload := testShowCardsPayload()
+			payload.Players[2] = payload.Players[1]
+			setShowCardsOutput(payload)(batch)
+		}},
+		{name: "show cards count exceeds hand capacity", mutate: func(batch *GameOutputBatch) {
+			payload := testShowCardsPayload()
+			payload.HandCounts[2] = 27
+			setShowCardsOutput(payload)(batch)
+		}},
+		{name: "show cards leaks card after count", mutate: func(batch *GameOutputBatch) {
+			payload := testShowCardsPayload()
+			payload.Cards[2][2] = 0x25
+			setShowCardsOutput(payload)(batch)
+		}},
+		{name: "wrong show cards payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputShowCards, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -416,5 +450,30 @@ func testTurnEndBatch(payload TurnEndPayload) GameOutputBatch {
 func setTurnEndOutput(payload TurnEndPayload) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = testTurnEndBatch(payload).Outputs
+	}
+}
+
+func testShowCardsPayload() ShowCardsPayload {
+	return ShowCardsPayload{
+		Players:    [4]game.PlayerID{"1001", "1002", "1003", "1004"},
+		HandCounts: [4]uint8{0, 1, 2, 1},
+		Cards:      [4][26]byte{2: {0x05, 0x15}},
+	}
+}
+
+func testShowCardsBatch(payload ShowCardsPayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs:              []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputShowCards, Payload: payload}},
+	}
+}
+
+func setShowCardsOutput(payload ShowCardsPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = testShowCardsBatch(payload).Outputs
 	}
 }

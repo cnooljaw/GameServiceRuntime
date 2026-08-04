@@ -24,6 +24,8 @@ const (
 	OutputOutCardInfo OutputKind = "out_card_info"
 	// OutputTurnEnd publishes one completed trick and its captured points.
 	OutputTurnEnd OutputKind = "turn_end"
+	// OutputShowCards publishes one receiver-specific four-seat hand view.
+	OutputShowCards OutputKind = "show_cards"
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -80,6 +82,15 @@ type TurnEndPayload struct {
 }
 
 func (TurnEndPayload) isNHSKOutputPayload() {}
+
+// ShowCardsPayload is one receiver-specific NHSK four-seat hand view.
+type ShowCardsPayload struct {
+	Players    [4]game.PlayerID
+	HandCounts [4]uint8
+	Cards      [4][26]byte
+}
+
+func (ShowCardsPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {
