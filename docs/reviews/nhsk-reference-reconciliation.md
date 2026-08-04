@@ -445,6 +445,24 @@
 | RFC/决策 | RFC-0410、D-047、D-059、D-085、D-088～D-091、D-095、D-096 |
 | 备注 | 本切片不实现输赢算法、综合结算请求/ACK、玩家分数 mutation、回放构建或 GAME_OVER。 |
 
+### 4.20 类型化 NHSK GAME_SCENE Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 请求者视角的 `GameScenePayload` 编码为断线重连/场景恢复定向消息 `0x7608` |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/game_scene.go`、`game_scene_test.go` |
+| 参考入口 | `nhsk/game/messages.go:SendMsgGameScene/buildGameScenePacket/buildScenePlayer/outCardRemainSec/shouldRevealHand`、`protocol/gs2gc.go:GameSceneNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestSendMsgGameSceneBuildsHiddenSceneSuffixes/TestSendMsgGameSceneResendsActiveAskOutCard`、`nhsk/protocol/protocol_test.go:TestGameSceneNotifyFormatToTcpWritesSceneAndPlayers`；参考测试当前仍受无权限私有模块依赖阻塞，已直接复核源码 |
+| Legacy MessageID | 客户端 payload `0x7608`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | 单一 Target 且属于四座玩家；State 为 Playing(3)/ShowingResult(4)；座位为 -1 或 0..3；墩分牌 0..24、完成人数 0..4；玩家非零互异，手牌 0..26，LastPlayCount 为 -1..8，Rank 为 0..4；固定牌区 count 后必须全零 |
+| 权威状态变化 | 无；Automated/Offline 只投影为旧 State bit 1/2；隐藏手牌保留真实 HandCount；adapter 不回查 Battle 或按 Target 临时裁剪牌面 |
+| Timer/Timeline | 无；RemainingSeconds 是 Battle 从当前单一 ActionDeadline 冻结的向下取整秒数，0 表示没有期限；编码不创建、替换或延长 Timeline |
+| 输出目标与顺序 | GAME_SCENE 只定向请求者；完整恢复由 Battle 按 GameInfo→GameScene→可选 AskOutCard 排列，亮牌阶段随后产生的全桌 ShowCards 仍是独立输出 |
+| 生命周期结果 | payload 固定 282 字节：主消息 Scene suffix offset=44/size=42，PlayerCount=4，Players suffix offset=86/size=196；完整单目标 frame 长 372，relay suffix offset=56/size=282；非法输入整批返回零 frame |
+| 结论 | MessageID、双 suffix、四座固定布局、请求者/对家可见性、状态 bit、剩余秒和 LastPlayCount 三态与参考实现 **已一致**；以单一 ActionDeadline 替代参考多 Timer 取最大值、由 Battle 预先冻结请求者视角是既有 Timeline/adapter 裁决下的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-043、D-059、D-060、D-095、D-096 |
+| 备注 | 本切片不实现 ReconnectPlayer、RequestGameScene、RestorePlayerView、ClientReady mutation、托管取消、Cluster Snapshot、AskOutCard 或亮牌广播。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

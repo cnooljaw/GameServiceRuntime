@@ -256,6 +256,17 @@ func TestEncodeLegacyGameResultBatchMatchesReferenceRelayGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyGameSceneBatchMatchesReferenceRelayGolden(t *testing.T) {
+	got, err := encodeLegacyGameOutputBatch(testGameSceneBatch(testGameScenePayload()))
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000740100002200d2040000e9030000000000000000000000000000007400000000000052010000e90300000000000000000000580000005200000000000000380000001a01000000000000000000000000000008760000000000001a0100002c0000002a0000000400000056000000c4000000030000000100000003000000070000000515000000000000000000000000000000000000000000000201e903000000000313000000000000000000000000000000000000000000000000022000000000000000010000000a000000ea030000010000000000000000000000000000000000000000000000000000000200000000000000000000000014000100eb03000002000000000000000000000000000000000000000000000000000000020000000000000000ffffffff1e000000ec030000030000000000000000000000000000000000000000000000000000000223330000000000000200000028000200")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy GAME_SCENE frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -387,6 +398,56 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong game result payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameResult, Payload: GameStartPayload{}}}
+		}},
+		{name: "game scene has multiple targets", mutate: setGameSceneOutput([]game.PlayerID{"1001", "1002"}, testGameScenePayload())},
+		{name: "game scene target is not a player", mutate: setGameSceneOutput([]game.PlayerID{"1005"}, testGameScenePayload())},
+		{name: "game scene has invalid state", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.State = 2
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has invalid active seat", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.ActiveSeat = 4
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has too many trick cards", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.TrickScoreCardCount = 25
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has zero player", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[2].Player = "0"
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has invalid hand count", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[2].HandCount = 27
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has invalid last play count", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[2].LastPlayCount = 9
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene leaks cards after hand count", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[0].HandCards[2] = 0x23
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has cards for pass", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[1].LastPlayedCards[0] = 0x04
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "game scene has invalid rank", mutate: func(batch *GameOutputBatch) {
+			payload := testGameScenePayload()
+			payload.Players[2].Rank = 5
+			setGameSceneOutput([]game.PlayerID{"1001"}, payload)(batch)
+		}},
+		{name: "wrong game scene payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameScene, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -557,5 +618,41 @@ func testGameResultBatch(payload GameResultPayload) GameOutputBatch {
 func setGameResultOutput(payload GameResultPayload) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = testGameResultBatch(payload).Outputs
+	}
+}
+
+func testGameScenePayload() GameScenePayload {
+	return GameScenePayload{
+		State:               GameSceneStatePlaying,
+		ActiveSeat:          1,
+		PreviousPlayerSeat:  3,
+		RemainingSeconds:    7,
+		TrickScoreCards:     [24]byte{0x05, 0x15},
+		TrickScoreCardCount: 2,
+		FinishedPlayerCount: 1,
+		Players: [4]GameScenePlayer{
+			{Player: "1001", HandCards: [26]byte{0x03, 0x13}, HandCount: 2, LastPlayedCards: [8]byte{0x20}, LastPlayCount: 1, CapturedPoints: 10},
+			{Player: "1002", Automated: true, HandCount: 2, LastPlayCount: 0, CapturedPoints: 20, Rank: 1},
+			{Player: "1003", Offline: true, HandCount: 2, LastPlayCount: -1, CapturedPoints: 30},
+			{Player: "1004", Automated: true, Offline: true, HandCount: 2, LastPlayedCards: [8]byte{0x23, 0x33}, LastPlayCount: 2, CapturedPoints: 40, Rank: 2},
+		},
+	}
+}
+
+func testGameSceneBatch(payload GameScenePayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs:              []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameScene, Payload: payload}},
+	}
+}
+
+func setGameSceneOutput(targets []game.PlayerID, payload GameScenePayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = testGameSceneBatch(payload).Outputs
+		batch.Outputs[0] = ClientGameOutput{Targets: targets, Kind: OutputGameScene, Payload: payload}
 	}
 }

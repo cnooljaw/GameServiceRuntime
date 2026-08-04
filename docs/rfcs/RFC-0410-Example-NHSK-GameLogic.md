@@ -242,6 +242,14 @@ const (
     OutputTurnEnd     OutputKind = "turn_end"
     OutputShowCards   OutputKind = "show_cards"
     OutputGameResult  OutputKind = "game_result"
+    OutputGameScene   OutputKind = "game_scene"
+)
+
+type GameSceneState uint8
+
+const (
+    GameSceneStatePlaying       GameSceneState = 3
+    GameSceneStateShowingResult GameSceneState = 4
 )
 
 type GameOverReason uint32
@@ -321,6 +329,29 @@ type GameResultPayload struct {
     ReplayUID      string
 }
 
+type GameScenePlayer struct {
+    Player           game.PlayerID
+    Automated        bool
+    Offline          bool
+    HandCards        [26]byte
+    HandCount        uint8
+    LastPlayedCards  [8]byte
+    LastPlayCount    int8
+    CapturedPoints   uint16
+    Rank             uint8
+}
+
+type GameScenePayload struct {
+    State               GameSceneState
+    ActiveSeat          int8
+    PreviousPlayerSeat  int8
+    RemainingSeconds    uint32
+    TrickScoreCards     [24]byte
+    TrickScoreCardCount uint8
+    FinishedPlayerCount uint8
+    Players             [4]GameScenePlayer
+}
+
 type GameStartedOutput struct {
     ReplayName string
 }
@@ -385,6 +416,10 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputShowCards` 使用 `ShowCardsPayload{Players, HandCounts, Cards}` 表达一次按接收者视角冻结的四座手牌展示。Players 按 SeatID 0..3 排列且必须是四个非零、互异玩家；HandCounts 是各座真实剩余张数，必须位于 0..26，即使该座牌面隐藏也保留；Cards 的某一行全零表示该座牌面隐藏，否则只有前 HandCounts 项可以非零，尾部必须为零。玩家先出完且对家仍有牌时，Battle 只把该玩家放入 Targets，并只填写对家 Cards；终局则把过滤 Exited 后的全桌放入 Targets，并填写所有仍持牌玩家的 Cards。Legacy payload 固定为 148 字节 `0x7606 NHSK_SHOW_CARDS`：四个 UserID、四段 26 字节 Cards、四个 CardsCount。它不改变手牌、名次、结算阶段或 Timeline；展示等待由 Battle 的后续阶段和 Timer Command 管理。
 
 `OutputGameResult` 使用 `GameResultPayload` 表达综合结算已经应用后的客户端结果。Players、Automated、Scores、Outcomes、CapturedPoints 和 Ranks 都按 SeatID 0..3 排列；Players 必须是四个非零、互异玩家，Ranks 必须位于 1..4。Reason 只接受 Success、Escape、Offline、Exception、Dissolve；Result 只接受 Single、Double、Peace；当前可达的 Outcomes 只接受 Win、Loss、Peace。WinningTeam 只接受固定对家组 0/1，Result=Peace 时必须为 0。ReplayUID 复用每小局冻结值，Legacy adapter 按 `FuPanUID[64]` 的 Go `copy` 语义零填充或截断，不增加空值或长度校验。Legacy payload 固定为 154 字节 `0x7607 NHSK_GAME_RESULT`：32 字节主消息包含指向 122 字节 ResultDetail 的 suffix；ResultDetail 依次编码 Reason、四座 UserID、Auto、Score、Outcome、CapturedPoints、Rank、Result、WinningTeam、ReplayUID。它不计算输赢、不应用综合结算、不更新玩家分数，也不启动回放；Battle 必须先提交结算结果，再按全桌 Targets 产生该事实，随后才冻结并提交 ReplayDocument。
+
+`OutputGameScene` 使用请求者视角的 `GameScenePayload` 恢复一份完整客户端场景。ClientGameOutput 必须只有一个 Target，且该玩家必须位于 Players。State 只接受当前可达的 Playing(3) 或 ShowingResult(4)；ActiveSeat 与 PreviousPlayerSeat 接受 -1 或 0..3；RemainingSeconds 是当前 ActionDeadline 剩余时长向下取整后的秒数，0 表示没有有效期限，构造场景不得创建、替换或延长 Timeline。TrickScoreCardCount 必须位于 0..24，FinishedPlayerCount 必须位于 0..4。Players 按 SeatID 0..3 排列且玩家非零、互异；Automated/Offline 在 Legacy 中映射为 State bit 1/2；HandCount 为真实剩余张数 0..26，隐藏牌仍保留计数但 HandCards 全零；LastPlayCount 保留 -1=本墩尚无动作、0=过牌、1..8=已出牌，只有正数时 LastPlayedCards 才可非零；Rank 接受 0..4，0 表示尚未出完。所有固定牌区在对应 count 后必须为零。
+
+Legacy payload 固定为 282 字节 `0x7608 NHSK_GAME_SCENE`：44 字节主消息含 Scene suffix offset=44/size=42、PlayerCount=4、Players suffix offset=86/size=196；随后编码 GameScene 和四个 49 字节 Player。它只投递已经冻结的视图，不修改 Offline、Automated、ClientReady、手牌、TurnRevision 或 Timeline。`ReconnectPlayer` 与 `RequestGameScene` 的不同副作用、GameInfo→GameScene→可选 AskOutCard/ShowCards 的恢复线序由 Battle 的 `RestorePlayerView` 负责，不由 Legacy encoder 推断。
 
 ### 结算与回放
 

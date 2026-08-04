@@ -28,6 +28,18 @@ const (
 	OutputShowCards OutputKind = "show_cards"
 	// OutputGameResult publishes one applied NHSK subgame result.
 	OutputGameResult OutputKind = "game_result"
+	// OutputGameScene publishes one receiver-specific NHSK scene snapshot.
+	OutputGameScene OutputKind = "game_scene"
+)
+
+// GameSceneState identifies one client-visible NHSK scene state.
+type GameSceneState uint8
+
+const (
+	// GameSceneStatePlaying is the active out-card scene.
+	GameSceneStatePlaying GameSceneState = 3
+	// GameSceneStateShowingResult is the terminal hand-reveal scene.
+	GameSceneStateShowingResult GameSceneState = 4
 )
 
 // GameOverReason identifies why one NHSK subgame ended.
@@ -149,6 +161,33 @@ type GameResultPayload struct {
 }
 
 func (GameResultPayload) isNHSKOutputPayload() {}
+
+// GameScenePlayer is one seat in a receiver-specific NHSK scene snapshot.
+type GameScenePlayer struct {
+	Player          game.PlayerID
+	Automated       bool
+	Offline         bool
+	HandCards       [26]byte
+	HandCount       uint8
+	LastPlayedCards [8]byte
+	LastPlayCount   int8
+	CapturedPoints  uint16
+	Rank            uint8
+}
+
+// GameScenePayload is one complete receiver-specific NHSK scene snapshot.
+type GameScenePayload struct {
+	State               GameSceneState
+	ActiveSeat          int8
+	PreviousPlayerSeat  int8
+	RemainingSeconds    uint32
+	TrickScoreCards     [24]byte
+	TrickScoreCardCount uint8
+	FinishedPlayerCount uint8
+	Players             [4]GameScenePlayer
+}
+
+func (GameScenePayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

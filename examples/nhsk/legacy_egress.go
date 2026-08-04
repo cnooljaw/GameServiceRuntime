@@ -106,9 +106,78 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyGameResult(payload)
+	case OutputGameScene:
+		payload, ok := output.Payload.(GameScenePayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyGameScene(output, payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyGameScene(output ClientGameOutput, payload GameScenePayload) ([]byte, error) {
+	if len(output.Targets) != 1 {
+		return nil, fmt.Errorf("%w: GAME_SCENE target count %d", errInvalidLegacyGameOutput, len(output.Targets))
+	}
+	players := make([]game.PlayerID, len(payload.Players))
+	for seat, player := range payload.Players {
+		players[seat] = player.Player
+	}
+	userIDs, err := legacyTargetUserIDs(players)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := legacyTargetUserIDs(output.Targets)
+	if err != nil {
+		return nil, err
+	}
+	var targetFound bool
+	for _, userID := range userIDs {
+		if targets[0] == userID {
+			targetFound = true
+			break
+		}
+	}
+	if !targetFound {
+		return nil, fmt.Errorf("%w: GAME_SCENE target %d is not a player", errInvalidLegacyGameOutput, targets[0])
+	}
+
+	var wirePlayers [4]legacywire.GameScenePlayer
+	for seat, player := range payload.Players {
+		var state uint16
+		if player.Automated {
+			state |= 1
+		}
+		if player.Offline {
+			state |= 2
+		}
+		wirePlayers[seat] = legacywire.GameScenePlayer{
+			UserID:          userIDs[seat],
+			State:           state,
+			HandCards:       player.HandCards,
+			HandCount:       player.HandCount,
+			LastPlayedCards: player.LastPlayedCards,
+			LastPlayCount:   player.LastPlayCount,
+			CapturedPoints:  player.CapturedPoints,
+			Rank:            player.Rank,
+		}
+	}
+	frame, err := legacywire.EncodeGameScene(legacywire.GameScene{
+		State:               uint8(payload.State),
+		ActiveSeat:          payload.ActiveSeat,
+		PreviousPlayerSeat:  payload.PreviousPlayerSeat,
+		RemainingSeconds:    payload.RemainingSeconds,
+		TrickScoreCards:     payload.TrickScoreCards,
+		TrickScoreCardCount: payload.TrickScoreCardCount,
+		FinishedPlayerCount: payload.FinishedPlayerCount,
+		Players:             wirePlayers,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: GAME_SCENE: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyGameResult(payload GameResultPayload) ([]byte, error) {
