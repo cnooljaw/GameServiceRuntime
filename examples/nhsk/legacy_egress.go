@@ -88,9 +88,26 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyOutCardInfo(payload)
+	case OutputTurnEnd:
+		payload, ok := output.Payload.(TurnEndPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyTurnEnd(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyTurnEnd(payload TurnEndPayload) ([]byte, error) {
+	winners, err := legacyTargetUserIDs([]game.PlayerID{payload.Winner})
+	if err != nil {
+		return nil, err
+	}
+	return legacywire.EncodeTurnEnd(legacywire.TurnEnd{
+		WinnerUserID:   winners[0],
+		CapturedPoints: payload.CapturedPoints,
+	}), nil
 }
 
 func encodeLegacyOutCardInfo(payload OutCardInfoPayload) ([]byte, error) {

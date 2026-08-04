@@ -391,6 +391,24 @@
 | RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
 | 备注 | 本切片不实现出牌校验、手牌 mutation、ShowCards、TurnEnd 或下一 Ask；这些后续输出仍必须保持 D-059 线序。 |
 
+### 4.17 类型化 NHSK TURN_END Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `TurnEndPayload` 编码为本墩结束广播 `0x7605`，再按 Targets 展开逐用户 relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/turn_end.go`、`turn_end_test.go` |
+| 参考入口 | `nhsk/game/helpers.go:endCurrentRound`、`game/messages.go:SendMsgTurnEnd`、`protocol/gs2gc.go:TurnEndNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestTurnEndAfterPlayerFinishedUsesPartnerWind/TestTurnEndAfterSkippedFinishedSeatLetsLastOutSeatLead` 验证墩结束后广播并选择下一行动者；wire 字段由直接 formatter 路径确认 |
+| Legacy MessageID | 客户端 payload `0x7605`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Winner 必须可表示为非零 `uint32`；CapturedPoints 允许为 0；Kind 与 `TurnEndPayload` 必须匹配；Winner 不要求出现在 Targets 中 |
+| 权威状态变化 | 无；CapturedPoints 是 `awardCurrentScoreCardsToPreOutSeat` 本次返回的本墩抓分，不是玩家累计 Point；adapter 不保存第二份积分状态 |
+| Timer/Timeline | 无；墩重置、下一行动者和下一 ActionDeadline 均由 Battle 在提交输出前后按业务顺序处理 |
+| 输出目标与顺序 | payload 固定 32 字节：Winner、CapturedPoints；完整单目标 frame 长 122，suffix offset=56/size=32；只在最后 OutCardInfo 后、下一 Ask 前广播 |
+| 生命周期结果 | 类型或 Winner 非法时整批返回零 frame；0 分墩正常输出；它不是同步 Reply，也不驱动回合推进 |
+| 结论 | MessageID、字段布局、本墩赢家/抓分语义、广播目标和线序与参考实现 **已一致**；用 Winner/CapturedPoints 消除旧 UserID/Point 歧义是类型化领域边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
+| 备注 | 本切片不实现抓分计算、累计 Point、墩重置、下一行动者或下一 Ask。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

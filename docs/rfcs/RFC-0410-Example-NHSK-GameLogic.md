@@ -239,6 +239,7 @@ const (
     OutputDeal        OutputKind = "deal"
     OutputAskOutCard  OutputKind = "ask_out_card"
     OutputOutCardInfo OutputKind = "out_card_info"
+    OutputTurnEnd     OutputKind = "turn_end"
 )
 
 type GameStartPayload struct{}
@@ -266,6 +267,11 @@ type OutCardInfoPayload struct {
     Player    game.PlayerID
     Cards     [8]byte
     CardCount uint8
+}
+
+type TurnEndPayload struct {
+    Winner         game.PlayerID
+    CapturedPoints uint32
 }
 
 type GameStartedOutput struct {
@@ -326,6 +332,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputAskOutCard` 使用 `AskOutCardPayload{ActivePlayer, VerifyCode, ActionMilliseconds}`。ActivePlayer 必须是非零玩家，但不要求出现在 Targets 中：正常出牌机会面向过滤 Exited 后的全桌，场景恢复只在请求者正是当前行动者时定向发送。VerifyCode 必须非零。ActionMilliseconds 映射到旧 wire 的 `SecRemain`，但严格保持参考语义：单位是毫秒，值是该玩家当前配置的允许出牌时长，不是从 ActionDeadline 动态计算的剩余时间；生成输出和场景恢复都不得创建、替换或延长 Timeline。Legacy payload 固定为 36 字节 `0x7603 NHSK_ASK_OUT_CARD`，依次编码 ActivePlayer、VerifyCode、ActionMilliseconds。
 
 `OutputOutCardInfo` 使用 `OutCardInfoPayload{Player, Cards[8], CardCount}` 表达一次已经提交的出牌或过牌事实。Player 必须是非零玩家，但不要求出现在 Targets 中；正常路径面向过滤 Exited 后的全桌广播。CardCount 必须位于 0..8，0 表示过牌；只有 Cards 的前 CardCount 项进入 wire。8 是 NHSK 合法牌组上限，领域模型不暴露旧协议预留的 26 张容量。Legacy adapter 将其编码为固定 55 字节 `0x7604 NHSK_OUT_CARD_INFO`：Player、26 字节 CardData 和 CardCount，未使用的 CardData 保持零。
+
+`OutputTurnEnd` 使用 `TurnEndPayload{Winner, CapturedPoints}` 表达一墩已经结算完成。Winner 是取得该墩的非零玩家，但不要求出现在 Targets 中；CapturedPoints 是本墩刚归属给 Winner 的抓分，允许为 0，不是玩家累计 Point。Legacy payload 固定为 32 字节 `0x7605 NHSK_TURN_END`，依次编码 Winner 和 CapturedPoints。它只在最后一个 `OutCardInfo` 之后、下一次 `AskOutCard` 之前广播，不负责更新累计分、重置墩状态或推进 Timeline。
 
 ### 结算与回放
 
