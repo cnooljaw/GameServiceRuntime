@@ -1,0 +1,90 @@
+package nhsk
+
+import (
+	"encoding/binary"
+	"errors"
+	"reflect"
+	"testing"
+
+	"github.com/lijiawang/GameServiceRuntime/game"
+	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
+)
+
+const (
+	legacyOutCardRelayGolden    = "0000000000000000000000000586000000000000910000002200d2040000e903000000000000000000000000000002740000000000006f000000e90300000300000004000000580000005200000009000000380000003700000000000000000000000000000001770000000000003700000003130000000000000000000000000000000000000000000000000205000000"
+	legacyCardActionRelayGolden = "00000000000000000000000005860000000000008d0000002200d2040000e903000000000000000000000000000002740000000000006b000000e903000003000000040000005800000052000000090000003800000033000000000000000000000000000000027700000000000033000000030325000000000000000000000000000000000000000000000003"
+)
+
+func TestMapLegacyInboundGameplayRelayNormalizesOutCard(t *testing.T) {
+	frame := decodeLegacyMapperGolden(t, legacyOutCardRelayGolden)
+
+	got, err := mapLegacyInboundGameplayRelay(frame)
+	if err != nil {
+		t.Fatalf("map inbound OUT_CARD relay: %v", err)
+	}
+	want := legacyInboundGameplayCommand{
+		BattleID:  1234,
+		MatchID:   88,
+		ProductID: 82,
+		Command: gsr.Command{
+			ID: PlayCardsCommand,
+			Payload: PlayCardsRequest{
+				Player:     game.PlayerID("1001"),
+				Cards:      []byte{0x03, 0x13},
+				VerifyCode: 5,
+			},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mapped inbound OUT_CARD relay = %#v, want %#v", got, want)
+	}
+
+	frame[90+24] = 0xff
+	if got.Command.Payload.(PlayCardsRequest).Cards[0] == 0xff {
+		t.Fatal("mapped inbound relay retained frame storage")
+	}
+}
+
+func TestMapLegacyInboundGameplayRelayNormalizesCardAction(t *testing.T) {
+	got, err := mapLegacyInboundGameplayRelay(decodeLegacyMapperGolden(t, legacyCardActionRelayGolden))
+	if err != nil {
+		t.Fatalf("map inbound CARD_ACTION relay: %v", err)
+	}
+	if got.BattleID != 1234 || got.MatchID != 88 || got.ProductID != 82 {
+		t.Fatalf("mapped inbound CARD_ACTION identity = %#v", got)
+	}
+	want := PreviewCardSelectionRequest{Player: game.PlayerID("1001"), Cards: []byte{0x03, 0x03, 0x25}}
+	if got.Command.ID != PreviewCardSelectionCommand || !reflect.DeepEqual(got.Command.Payload, want) {
+		t.Fatalf("mapped inbound CARD_ACTION command = %#v, want %#v", got.Command, want)
+	}
+}
+
+func TestMapLegacyInboundGameplayRelayRejectsInvalidIdentityOrPayload(t *testing.T) {
+	valid := decodeLegacyMapperGolden(t, legacyOutCardRelayGolden)
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{name: "zero battle", mutate: mutateRelayUint32(26, 0)},
+		{name: "zero outer user", mutate: mutateRelayUint32(30, 0)},
+		{name: "inner user mismatch", mutate: mutateRelayUint32(58, 1002)},
+		{name: "malformed outer", mutate: func(data []byte) []byte { return data[:89] }},
+		{name: "unsupported client message", mutate: mutateRelayUint32(102, 0x7777)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := test.mutate(append([]byte(nil), valid...))
+			if _, err := mapLegacyInboundGameplayRelay(data); !errors.Is(err, errInvalidLegacyInboundGameplayRelay) {
+				t.Fatalf("map invalid inbound relay error = %v, want errInvalidLegacyInboundGameplayRelay", err)
+			}
+		})
+	}
+}
+
+func mutateRelayUint32(offset int, value uint32) func([]byte) []byte {
+	return func(data []byte) []byte {
+		binary.LittleEndian.PutUint32(data[offset:offset+4], value)
+		return data
+	}
+}

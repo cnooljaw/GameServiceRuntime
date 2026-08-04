@@ -221,13 +221,13 @@
 | 参考测试/配置/录包 | 参考 formatter 的 `TGM2GLHeader=34`、`TGameHeader=24`、`BSSUFFIXIDX=8` 及普通 relay 组装顺序；golden hex 逐字段人工复算并与 formatter 写法核对 |
 | Legacy MessageID | 入站外层 `0x8605`、内层 `0x7402`；出站外层 `0x8644`、内层 `0x7400` |
 | 输入与校验 | 外层 HeaderLen 必须为 34；外层 Length 等于整帧；内层 Length 等于外层余量；suffix offset 必须为 56 且 offset+size 精确落在内层末尾；零 Length、错误方向、缺失固定区、间隙与尾随字节均拒绝 |
-| 权威状态变化 | 无；codec 返回独立 payload 和完整重复身份，BattleID/UserID/MatchID/ProductID 一致性由后续 bridge 在进入 Command 前裁决 |
+| 权威状态变化 | 无；codec 返回独立 payload 和完整重复身份；mapper 先验证 BattleID 与双层 UserID，后续 bridge 再把 MatchID/ProductID 与已初始化 Battle 身份核对 |
 | Timer/Timeline | 无 |
 | 输出目标与顺序 | 出站只写 BattleID、双层相同 UserID、MatchID、ProductID 和 payload；CntTID、CltTID、Reserved2、Magic、Reserve、Serial、Param 保持零；最终 Length 一次写对 |
 | 生命周期结果 | 边界完整的 relay codec 错误由后续 classifier 局部丢帧，不关闭连接代际 |
 | 结论 | Header 尺寸、字段顺序、方向 MessageID、suffix 相对起点和出站零值字段与参考实现 **已一致**；不接受 formatter 的 Length=0 中间态是 RFC 已批准的 **有意偏差** |
 | RFC/决策 | RFC-0410、D-049、D-096 |
-| 备注 | 本切片不解析 payload 内层 NHSK MessageID，也不做身份归一化或 Command 映射；因此坏 relay 不会在本层产生 Battle Command、Reply 或 GameOutput。 |
+| 备注 | 本层不解析 payload 内层 NHSK MessageID，也不做身份归一化或 Command 映射；这些职责由后续 mapper 承担，因此坏 relay 不会在 codec 层产生 Battle Command、Reply 或 GameOutput。 |
 
 ### 4.8 Legacy 双向 origin 握手
 
@@ -552,6 +552,24 @@
 | 结论 | 两条 MessageID 分发、请求 UserID、Cards 与 VerifyCode 的业务流向和参考 `OnMsg` **已一致**；使用独立 CommandID、领域 slice 和类型化 request 是 D-097 下的 **有意边界调整** |
 | RFC/决策 | RFC-0410、D-042、D-062、D-068、D-097 |
 | 备注 | 本切片不实现 `0x8605 + 0x7402` relay 身份核对、BattleRef 路由、Runtime Send/Call、Battle handler 或客户端输出。 |
+
+### 4.26 NHSK Legacy gameplay relay 归一化
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将完整 `0x8605 + 0x7402 + NHSK payload` 归一化为 Battle 路由身份和类型化 gameplay Command |
+| GSR 文件/测试 | `examples/nhsk/legacy_relay_mapper.go`、`legacy_relay_mapper_test.go`；复用 `internal/legacywire/codec.go` 与 `legacy_mapper.go` |
+| 参考入口 | `protocol/gamelogic/gm2gl.go:ReqGM2GLGameMsg.FormatFromTcp`、`gamelogic/app/handler/game.go:ReqGameMsg.Execute`、`gamelogic/internal/game/game.go:onMsgGameMsg`、`nhsk/game/interface.go:OnMsg` |
+| 参考测试/配置/录包 | 145 字节 OUT_CARD 与 141 字节 CARD_ACTION 完整 relay golden 按参考 `GLHeader + BSHeader + GameHeader + BSSUFFIXIDX + payload` 逐字段复算；参考仓库没有完整 relay 专项测试 |
+| Legacy MessageID | 外层 `0x8605`、内层 `0x7402`；payload `0x7701/0x7702` 分别进入既有显式 Command 映射 |
+| 输入与校验 | BattleID、外层 UserID 必须非零；内层 GameHeader.UserID 必须与外层一致；保留 MatchID/ProductID 供 bridge 与已初始化 Battle 身份核对；ConnectType/PlatformID/Reserved 不进入 Command |
+| 权威状态变化 | 无；返回私有 `legacyInboundGameplayCommand{BattleID, MatchID, ProductID, Command}`，不查询 Host、不发送 Mailbox |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | 无；成功结果供后续 bridge 按 BattleID/ConnectionGeneration 路由，坏 relay、身份冲突、未知或坏 payload 均无 Command 输出 |
+| 生命周期结果 | OUT_CARD/CARD_ACTION Command payload 均不持有 frame storage；错误只属于当前完整 frame，连接是否继续由 connection owner 按 D-049 决定 |
+| 结论 | 外层 GameInnerID/UserID、内层 UserID 与 payload 的业务流向和参考实现 **已一致**；在进入 Battle 前显式拒绝双层身份冲突是已冻结 adapter 安全边界 |
+| RFC/决策 | RFC-0410、D-039、D-049、D-068、D-097 |
+| 备注 | 本切片不实现 INIT 身份缓存、MatchID/ProductID 最终比对、BattleRef 解析、ConnectionGeneration fence、Runtime Send/Call 或 Battle handler。 |
 
 ## 5. 切片追加模板
 
