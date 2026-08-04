@@ -26,6 +26,48 @@ const (
 	OutputTurnEnd OutputKind = "turn_end"
 	// OutputShowCards publishes one receiver-specific four-seat hand view.
 	OutputShowCards OutputKind = "show_cards"
+	// OutputGameResult publishes one applied NHSK subgame result.
+	OutputGameResult OutputKind = "game_result"
+)
+
+// GameOverReason identifies why one NHSK subgame ended.
+type GameOverReason uint32
+
+const (
+	// GameOverReasonSuccess means the subgame ended by normal play.
+	GameOverReasonSuccess GameOverReason = iota
+	// GameOverReasonEscape means a player escaped the subgame.
+	GameOverReasonEscape
+	// GameOverReasonOffline means the subgame ended because a player was offline.
+	GameOverReasonOffline
+	// GameOverReasonException means the subgame ended because of an exception.
+	GameOverReasonException
+	// GameOverReasonDissolve means the subgame was dissolved.
+	GameOverReasonDissolve
+)
+
+// SubgameResult identifies the NHSK single/double/peace result category.
+type SubgameResult uint8
+
+const (
+	// SubgameResultSingle is a single win.
+	SubgameResultSingle SubgameResult = iota
+	// SubgameResultDouble is a double win.
+	SubgameResultDouble
+	// SubgameResultPeace is a tied subgame.
+	SubgameResultPeace
+)
+
+// PlayerOutcome identifies one player's NHSK result.
+type PlayerOutcome uint8
+
+const (
+	// PlayerOutcomeWin marks a winning player.
+	PlayerOutcomeWin PlayerOutcome = iota
+	// PlayerOutcomeLoss marks a losing player.
+	PlayerOutcomeLoss
+	// PlayerOutcomePeace marks a tied player.
+	PlayerOutcomePeace
 )
 
 // OutputPayload is the closed set of typed NHSK client payload values.
@@ -91,6 +133,22 @@ type ShowCardsPayload struct {
 }
 
 func (ShowCardsPayload) isNHSKOutputPayload() {}
+
+// GameResultPayload is one applied NHSK subgame result snapshot.
+type GameResultPayload struct {
+	Reason         GameOverReason
+	Players        [4]game.PlayerID
+	Automated      [4]bool
+	Scores         [4]int32
+	Outcomes       [4]PlayerOutcome
+	CapturedPoints [4]uint16
+	Ranks          [4]uint8
+	Result         SubgameResult
+	WinningTeam    uint8
+	ReplayUID      string
+}
+
+func (GameResultPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

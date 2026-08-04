@@ -427,6 +427,24 @@
 | RFC/决策 | RFC-0410、D-033、D-059、D-095、D-096 |
 | 备注 | 本切片不实现出完判定、终局判定、名次、展示 Timer 或结算推进。 |
 
+### 4.19 类型化 NHSK GAME_RESULT Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `GameResultPayload` 编码为综合结算已应用后的客户端结果 `0x7607`，再按 Targets 展开 relay |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/game_result.go`、`game_result_test.go` |
+| 参考入口 | `nhsk/game/flow_core.go:CalcSuccessResult/applyResultScores`、`game/interface.go:finishProcessResult`、`game/messages.go:SendMsgGameOver`、`protocol/gs2gc.go:GameResultNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/protocol/protocol_test.go:TestGameResultNotifyFormatToTcpWritesSuffixDetail`、`nhsk/game/game_flow_test.go:TestDoProcessResultRecordsReplaySummaryAndOther/TestCalcSuccessResultUsesPartnerGroups`；当前环境因参考 `go.mod` 指向无访问权限的私有模块而不能运行，已直接复核测试源码与 formatter |
+| Legacy MessageID | 客户端 payload `0x7607`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | Players 必须是 SeatID 顺序的四个非零、互异玩家；Reason 为 0..4；Outcome 为 Win/Loss/Peace；Rank 为 1..4；Result 为 Single/Double/Peace；WinningTeam 为 0/1，Peace 时固定 0；Kind 与 `GameResultPayload` 必须匹配 |
+| 权威状态变化 | 无；Scores 是综合结算交易矩阵已应用后的最终本局分，其他字段来自 Battle 已提交的同一结果快照；adapter 不计算输赢或回查玩家 |
+| Timer/Timeline | 无；不启动展示、结算或回放 Timer，不推进 Battle 阶段 |
+| 输出目标与顺序 | 面向过滤 Exited 后的全桌；正常终局线序为 ShowCards→结算请求/完成→GameResult→ReplayDocument；payload 固定 154 字节，主消息 suffix offset=32/size=122，完整单目标 frame 长 244，relay suffix offset=56/size=154 |
+| 生命周期结果 | 类型、玩家或结果枚举非法时整批返回零 frame；ReplayUID 直接按 64 字节 copy 语义零填充或截断，不增加校验 |
+| 结论 | MessageID、ResultDetail 字段顺序、两层 suffix、最终分、ReplayUID 和客户端结果先于回放的线序与参考实现 **已一致**；领域命名替代旧 `ResultDetail` 与字节 bool 是类型化输出边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-047、D-059、D-085、D-088～D-091、D-095、D-096 |
+| 备注 | 本切片不实现输赢算法、综合结算请求/ACK、玩家分数 mutation、回放构建或 GAME_OVER。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

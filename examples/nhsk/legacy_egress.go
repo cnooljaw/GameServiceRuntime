@@ -100,9 +100,42 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyShowCards(payload)
+	case OutputGameResult:
+		payload, ok := output.Payload.(GameResultPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyGameResult(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyGameResult(payload GameResultPayload) ([]byte, error) {
+	players, err := legacyTargetUserIDs(payload.Players[:])
+	if err != nil {
+		return nil, err
+	}
+	var outcomes [4]uint8
+	for seat, outcome := range payload.Outcomes {
+		outcomes[seat] = uint8(outcome)
+	}
+	frame, err := legacywire.EncodeGameResult(legacywire.GameResult{
+		Reason:         uint32(payload.Reason),
+		UserIDs:        [4]uint32{players[0], players[1], players[2], players[3]},
+		Automated:      payload.Automated,
+		Scores:         payload.Scores,
+		Outcomes:       outcomes,
+		CapturedPoints: payload.CapturedPoints,
+		Ranks:          payload.Ranks,
+		Result:         uint8(payload.Result),
+		WinningTeam:    payload.WinningTeam,
+		ReplayUID:      payload.ReplayUID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: GAME_RESULT: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyShowCards(payload ShowCardsPayload) ([]byte, error) {

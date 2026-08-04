@@ -241,6 +241,33 @@ const (
     OutputOutCardInfo OutputKind = "out_card_info"
     OutputTurnEnd     OutputKind = "turn_end"
     OutputShowCards   OutputKind = "show_cards"
+    OutputGameResult  OutputKind = "game_result"
+)
+
+type GameOverReason uint32
+
+const (
+    GameOverReasonSuccess GameOverReason = iota
+    GameOverReasonEscape
+    GameOverReasonOffline
+    GameOverReasonException
+    GameOverReasonDissolve
+)
+
+type SubgameResult uint8
+
+const (
+    SubgameResultSingle SubgameResult = iota
+    SubgameResultDouble
+    SubgameResultPeace
+)
+
+type PlayerOutcome uint8
+
+const (
+    PlayerOutcomeWin PlayerOutcome = iota
+    PlayerOutcomeLoss
+    PlayerOutcomePeace
 )
 
 type GameStartPayload struct{}
@@ -279,6 +306,19 @@ type ShowCardsPayload struct {
     Players    [4]game.PlayerID
     HandCounts [4]uint8
     Cards      [4][26]byte
+}
+
+type GameResultPayload struct {
+    Reason         GameOverReason
+    Players        [4]game.PlayerID
+    Automated      [4]bool
+    Scores         [4]int32
+    Outcomes       [4]PlayerOutcome
+    CapturedPoints [4]uint16
+    Ranks          [4]uint8
+    Result         SubgameResult
+    WinningTeam    uint8
+    ReplayUID      string
 }
 
 type GameStartedOutput struct {
@@ -343,6 +383,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputTurnEnd` 使用 `TurnEndPayload{Winner, CapturedPoints}` 表达一墩已经结算完成。Winner 是取得该墩的非零玩家，但不要求出现在 Targets 中；CapturedPoints 是本墩刚归属给 Winner 的抓分，允许为 0，不是玩家累计 Point。Legacy payload 固定为 32 字节 `0x7605 NHSK_TURN_END`，依次编码 Winner 和 CapturedPoints。它只在最后一个 `OutCardInfo` 之后、下一次 `AskOutCard` 之前广播，不负责更新累计分、重置墩状态或推进 Timeline。
 
 `OutputShowCards` 使用 `ShowCardsPayload{Players, HandCounts, Cards}` 表达一次按接收者视角冻结的四座手牌展示。Players 按 SeatID 0..3 排列且必须是四个非零、互异玩家；HandCounts 是各座真实剩余张数，必须位于 0..26，即使该座牌面隐藏也保留；Cards 的某一行全零表示该座牌面隐藏，否则只有前 HandCounts 项可以非零，尾部必须为零。玩家先出完且对家仍有牌时，Battle 只把该玩家放入 Targets，并只填写对家 Cards；终局则把过滤 Exited 后的全桌放入 Targets，并填写所有仍持牌玩家的 Cards。Legacy payload 固定为 148 字节 `0x7606 NHSK_SHOW_CARDS`：四个 UserID、四段 26 字节 Cards、四个 CardsCount。它不改变手牌、名次、结算阶段或 Timeline；展示等待由 Battle 的后续阶段和 Timer Command 管理。
+
+`OutputGameResult` 使用 `GameResultPayload` 表达综合结算已经应用后的客户端结果。Players、Automated、Scores、Outcomes、CapturedPoints 和 Ranks 都按 SeatID 0..3 排列；Players 必须是四个非零、互异玩家，Ranks 必须位于 1..4。Reason 只接受 Success、Escape、Offline、Exception、Dissolve；Result 只接受 Single、Double、Peace；当前可达的 Outcomes 只接受 Win、Loss、Peace。WinningTeam 只接受固定对家组 0/1，Result=Peace 时必须为 0。ReplayUID 复用每小局冻结值，Legacy adapter 按 `FuPanUID[64]` 的 Go `copy` 语义零填充或截断，不增加空值或长度校验。Legacy payload 固定为 154 字节 `0x7607 NHSK_GAME_RESULT`：32 字节主消息包含指向 122 字节 ResultDetail 的 suffix；ResultDetail 依次编码 Reason、四座 UserID、Auto、Score、Outcome、CapturedPoints、Rank、Result、WinningTeam、ReplayUID。它不计算输赢、不应用综合结算、不更新玩家分数，也不启动回放；Battle 必须先提交结算结果，再按全桌 Targets 产生该事实，随后才冻结并提交 ReplayDocument。
 
 ### 结算与回放
 

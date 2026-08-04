@@ -245,6 +245,17 @@ func TestEncodeLegacyShowCardsBatchMatchesReferenceRelayGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyGameResultBatchMatchesReferenceRelayGolden(t *testing.T) {
+	got, err := encodeLegacyGameOutputBatch(testGameResultBatch(testGameResultPayload()))
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000f40000002200d2040000e90300000000000000000000000000000074000000000000d2000000e90300000000000000000000580000005200000000000000380000009a00000000000000000000000000000007760000000000009a000000200000007a00000000000000e9030000ea030000eb030000ec03000000010001c800000038ffffffc800000038ffffff000100017800500050007800010302040100726f756e642d667570616e2d31323300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy GAME_RESULT frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -337,6 +348,45 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong show cards payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputShowCards, Payload: GameStartPayload{}}}
+		}},
+		{name: "game result has zero player", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Players[2] = "0"
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "game result has duplicate player", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Players[2] = payload.Players[1]
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "game result has invalid reason", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Reason = GameOverReasonDissolve + 1
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "game result has invalid outcome", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Outcomes[2] = PlayerOutcomePeace + 1
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "game result has invalid rank", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Ranks[2] = 0
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "game result has invalid result", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Result = SubgameResultPeace + 1
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "peace game result has winning team", mutate: func(batch *GameOutputBatch) {
+			payload := testGameResultPayload()
+			payload.Result = SubgameResultPeace
+			payload.WinningTeam = 1
+			setGameResultOutput(payload)(batch)
+		}},
+		{name: "wrong game result payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameResult, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -475,5 +525,37 @@ func testShowCardsBatch(payload ShowCardsPayload) GameOutputBatch {
 func setShowCardsOutput(payload ShowCardsPayload) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = testShowCardsBatch(payload).Outputs
+	}
+}
+
+func testGameResultPayload() GameResultPayload {
+	return GameResultPayload{
+		Reason:         GameOverReasonSuccess,
+		Players:        [4]game.PlayerID{"1001", "1002", "1003", "1004"},
+		Automated:      [4]bool{false, true, false, true},
+		Scores:         [4]int32{200, -200, 200, -200},
+		Outcomes:       [4]PlayerOutcome{PlayerOutcomeWin, PlayerOutcomeLoss, PlayerOutcomeWin, PlayerOutcomeLoss},
+		CapturedPoints: [4]uint16{120, 80, 80, 120},
+		Ranks:          [4]uint8{1, 3, 2, 4},
+		Result:         SubgameResultDouble,
+		WinningTeam:    0,
+		ReplayUID:      "round-fupan-123",
+	}
+}
+
+func testGameResultBatch(payload GameResultPayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs:              []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameResult, Payload: payload}},
+	}
+}
+
+func setGameResultOutput(payload GameResultPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = testGameResultBatch(payload).Outputs
 	}
 }
