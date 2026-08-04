@@ -220,6 +220,8 @@ type NHSKBattleSnapshot struct {
 	Hands        map[game.PlayerID][]byte
 	Auto         map[game.PlayerID]bool
 	Revision     uint64
+	TurnRevision uint64
+	DeadlineUnix int64
 }
 
 // PlayCardsRequest submits one player play or pass candidate.

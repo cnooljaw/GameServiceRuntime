@@ -246,6 +246,19 @@ type GameStartedOutput struct {
 
 func (GameStartedOutput) isNHSKGameOutput() {}
 
+// GameOverOutput tells the old GameMaster that one NHSK subgame has reached
+// its terminal lifecycle boundary. Player detail remains owned by settlement
+// adapters and is intentionally empty in this minimal example.
+type GameOverOutput struct {
+	Reason         int32
+	ReplayName     string
+	IsGameOver     bool
+	YueJuEndReason int32
+	YueJuEndPlayer game.PlayerID
+}
+
+func (GameOverOutput) isNHSKGameOutput() {}
+
 // GameOutputBatch is one Battle's immutable, ordered output commit.
 type GameOutputBatch struct {
 	BattleID             game.BattleID

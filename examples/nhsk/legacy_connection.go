@@ -32,12 +32,14 @@ type LegacyGMConnectionConfig struct {
 	OutputQueue       int
 	Dial              func(context.Context, string, string) (net.Conn, error)
 	OnFrame           func(context.Context, ConnectionGeneration, legacywire.Frame) error
+	OnConnected       func(ConnectionGeneration) error
 	OnDisconnected    func(ConnectionGeneration)
 }
 
 type legacyConnectionSession struct {
 	generation ConnectionGeneration
 	connection net.Conn
+	frames     chan []byte
 	outputs    chan GameOutputBatch
 	done       chan struct{}
 }
@@ -83,11 +85,24 @@ func (connection *LegacyGMConnection) AttachRouting(runtime game.CommandRuntime,
 	}
 	connection.runtime, connection.hostRef = runtime, hostRef
 	if connection.config.OnFrame == nil {
-		connection.config.OnFrame = func(ctx context.Context, _ ConnectionGeneration, frame legacywire.Frame) error {
-			if frame.Type != 0x8605 {
+		connection.config.OnFrame = func(ctx context.Context, generation ConnectionGeneration, frame legacywire.Frame) error {
+			if frame.Type == 0x8605 {
+				return RouteLegacyGameplaySend(ctx, runtime, hostRef, frame.Bytes)
+			}
+			control, decodeErr := legacywire.DecodeControl(frame.Bytes)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			routeErr := RouteLegacyControlSend(ctx, runtime, hostRef, frame.Bytes, generation)
+			if control.Kind == legacywire.ControlNewGame {
+				if ackErr := connection.SubmitFrame(legacywire.EncodeNewGameAck(control.BattleID, routeErr == nil)); ackErr != nil {
+					return ackErr
+				}
+				// NEW_GAME rejection is a business response; keep the TCP
+				// generation alive so GM can continue other rounds.
 				return nil
 			}
-			return RouteLegacyGameplaySend(ctx, runtime, hostRef, frame.Bytes)
+			return routeErr
 		}
 	}
 	return nil
@@ -130,6 +145,30 @@ func (connection *LegacyGMConnection) Submit(batch GameOutputBatch) error {
 		return errLegacyConnectionClosed
 	default:
 		return fmt.Errorf("%w: output queue full", errLegacyConnectionNotReady)
+	}
+}
+
+// SubmitFrame queues one already encoded Legacy control frame for the current
+// connection generation. It is reserved for adapter acknowledgements; Battle
+// outputs still use Submit with typed GameOutputBatch values.
+func (connection *LegacyGMConnection) SubmitFrame(frame []byte) error {
+	if len(frame) < 24 {
+		return errLegacyConnectionNotReady
+	}
+	connection.mu.Lock()
+	session := connection.session
+	connection.mu.Unlock()
+	if session == nil {
+		return errLegacyConnectionNotReady
+	}
+	frameCopy := append([]byte(nil), frame...)
+	select {
+	case session.frames <- frameCopy:
+		return nil
+	case <-session.done:
+		return errLegacyConnectionClosed
+	default:
+		return fmt.Errorf("%w: control queue full", errLegacyConnectionNotReady)
 	}
 }
 
@@ -192,15 +231,34 @@ func (connection *LegacyGMConnection) run() {
 			dialErr = legacywire.PerformOriginHandshake(conn, connection.config.OriginTimeout)
 		}
 		if dialErr == nil {
-			session := &legacyConnectionSession{generation: generation, connection: conn, outputs: make(chan GameOutputBatch, connection.config.OutputQueue), done: make(chan struct{})}
+			session := &legacyConnectionSession{generation: generation, connection: conn, frames: make(chan []byte, connection.config.OutputQueue), outputs: make(chan GameOutputBatch, connection.config.OutputQueue), done: make(chan struct{})}
 			connection.activate(session)
-			startedAt := time.Now()
-			dialErr = connection.runSession(session)
-			connection.deactivate(session)
-			if connection.config.OnDisconnected != nil {
-				connection.config.OnDisconnected(generation)
+			if connection.config.OnConnected != nil {
+				if readyErr := connection.config.OnConnected(generation); readyErr != nil {
+					_ = conn.Close()
+					connection.deactivate(session)
+					if connection.config.OnDisconnected != nil {
+						connection.config.OnDisconnected(generation)
+					}
+					dialErr = readyErr
+				} else {
+					startedAt := time.Now()
+					dialErr = connection.runSession(session)
+					connection.deactivate(session)
+					if connection.config.OnDisconnected != nil {
+						connection.config.OnDisconnected(generation)
+					}
+					policy.ResetIfStable(time.Since(startedAt))
+				}
+			} else {
+				startedAt := time.Now()
+				dialErr = connection.runSession(session)
+				connection.deactivate(session)
+				if connection.config.OnDisconnected != nil {
+					connection.config.OnDisconnected(generation)
+				}
+				policy.ResetIfStable(time.Since(startedAt))
 			}
-			policy.ResetIfStable(time.Since(startedAt))
 		} else if conn != nil {
 			_ = conn.Close()
 		}
@@ -224,6 +282,11 @@ func (connection *LegacyGMConnection) runSession(session *legacyConnectionSessio
 				return
 			case <-session.done:
 				return
+			case frame := <-session.frames:
+				if err := legacywire.WriteFrame(session.connection, frame); err != nil {
+					_ = session.connection.Close()
+					return
+				}
 			case batch := <-session.outputs:
 				frames, err := encodeLegacyGameOutputBatch(batch)
 				if err != nil {

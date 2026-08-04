@@ -61,6 +61,13 @@ func TestLegacyGMConnectionPerformsOriginQueuesOutputAndReportsGeneration(t *tes
 	if frame.Type != 0x9999 || frame.Origin != 1 {
 		t.Fatalf("received frame = %#v", frame)
 	}
+	if err := connection.SubmitFrame(legacywire.EncodeNewGameAck(1, true)); err != nil {
+		t.Fatal(err)
+	}
+	ack, err := legacywire.ReadFrame(server)
+	if err != nil || ack.Type != 0x800086c0 || len(ack.Bytes) != 29 {
+		t.Fatalf("NEW_GAME ack = %#v, %v", ack, err)
+	}
 	if err := connection.Submit(GameOutputBatch{BattleID: 1, MatchID: 2, ProductID: 82, Ref: testServiceRef(), ConnectionGeneration: 1, Outputs: []GameOutput{GameStartedOutput{ReplayName: "NHSK.xml"}}}); err != nil {
 		t.Fatal(err)
 	}

@@ -15,9 +15,11 @@
 - 类型化 `GameOutputBatch` 到 `GameOutputService` 的交付边界，Legacy encoder 仍在该边界之外。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
+- 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
+- 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
 - Battle 的最小唯一期限 fencing、托管当前行动人自动最小出牌和 `CompleteSettlement` 终态入口。
 
-这不是“已经可以无损替换生产旧 GameLogic”的声明。完整旧协议控制消息、origin/TCP connection owner、NEW_GAME/INIT/UPDATE_GAME 全量接入、完整双扣牌型/抓分/单扣双扣结算、回放、AI、Quarantine 取证和独立可部署进程仍属于后续切片。RFC 明确要求在达到这些验收条件前，不把示例描述为生产替换品。
+这不是“已经可以无损替换生产旧 GameLogic”的声明。旧 GM 出站的 GAME_OVER/NOTICE/ROUND_STAT、完整双扣牌型/抓分/单扣双扣结算、回放、AI、Quarantine 取证，以及 Gateway/Login/Auth/Agent 仍属于后续切片。RFC 明确要求在达到这些验收条件前，不把示例描述为生产替换品。
 
 ## 启动最小 GameLogic 进程
 
@@ -28,7 +30,7 @@ GOCACHE=/tmp/gsr-gocache go run ./examples/nhsk/cmd/gamelogic \
   -config examples/nhsk/config.example.json
 ```
 
-它会创建 `.nhsk-battle-factory`、`.nhsk-game-host` 和主动 GM 连接，并在收到 `SIGINT`/`SIGTERM` 时按连接、Factory、Host、Runtime 的顺序关闭。示例配置默认连接 `127.0.0.1:9000`；没有旧 GM 时会按配置退避重连。完整 GM 控制面尚未接入，因此该入口目前用于进程生命周期和连接联调，不表示已经跑通四人生产牌局。
+它会创建 `.nhsk-battle-factory`、`.nhsk-game-host` 和主动 GM 连接，并在收到 `SIGINT`/`SIGTERM` 时按连接、Factory、Host、Runtime 的顺序关闭。示例配置默认连接 `127.0.0.1:9000`；没有旧 GM 时会按配置退避重连。当前控制面可完成建局 ACK、初始化、玩家/局号推进和删除，玩法仍是最小示例规则，不表示已经跑通四人生产牌局。
 
 ## 代码结构
 
@@ -40,6 +42,8 @@ examples/nhsk/
 ├── outputs.go                  # GameOutput、ClientGameOutput、GameOutputBatch、payload
 ├── output_service.go           # 当代连接的输出 Service 与 sink 边界
 ├── legacy_connection.go        # 主动 GM TCP、origin、重连、输出队列
+├── legacy_control_mapper.go   # GM 控制 frame → Host/Battle Command；NEW_GAME 完成等待
+├── legacy_control_mapper_test.go
 ├── process.go                  # GameLogic 进程组合根
 ├── legacy_mapper.go            # 单个客户端 payload → GSR Command
 ├── legacy_relay_mapper.go      # 0x8605+0x7402 relay → Host Resolve → Battle Send/Call
@@ -51,6 +55,9 @@ examples/nhsk/
 │   ├── out_card_request.go     # 0x7701 55 字节输入
 │   ├── card_action_request.go  # 0x7702 51 字节输入
 │   ├── user_state_change.go    # 0x720A 32 字节输入
+│   ├── control.go               # GM→GL 生命周期/玩家/结算控制 codec
+│   ├── control_egress.go        # NEW_GAME ACK 0x800086c0
+│   ├── game_over.go              # 最小 GL→GM GAME_OVER 0x8641
 │   └── ...                     # 已确认输出/控制消息的固定 codec
 ├── config.go                   # gamelogic 配置与环境变量解析
 ├── logging.go                  # 结构化日志字段与脱敏边界
@@ -79,6 +86,12 @@ GameMaster -> GameLogic
   + BSHeader(Type=0x7402)
   + GameHeader
   + Suffix
+
+GameMaster -> GameLogic（控制面）
+  0x86c1 NEW_GAME -> Host 创建，完成后 GameLogic -> GameMaster 0x800086c0 ACK
+  0x8600/01/02/04/06/0x860d/0x8610/0x86c2
+    -> Resolve BattleID -> Battle Command
+  0x80008650 综合结算 ACK -> CompleteSettlement（当前只消费成功标志）
 ```
 
 旧 GameLogic 通过外层 `GameInnerID` 找到牌局，通过外层 `UserID` 找到玩家，再由 `OnMsg` 按内层 MessageID 分发到 NHSK。内层 `TGameHeader.UserID` 是重复身份，应该与外层 UserID 一致；初始化完成后，MatchID/ProductID 也需要和本局已冻结身份一致。校验通过后，业务只需要 BattleID、玩家和 payload，不应把三层 header 继续带进牌局状态。
@@ -104,6 +117,15 @@ GameLogic -> GameMaster
 | `0x720A` | `USER_STATE_CHANGE` 托管开关 | `SetPlayerAutoStateCommand` |
 | `0x7601..0x7609`、`0x7611` | NHSK 客户端输出 | `GameOutput` 后由 Legacy egress 编码 |
 | `0x8605` | GM→GL relay envelope | 不是业务 Command，只做边界解码 |
+| `0x86c1` | GM→GL NEW_GAME | `BeginCreateBattle`，等待 Host Operation 后回 `0x800086c0` |
+| `0x8600` | GM→GL INIT_GAME | `InitializeBattleCommand` |
+| `0x8601` | GM→GL UPDATE_PLAYER | `UpdatePlayersCommand` |
+| `0x8602` | GM→GL COMMAND | `START -> StartSubgame`；`MATCH_STOP -> ForceFinishSubgame` |
+| `0x8604` | GM→GL UPDATE_GAME | `PrepareSubgameCommand` |
+| `0x8606`/`0x8610` | 玩家退出/装扮 | `ExitPlayerCommand`/`UpdatePlayerDressCommand` |
+| `0x860d` | START_NEW_GAME | `UpdateRoundContextCommand` |
+| `0x86c2` | DEL_GAME | `RequestDeleteBattleCommand` |
+| `0x80008650` | GM→GL 综合结算 ACK | `CompleteSettlementCommand`（结果 suffix 只解码） |
 | `0x8644` | GL→GM 输出 envelope | 不是业务 Command，只做边界编码 |
 
 旧 TCP 入口没有同步 GSR Reply。它的业务语义是：完整 frame 解码成功后，把 Command `Send` 到 Battle；坏 frame 或身份冲突只丢当前 frame，并由连接 owner 负责日志、计量和必要的连接处理。
@@ -204,6 +226,16 @@ Legacy relay 入口的核心代码路径是：
 err := nhsk.RouteLegacyGameplaySend(ctx, runtime, hostRef, relayFrame)
 ```
 
+GM 控制 frame 由主动连接 owner 默认接入：
+
+```go
+// AttachRouting 内部按 frame.Type 选择以下两条边界：
+// 0x8605 -> RouteLegacyGameplaySend
+// 其他已确认 GM 控制号 -> RouteLegacyControlSend
+```
+
+`NEW_GAME` 会等待 Host 的异步 Operation 进入 Completed 后再投递成功 ACK，保证 TCP 顺序中的后续 INIT 不会在 Battle 尚未发布时抢先 Resolve。业务拒绝回失败 ACK、保留当前 TCP 代际；坏 frame 才交给连接 owner 的重连策略。
+
 测试或受信任的内部适配器如果需要同步结果，可以调用同一条归一化路径的 `Call` 版本：
 
 ```go
@@ -224,7 +256,7 @@ ClientGameOutput{
 }
 ```
 
-它们被组成 `GameOutputBatch` 后发送到当代 `GameOutputService`。Battle 不构造 `GLHeader`、`BSHeader` 或 `GameHeader`；Legacy egress 才负责把每个 Target 展开为：
+它们被组成 `GameOutputBatch` 后发送到当前 ConnectionGeneration 的 `GameOutputService`。连接 Ready 时进程组合根创建并绑定该 Service；GM 断线时解绑并停止该代际普通 Battle，禁止旧批次跨代发送。Battle 不构造 `GLHeader`、`BSHeader` 或 `GameHeader`；Legacy egress 才负责把每个 Target 展开为：
 
 ```text
 0x8644 GLHeader + 0x7400 GameHeader(UserID=Target) + payload
@@ -256,14 +288,14 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 ## 当前未实现的明确边界
 
-以下能力不能从当前最小切片推断为已完成：
+以下能力不能从当前切片推断为已完成：
 
-1. Legacy NEW_GAME/INIT/UPDATE_PLAYER/UPDATE_GAME/MATCH_STOP/DEL_GAME/结算 ACK 的全量控制 codec 和 ACK 时序。
+1. Legacy GM 出站 NOTICE/ROUND_STAT/完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER 和 CompleteSettlement。
 2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
 5. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。
-6. 生产部署文件、健康端口、输出 Service 与每代连接动态绑定，以及旧 GM 联调录包。
+6. 生产部署文件、健康端口、旧 GM 联调录包，以及完整 GAME_OVER/NOTICE golden。
 
 这些不是隐藏欠账，而是下一阶段必须继续实现并在参考核对表中逐项关闭的范围。当前阶段的业务价值是先验证：`BattleID -> BattleRef -> Command -> Mailbox -> typed output` 这条新边界能够和旧 relay 共存。
 
@@ -284,6 +316,7 @@ NHSK 相关测试重点覆盖：
 - 外层/内层 UserID 冲突、零 BattleID、payload 深拷贝。
 - Battle INIT/玩家/准备/开始/出牌/预览/托管和 Snapshot。
 - Host 异步创建、Resolve、精确停止和编号释放。
+- GM 控制 codec 的固定长度/suffix 边界、NEW_GAME ACK、控制 MessageID 显式映射、代际输出绑定和断线停止。
 - Legacy relay Send/Call 解析到 Host，再直达同一个 BattleRef。
 
 完成一个新功能切片后，先核对只读参考目录，再更新 `docs/reviews/nhsk-reference-reconciliation.md`；如果出现未裁决偏差，应先写 RFC/决策再继续代码。

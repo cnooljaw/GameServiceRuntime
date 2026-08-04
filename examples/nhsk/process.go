@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/examples/nhsk/internal/legacywire"
@@ -27,6 +28,8 @@ type GameLogicProcess struct {
 	factoryRef gsr.ServiceRef
 	connection *LegacyGMConnection
 	closeOnce  bool
+	outputMu   sync.Mutex
+	outputRef  gsr.ServiceRef
 }
 
 // NewGameLogicProcess creates and composes a complete process owner.
@@ -55,7 +58,39 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	connection, err := NewLegacyGMConnection(config.Legacy)
+	connectionConfig := config.Legacy
+	var connection *LegacyGMConnection
+	var process *GameLogicProcess
+	connectionConfig.OnConnected = func(generation ConnectionGeneration) error {
+		outputSpec, err := newGameOutputServiceSpec(generation, connection, connection)
+		if err != nil {
+			return err
+		}
+		ref, err := runtime.CreateService(outputSpec)
+		if err != nil {
+			return err
+		}
+		if err := runtime.Send(factoryRef, bindOutputInternalCommand, bindOutputInternal{Generation: generation, Ref: ref, Reporter: connection}); err != nil {
+			_ = runtime.Stop(context.Background(), ref)
+			return err
+		}
+		process.outputMu.Lock()
+		process.outputRef = ref
+		process.outputMu.Unlock()
+		return nil
+	}
+	connectionConfig.OnDisconnected = func(generation ConnectionGeneration) {
+		_ = runtime.Send(factoryRef, unbindOutputInternalCommand, unbindOutputInternal{Generation: generation})
+		_ = runtime.Send(factoryRef, stopGenerationCommand, stopGenerationInternal{Generation: generation})
+		process.outputMu.Lock()
+		ref := process.outputRef
+		process.outputRef = gsr.ServiceRef{}
+		process.outputMu.Unlock()
+		if ref.ID != 0 {
+			_ = runtime.Stop(context.Background(), ref)
+		}
+	}
+	connection, err = NewLegacyGMConnection(connectionConfig)
 	if err != nil {
 		_ = runtime.Close(context.Background())
 		return nil, fmt.Errorf("nhsk: create Legacy connection: %w", err)
@@ -64,7 +99,8 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	return &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection}, nil
+	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection}
+	return process, nil
 }
 
 // Start starts the single active Legacy connection and returns immediately.
@@ -77,6 +113,9 @@ func (process *GameLogicProcess) Start(ctx context.Context) error {
 
 // Run starts the process and waits for its context to finish before closing all owners.
 func (process *GameLogicProcess) Run(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := process.Start(ctx); err != nil {
 		return err
 	}

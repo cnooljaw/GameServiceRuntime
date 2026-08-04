@@ -621,6 +621,23 @@
 | RFC/决策 | RFC-0180、RFC-0320、RFC-0410、RFC-0500、D-004、D-025、D-026、D-091、D-092 |
 | 备注 | connection owner 的 I/O goroutine 只读写 socket/队列，不直接修改 Battle；它通过 `OnFrame` seam 把控制面留给后续 adapter，不在本切片伪造旧结构体。 |
 
+### 4.30 Legacy GM 控制面 codec、路由与代际输出绑定
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 解码旧 GM→GL 的 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650`，归一化到 Host/Battle Command，并让组合根按连接代际创建 OutputService、响应 NEW_GAME ACK、断线停止该代际 Battle |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/control.go`、`control_test.go`、`control_egress.go`、`control_egress_test.go`；`examples/nhsk/legacy_control_mapper.go`、`legacy_control_mapper_test.go`；`legacy_connection.go`、`legacy_connection_test.go`、`host.go`、`process.go` |
+| 参考入口 | `protocol/gamelogic/gm2gl.go` 的 GM2GL structs/MessageID；`protocol/gamelogic/tcpprotocol/gm2gl.go` 的固定布局；`gamelogic/app/handler/game.go` 的按 GameInnerID 转发；`gamelogic/internal/game/game.go` 的 BaseGame 分发；`gamemaster/app/service/bussinessservice/gamelogic_service.go` 的控制消息发送；`gamelogic/app/services/msgservice/gamemasterservice.go` 的 NEW_GAME ACK |
+| Legacy MessageID | `0x86c1 -> BeginCreateBattle` 并在 Host 完成后编码 `0x800086c0` ACK；`0x8600/01/02/04/06/0x860d/0x8610/0x86c2` 分别进入 Initialize/UpdatePlayers/Start或ForceFinish/Prepare/Exit/RoundContext/Dress/Delete；`0x80008650` 只解码并进入最小 CompleteSettlement；已确认但未迁移的旧控制号标为 `ControlUnsupported`，不使连接无故重连 |
+| 输入与校验 | 所有 frame 先核对 BSHeader.Length；GLHeader 固定 34 字节；suffix 使用绝对 offset/size 且必须精确到 frame 尾；UPDATE_PLAYER 数量受 8 KiB 上限约束；BattleID 转 `game.BattleID(uint32)`，0 无效；玩家 ID 转十进制 `game.PlayerID`；旧 Round Command 仅保留 START(0)/MATCH_STOP(4)，PAUSE/CONTINUE/STOP/EXCEPTION 作为未迁移能力拒绝 |
+| 权威状态变化 | NEW_GAME 由 Host/Factory 创建并发布 BattleRef；Factory 记录 ConnectionGeneration、OutputRef 和 BattleRef，代际断线通过有界 runner 停止该代际 Battle；Battle 仍只在 Mailbox 修改业务状态；PlayerFlag/ScoreChangeReason/ScoreChange 等字段仅解码，不建立无证据状态 |
+| Timer/Timeline | 控制 codec 不创建 Timer；Battle 继续使用单一 `TurnRevision` deadline，断线收敛由 Factory lifecycle Command 执行 |
+| 输出目标与顺序 | NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER 进入同一连接 owner 的有界 raw/typed frame 队列；玩法输出继续 `GameOutputBatch -> GameOutputService -> Submit`，新代际不会消费旧代际批次；NOTICE、ROUND_STAT 和完整综合结算响应 wire 仍未实现 |
+| 生命周期结果 | NEW_GAME ACK 等待 Host Operation 完成后才发送成功；业务拒绝发送失败 ACK 但保持 TCP 代际；GM 断线停止该代际普通 Battle，Quarantined/诊断模型尚未实现；连接 owner 继续无限退避重连 |
+| 结论 | 旧 GM 控制面的布局、顺序、MessageID 与参考代码 **已一致**；使用 GSR Host/Battle Command、显式十进制 BattleID 和代际 OutputService 是 RFC-0410 下的 **有意边界调整**；完整牌规、综合结算字段消费、NOTICE/ROUND_STAT/Quarantine 仍是 **发现遗漏/待实现** |
+| RFC/决策 | RFC-0410、RFC-0180、RFC-0310、D-039、D-062、D-091、D-092 |
+| 备注 | 参考目录未修改；本切片只写 GSR 新代码和 `.codegraph` 外的测试/文档，不把旧 Go struct 作为运行时依赖。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

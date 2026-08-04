@@ -15,6 +15,9 @@ const (
 	applyBattleStoppedCommand   gsr.CommandID = 0x0410f002
 	createBattleInternalCommand gsr.CommandID = 0x0410f010
 	stopBattleInternalCommand   gsr.CommandID = 0x0410f011
+	bindOutputInternalCommand   gsr.CommandID = 0x0410f012
+	unbindOutputInternalCommand gsr.CommandID = 0x0410f013
+	stopGenerationCommand       gsr.CommandID = 0x0410f014
 )
 
 var (
@@ -102,6 +105,16 @@ type stopBattleInternal struct {
 	BattleID    game.BattleID
 	Ref, Host   gsr.ServiceRef
 }
+
+type bindOutputInternal struct {
+	Generation ConnectionGeneration
+	Ref        gsr.ServiceRef
+	Reporter   ConnectionFailureReporter
+}
+
+type unbindOutputInternal struct{ Generation ConnectionGeneration }
+
+type stopGenerationInternal struct{ Generation ConnectionGeneration }
 type applyBattleStopped struct {
 	OperationID HostOperationID
 	BattleID    game.BattleID
@@ -244,13 +257,23 @@ type BattleStopper interface {
 
 // BattleFactoryService is a bounded lifecycle runner used by NHSKHostService.
 type BattleFactoryService struct {
-	creator    game.ServiceCreator
-	stopper    BattleStopper
-	service    gsr.ServiceContext
-	stopQueue  chan stopBattleInternal
-	stopDone   chan struct{}
-	stopCancel context.CancelFunc
-	stopWG     sync.WaitGroup
+	creator          game.ServiceCreator
+	stopper          BattleStopper
+	service          gsr.ServiceContext
+	stopQueue        chan stopBattleInternal
+	stopDone         chan struct{}
+	stopCancel       context.CancelFunc
+	stopWG           sync.WaitGroup
+	battles          map[game.BattleID]factoryBattle
+	outputRef        gsr.ServiceRef
+	outputGeneration ConnectionGeneration
+	outputReporter   ConnectionFailureReporter
+}
+
+type factoryBattle struct {
+	ref        gsr.ServiceRef
+	generation ConnectionGeneration
+	host       gsr.ServiceRef
 }
 
 // NewBattleFactoryService creates a lifecycle runner backed by the Runtime composition root.
@@ -269,8 +292,9 @@ func (factory *BattleFactoryService) Init(service gsr.ServiceContext) error {
 	factory.service = service
 	ctx, cancel := context.WithCancel(context.Background())
 	factory.stopCancel = cancel
-	factory.stopQueue = make(chan stopBattleInternal, 16)
+	factory.stopQueue = make(chan stopBattleInternal, 10000)
 	factory.stopDone = make(chan struct{})
+	factory.battles = make(map[game.BattleID]factoryBattle)
 	factory.stopWG.Add(1)
 	startFactoryStopRunner(factory, ctx)
 	return nil
@@ -284,11 +308,16 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		if !ok {
 			return gsr.ErrInvalidClusterEnvelope
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, ConnectionGeneration: request.Request.ConnectionGeneration})
+		outputRef, outputGeneration, outputReporter := factory.outputRef, factory.outputGeneration, factory.outputReporter
+		if outputGeneration != request.Request.ConnectionGeneration {
+			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
+		}
+		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter})
 		if err == nil {
 			var ref gsr.ServiceRef
 			ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: battle})
 			if err == nil {
+				factory.battles[request.Request.BattleID] = factoryBattle{ref: ref, generation: request.Request.ConnectionGeneration, host: request.Host}
 				return factory.service.Send(request.Host, applyBattleCreatedCommand, applyBattleCreated{OperationID: request.OperationID, BattleID: request.Request.BattleID, Ref: ref})
 			}
 		}
@@ -300,10 +329,44 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		}
 		select {
 		case factory.stopQueue <- request:
+			delete(factory.battles, request.BattleID)
 			return nil
 		default:
 			return gsr.ErrMailboxFull
 		}
+	case bindOutputInternalCommand:
+		request, ok := command.Payload.(bindOutputInternal)
+		if !ok || request.Generation == 0 || request.Ref.ID == 0 || request.Reporter == nil {
+			return gsr.ErrInvalidClusterEnvelope
+		}
+		factory.outputRef, factory.outputGeneration, factory.outputReporter = request.Ref, request.Generation, request.Reporter
+		return nil
+	case unbindOutputInternalCommand:
+		request, ok := command.Payload.(unbindOutputInternal)
+		if !ok {
+			return gsr.ErrInvalidClusterEnvelope
+		}
+		if request.Generation == factory.outputGeneration {
+			factory.outputRef, factory.outputGeneration, factory.outputReporter = gsr.ServiceRef{}, 0, nil
+		}
+		return nil
+	case stopGenerationCommand:
+		request, ok := command.Payload.(stopGenerationInternal)
+		if !ok || request.Generation == 0 {
+			return gsr.ErrInvalidClusterEnvelope
+		}
+		for battleID, battle := range factory.battles {
+			if battle.generation != request.Generation {
+				continue
+			}
+			select {
+			case factory.stopQueue <- stopBattleInternal{OperationID: 0, BattleID: battleID, Ref: battle.ref, Host: battle.host}:
+				delete(factory.battles, battleID)
+			default:
+				return gsr.ErrMailboxFull
+			}
+		}
+		return nil
 	default:
 		return gsr.ErrUnknownCommand
 	}

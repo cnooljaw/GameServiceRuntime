@@ -253,6 +253,9 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameStart, Payload: GameStartPayload{}}); err != nil {
 		return err
 	}
+	if err := battle.emit(ctx, GameStartedOutput{ReplayName: battle.replayName()}); err != nil {
+		return err
+	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
@@ -421,6 +424,9 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 	}
 	battle.phase = NHSKBattleFinished
 	battle.revision++
+	if err := battle.emit(ctx, GameOverOutput{Reason: 0, ReplayName: battle.replayName(), IsGameOver: true}); err != nil {
+		return err
+	}
 	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
 }
 
@@ -475,6 +481,10 @@ func (battle *NHSKBattleService) scenePayload(target game.PlayerID) GameScenePay
 	}
 	_ = target
 	return payload
+}
+
+func (battle *NHSKBattleService) replayName() string {
+	return fmt.Sprintf("nhsk-%d-%d-%d.xml", battle.id, battle.gameNum, battle.subgameNum)
 }
 
 func (battle *NHSKBattleService) hasFourPlayers() bool {
