@@ -112,9 +112,26 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyGameScene(output, payload)
+	case OutputOutCardRejection:
+		payload, ok := output.Payload.(OutCardRejectionPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyOutCardRejection(output, payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyOutCardRejection(output ClientGameOutput, payload OutCardRejectionPayload) ([]byte, error) {
+	if len(output.Targets) != 1 {
+		return nil, fmt.Errorf("%w: OUT_CARD_RESULT target count %d", errInvalidLegacyGameOutput, len(output.Targets))
+	}
+	frame, err := legacywire.EncodeOutCardResult(uint32(payload.Reason))
+	if err != nil {
+		return nil, fmt.Errorf("%w: OUT_CARD_RESULT: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyGameScene(output ClientGameOutput, payload GameScenePayload) ([]byte, error) {

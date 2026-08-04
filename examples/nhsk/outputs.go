@@ -30,6 +30,24 @@ const (
 	OutputGameResult OutputKind = "game_result"
 	// OutputGameScene publishes one receiver-specific NHSK scene snapshot.
 	OutputGameScene OutputKind = "game_scene"
+	// OutputOutCardRejection publishes one stable human-player action rejection.
+	OutputOutCardRejection OutputKind = "out_card_rejection"
+)
+
+// OutCardRejectionReason identifies why one human out-card request was rejected.
+type OutCardRejectionReason uint32
+
+const (
+	// OutCardRejectionCardCount rejects an unsupported number of cards.
+	OutCardRejectionCardCount OutCardRejectionReason = 1
+	// OutCardRejectionSeat rejects a request from a non-active seat.
+	OutCardRejectionSeat OutCardRejectionReason = 2
+	// OutCardRejectionVerifyCode rejects a stale action opportunity.
+	OutCardRejectionVerifyCode OutCardRejectionReason = 3
+	// OutCardRejectionCardType rejects an illegal type or non-pressing play.
+	OutCardRejectionCardType OutCardRejectionReason = 4
+	// OutCardRejectionPaused rejects a play while the subgame is paused.
+	OutCardRejectionPaused OutCardRejectionReason = 5
 )
 
 // GameSceneState identifies one client-visible NHSK scene state.
@@ -188,6 +206,13 @@ type GameScenePayload struct {
 }
 
 func (GameScenePayload) isNHSKOutputPayload() {}
+
+// OutCardRejectionPayload is one stable human-player action rejection.
+type OutCardRejectionPayload struct {
+	Reason OutCardRejectionReason
+}
+
+func (OutCardRejectionPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

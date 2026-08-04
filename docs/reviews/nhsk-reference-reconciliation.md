@@ -463,6 +463,24 @@
 | RFC/决策 | RFC-0410、D-043、D-059、D-060、D-095、D-096 |
 | 备注 | 本切片不实现 ReconnectPlayer、RequestGameScene、RestorePlayerView、ClientReady mutation、托管取消、Cluster Snapshot、AskOutCard 或亮牌广播。 |
 
+### 4.21 类型化 NHSK OUT_CARD_RESULT Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `OutCardRejectionPayload` 编码为真人非法出牌的定向失败结果 `0x7609` |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/out_card_result.go`、`out_card_result_test.go` |
+| 参考入口 | `nhsk/game/handlers.go:OnMsgOutCard`、`game/flow_core.go:DoOutCard`、`game/messages.go:SendMsgOutCardResult`、`protocol/gs2gc.go:OutCardResultNotify.FormatToTcp` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestDoOutCardRejectsStaleVerifyCode`；其他错误分支由 `DoOutCard` 直接调用点确认；参考测试当前仍受无权限私有模块依赖阻塞，已直接复核源码 |
+| Legacy MessageID | 客户端 payload `0x7609`；relay 外层 `0x8644`、内层 `0x7400` |
+| 输入与校验 | 单一 Target；Reason 只接受 CardCount(1)、Seat(2)、VerifyCode(3)、CardType(4)、Paused(5)；Kind 与 `OutCardRejectionPayload` 必须匹配；NoError(0) 和未知值拒绝 |
+| 权威状态变化 | 无；输出只描述 Battle 已判定的稳定拒绝，不修改手牌、当前行动者、VerifyCode、托管或玩家状态 |
+| Timer/Timeline | 无；参考所有可达失败都在 `StopTimer` 前返回，新实现不取消、替换或延长 ActionDeadline，也不重发 AskOutCard |
+| 输出目标与顺序 | 只定向被拒绝的真人请求玩家；AI、机器人、托管和 Timeline 自动候选失败静默；成功动作没有 ACK |
+| 生命周期结果 | payload 固定 28 字节，完整单目标 frame 长 118，relay suffix offset=56/size=28；非法 reason、目标数或 payload 类型使整批返回零 frame |
+| 结论 | MessageID、错误码、真人定向、自动候选静默、成功无 ACK 和期限不变与参考实现 **已一致**；删除不可达 NoError 领域变体、使用 Rejection 命名是类型化边界的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-026、D-059、D-060、D-095、D-096 |
+| 备注 | 本切片不实现出牌校验、拒绝决策、手牌 mutation、期限管理或成功动作输出。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

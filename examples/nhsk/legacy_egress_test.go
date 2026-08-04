@@ -267,6 +267,17 @@ func TestEncodeLegacyGameSceneBatchMatchesReferenceRelayGolden(t *testing.T) {
 	}
 }
 
+func TestEncodeLegacyOutCardRejectionBatchMatchesReferenceRelayGolden(t *testing.T) {
+	got, err := encodeLegacyGameOutputBatch(testOutCardRejectionBatch(OutCardRejectionVerifyCode))
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000760000002200d2040000e9030000000000000000000000000000007400000000000054000000e90300000000000000000000580000005200000000000000380000001c00000000000000000000000000000009760000000000001c00000003000000")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy OUT_CARD_RESULT frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -448,6 +459,12 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		}},
 		{name: "wrong game scene payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputGameScene, Payload: GameStartPayload{}}}
+		}},
+		{name: "out card rejection has multiple targets", mutate: setOutCardRejectionOutput([]game.PlayerID{"1001", "1002"}, OutCardRejectionSeat)},
+		{name: "out card rejection has no-error reason", mutate: setOutCardRejectionOutput([]game.PlayerID{"1001"}, 0)},
+		{name: "out card rejection has unknown reason", mutate: setOutCardRejectionOutput([]game.PlayerID{"1001"}, OutCardRejectionPaused+1)},
+		{name: "wrong out card rejection payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputOutCardRejection, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -654,5 +671,26 @@ func setGameSceneOutput(targets []game.PlayerID, payload GameScenePayload) func(
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = testGameSceneBatch(payload).Outputs
 		batch.Outputs[0] = ClientGameOutput{Targets: targets, Kind: OutputGameScene, Payload: payload}
+	}
+}
+
+func testOutCardRejectionBatch(reason OutCardRejectionReason) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"1001"},
+			Kind:    OutputOutCardRejection,
+			Payload: OutCardRejectionPayload{Reason: reason},
+		}},
+	}
+}
+
+func setOutCardRejectionOutput(targets []game.PlayerID, reason OutCardRejectionReason) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputOutCardRejection, Payload: OutCardRejectionPayload{Reason: reason}}}
 	}
 }

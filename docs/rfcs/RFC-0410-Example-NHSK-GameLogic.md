@@ -234,15 +234,26 @@ type OutputPayload interface {
 }
 
 const (
-    OutputGameStart   OutputKind = "game_start"
-    OutputGameInfo    OutputKind = "game_info"
-    OutputDeal        OutputKind = "deal"
-    OutputAskOutCard  OutputKind = "ask_out_card"
-    OutputOutCardInfo OutputKind = "out_card_info"
-    OutputTurnEnd     OutputKind = "turn_end"
-    OutputShowCards   OutputKind = "show_cards"
-    OutputGameResult  OutputKind = "game_result"
-    OutputGameScene   OutputKind = "game_scene"
+    OutputGameStart        OutputKind = "game_start"
+    OutputGameInfo         OutputKind = "game_info"
+    OutputDeal             OutputKind = "deal"
+    OutputAskOutCard       OutputKind = "ask_out_card"
+    OutputOutCardInfo      OutputKind = "out_card_info"
+    OutputTurnEnd          OutputKind = "turn_end"
+    OutputShowCards        OutputKind = "show_cards"
+    OutputGameResult       OutputKind = "game_result"
+    OutputGameScene        OutputKind = "game_scene"
+    OutputOutCardRejection OutputKind = "out_card_rejection"
+)
+
+type OutCardRejectionReason uint32
+
+const (
+    OutCardRejectionCardCount  OutCardRejectionReason = 1
+    OutCardRejectionSeat       OutCardRejectionReason = 2
+    OutCardRejectionVerifyCode OutCardRejectionReason = 3
+    OutCardRejectionCardType   OutCardRejectionReason = 4
+    OutCardRejectionPaused     OutCardRejectionReason = 5
 )
 
 type GameSceneState uint8
@@ -352,6 +363,10 @@ type GameScenePayload struct {
     Players             [4]GameScenePlayer
 }
 
+type OutCardRejectionPayload struct {
+    Reason OutCardRejectionReason
+}
+
 type GameStartedOutput struct {
     ReplayName string
 }
@@ -420,6 +435,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 `OutputGameScene` 使用请求者视角的 `GameScenePayload` 恢复一份完整客户端场景。ClientGameOutput 必须只有一个 Target，且该玩家必须位于 Players。State 只接受当前可达的 Playing(3) 或 ShowingResult(4)；ActiveSeat 与 PreviousPlayerSeat 接受 -1 或 0..3；RemainingSeconds 是当前 ActionDeadline 剩余时长向下取整后的秒数，0 表示没有有效期限，构造场景不得创建、替换或延长 Timeline。TrickScoreCardCount 必须位于 0..24，FinishedPlayerCount 必须位于 0..4。Players 按 SeatID 0..3 排列且玩家非零、互异；Automated/Offline 在 Legacy 中映射为 State bit 1/2；HandCount 为真实剩余张数 0..26，隐藏牌仍保留计数但 HandCards 全零；LastPlayCount 保留 -1=本墩尚无动作、0=过牌、1..8=已出牌，只有正数时 LastPlayedCards 才可非零；Rank 接受 0..4，0 表示尚未出完。所有固定牌区在对应 count 后必须为零。
 
 Legacy payload 固定为 282 字节 `0x7608 NHSK_GAME_SCENE`：44 字节主消息含 Scene suffix offset=44/size=42、PlayerCount=4、Players suffix offset=86/size=196；随后编码 GameScene 和四个 49 字节 Player。它只投递已经冻结的视图，不修改 Offline、Automated、ClientReady、手牌、TurnRevision 或 Timeline。`ReconnectPlayer` 与 `RequestGameScene` 的不同副作用、GameInfo→GameScene→可选 AskOutCard/ShowCards 的恢复线序由 Battle 的 `RestorePlayerView` 负责，不由 Legacy encoder 推断。
+
+`OutputOutCardRejection` 使用 `OutCardRejectionPayload{Reason}` 表达一次真人出牌被稳定拒绝，只允许 CardCount(1)、Seat(2)、VerifyCode(3)、CardType(4)、Paused(5)。它必须只有一个 Target，且该 Target 是被拒绝的请求玩家。Legacy payload 固定为 28 字节 `0x7609 NHSK_OUT_CARD_RESULT`，依次编码 Header 和 uint32 ErrorCode。参考枚举中的 NoError(0) 不可达：成功出牌没有同步 ACK；AI、机器人、托管和 Timeline 自动候选失败也不产生该输出。该事实不修改手牌、托管状态、TurnRevision 或 ActionDeadline，不重发 AskOutCard；错误判定和目标冻结都由 Battle handler 在提交状态前完成，Legacy adapter 只编码。
 
 ### 结算与回放
 
