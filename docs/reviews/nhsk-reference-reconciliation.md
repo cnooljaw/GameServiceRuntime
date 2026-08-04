@@ -481,6 +481,24 @@
 | RFC/决策 | RFC-0410、D-026、D-059、D-060、D-095、D-096 |
 | 备注 | 本切片不实现出牌校验、拒绝决策、手牌 mutation、期限管理或成功动作输出。 |
 
+### 4.22 类型化 NHSK CARD_ACTION_WATCH Legacy egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | `CardSelectionPreviewPayload` 编码为当前操作玩家的宽松选牌预览广播 `0x7611` |
+| GSR 文件/测试 | `examples/nhsk/outputs.go`、`legacy_egress.go`、`legacy_egress_test.go`；`internal/legacywire/card_action_watch.go`、`card_action_watch_test.go` |
+| 参考入口 | `nhsk/game/handlers.go:OnMsgCardAction`、`protocol/gc2gs.go:CardActionRequest.FormatFromTcp`、`protocol/gs2gc.go:CardActionWatchNotify.FormatToTcp` |
+| 参考测试/配置/录包 | 参考仓库没有 CARD_ACTION 专项测试；由 handler 原样复制 `req.Cards`、固定 wire struct 与 D-062 已确认行为复核；参考测试环境仍受无权限私有模块依赖阻塞 |
+| Legacy MessageID | 客户端 payload `0x7611`；relay 外层 `0x8644`、内层 `0x7400`；输入请求保持独立 `0x7702` |
+| 输入与校验 | Player 必须是非零 uint32；CardCount 为 0..26；固定 Cards 在 CardCount 后必须为零；Kind 与 `CardSelectionPreviewPayload` 必须匹配；不校验手牌归属、重复、牌型或压牌 |
+| 权威状态变化 | 无；这是客户端选择过程的瞬时事实，不修改手牌、当前墩、玩家状态或任何第二份预览状态 |
+| Timer/Timeline | 无；不取消、替换或延长 ActionDeadline，不修改 TurnRevision |
+| 输出目标与顺序 | Battle 只在 Playing/WaitingForAction 且请求者是当前操作人时产生；正常面向过滤 Exited 后的全桌广播；允许空选择、重复牌、非手牌和不能压牌的列表 |
+| 生命周期结果 | payload 固定 55 字节，完整单目标 frame 长 145，relay suffix offset=56/size=55；非法玩家、容量、尾部或 payload 类型使整批返回零 frame |
+| 结论 | MessageID、UserID、26 字节上限、全桌广播和宽松预览语义与参考实现 **已一致**；删除未接入 BaseRule 开关、用非权威 Preview 领域命名是 D-062 下的 **有意偏差** |
+| RFC/决策 | RFC-0410、D-059、D-062、D-068、D-095、D-096 |
+| 备注 | 本切片不实现 `PreviewCardSelection` Command、阶段/当前玩家门禁、输入 `0x7702` 解码或真正 `PlayCards` 校验。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

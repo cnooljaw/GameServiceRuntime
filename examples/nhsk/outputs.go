@@ -32,6 +32,8 @@ const (
 	OutputGameScene OutputKind = "game_scene"
 	// OutputOutCardRejection publishes one stable human-player action rejection.
 	OutputOutCardRejection OutputKind = "out_card_rejection"
+	// OutputCardSelectionPreview publishes one non-authoritative card selection.
+	OutputCardSelectionPreview OutputKind = "card_selection_preview"
 )
 
 // OutCardRejectionReason identifies why one human out-card request was rejected.
@@ -213,6 +215,15 @@ type OutCardRejectionPayload struct {
 }
 
 func (OutCardRejectionPayload) isNHSKOutputPayload() {}
+
+// CardSelectionPreviewPayload is one non-authoritative player card selection.
+type CardSelectionPreviewPayload struct {
+	Player    game.PlayerID
+	Cards     [26]byte
+	CardCount uint8
+}
+
+func (CardSelectionPreviewPayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

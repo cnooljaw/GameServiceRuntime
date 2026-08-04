@@ -118,9 +118,31 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyOutCardRejection(output, payload)
+	case OutputCardSelectionPreview:
+		payload, ok := output.Payload.(CardSelectionPreviewPayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return encodeLegacyCardSelectionPreview(payload)
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}
+}
+
+func encodeLegacyCardSelectionPreview(payload CardSelectionPreviewPayload) ([]byte, error) {
+	players, err := legacyTargetUserIDs([]game.PlayerID{payload.Player})
+	if err != nil {
+		return nil, err
+	}
+	frame, err := legacywire.EncodeCardActionWatch(legacywire.CardActionWatch{
+		UserID:    players[0],
+		Cards:     payload.Cards,
+		CardCount: payload.CardCount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: CARD_ACTION_WATCH: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyOutCardRejection(output ClientGameOutput, payload OutCardRejectionPayload) ([]byte, error) {

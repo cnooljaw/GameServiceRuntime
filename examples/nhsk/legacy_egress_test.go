@@ -278,6 +278,17 @@ func TestEncodeLegacyOutCardRejectionBatchMatchesReferenceRelayGolden(t *testing
 	}
 }
 
+func TestEncodeLegacyCardSelectionPreviewBatchMatchesReferenceRelayGolden(t *testing.T) {
+	got, err := encodeLegacyGameOutputBatch(testCardSelectionPreviewBatch(testCardSelectionPreviewPayload()))
+	if err != nil {
+		t.Fatalf("encode Legacy batch: %v", err)
+	}
+	want := [][]byte{decodeEgressGolden(t, "0000000000000000000000004486000000000000910000002200d2040000ea03000000000000000000000000000000740000000000006f000000ea03000000000000000000005800000052000000000000003800000037000000000000000000000000000000117600000000000037000000e9030000030325000000000000000000000000000000000000000000000003")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Legacy CARD_ACTION_WATCH frames = %x, want %x", got, want)
+	}
+}
+
 func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 	valid := GameOutputBatch{
 		BattleID:             1,
@@ -465,6 +476,13 @@ func TestEncodeLegacyGameOutputBatchRejectsInvalidOutput(t *testing.T) {
 		{name: "out card rejection has unknown reason", mutate: setOutCardRejectionOutput([]game.PlayerID{"1001"}, OutCardRejectionPaused+1)},
 		{name: "wrong out card rejection payload", mutate: func(batch *GameOutputBatch) {
 			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1001"}, Kind: OutputOutCardRejection, Payload: GameStartPayload{}}}
+		}},
+		{name: "card selection preview has zero player", mutate: setCardSelectionPreviewOutput(CardSelectionPreviewPayload{CardCount: 1})},
+		{name: "card selection preview has non-numeric player", mutate: setCardSelectionPreviewOutput(CardSelectionPreviewPayload{Player: "player", CardCount: 1})},
+		{name: "card selection preview exceeds wire capacity", mutate: setCardSelectionPreviewOutput(CardSelectionPreviewPayload{Player: "1001", CardCount: 27})},
+		{name: "card selection preview leaks card after count", mutate: setCardSelectionPreviewOutput(CardSelectionPreviewPayload{Player: "1001", Cards: [26]byte{1: 0x03}})},
+		{name: "wrong card selection preview payload", mutate: func(batch *GameOutputBatch) {
+			batch.Outputs = []GameOutput{ClientGameOutput{Targets: []game.PlayerID{"1002"}, Kind: OutputCardSelectionPreview, Payload: GameStartPayload{}}}
 		}},
 		{name: "unsupported output", mutate: func(batch *GameOutputBatch) { batch.Outputs = []GameOutput{unsupportedGameOutput{}} }},
 		{name: "empty replay name", mutate: func(batch *GameOutputBatch) {
@@ -692,5 +710,30 @@ func testOutCardRejectionBatch(reason OutCardRejectionReason) GameOutputBatch {
 func setOutCardRejectionOutput(targets []game.PlayerID, reason OutCardRejectionReason) func(*GameOutputBatch) {
 	return func(batch *GameOutputBatch) {
 		batch.Outputs = []GameOutput{ClientGameOutput{Targets: targets, Kind: OutputOutCardRejection, Payload: OutCardRejectionPayload{Reason: reason}}}
+	}
+}
+
+func testCardSelectionPreviewPayload() CardSelectionPreviewPayload {
+	return CardSelectionPreviewPayload{Player: "1001", Cards: [26]byte{0x03, 0x03, 0x25}, CardCount: 3}
+}
+
+func testCardSelectionPreviewBatch(payload CardSelectionPreviewPayload) GameOutputBatch {
+	return GameOutputBatch{
+		BattleID:             1234,
+		MatchID:              88,
+		ProductID:            82,
+		Ref:                  gsr.ServiceRef{Node: "nhsk", ID: 99},
+		ConnectionGeneration: 7,
+		Outputs: []GameOutput{ClientGameOutput{
+			Targets: []game.PlayerID{"1002"},
+			Kind:    OutputCardSelectionPreview,
+			Payload: payload,
+		}},
+	}
+}
+
+func setCardSelectionPreviewOutput(payload CardSelectionPreviewPayload) func(*GameOutputBatch) {
+	return func(batch *GameOutputBatch) {
+		batch.Outputs = testCardSelectionPreviewBatch(payload).Outputs
 	}
 }

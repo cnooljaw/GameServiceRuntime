@@ -241,9 +241,10 @@ const (
     OutputOutCardInfo      OutputKind = "out_card_info"
     OutputTurnEnd          OutputKind = "turn_end"
     OutputShowCards        OutputKind = "show_cards"
-    OutputGameResult       OutputKind = "game_result"
-    OutputGameScene        OutputKind = "game_scene"
-    OutputOutCardRejection OutputKind = "out_card_rejection"
+    OutputGameResult           OutputKind = "game_result"
+    OutputGameScene            OutputKind = "game_scene"
+    OutputOutCardRejection     OutputKind = "out_card_rejection"
+    OutputCardSelectionPreview OutputKind = "card_selection_preview"
 )
 
 type OutCardRejectionReason uint32
@@ -367,6 +368,12 @@ type OutCardRejectionPayload struct {
     Reason OutCardRejectionReason
 }
 
+type CardSelectionPreviewPayload struct {
+    Player    game.PlayerID
+    Cards     [26]byte
+    CardCount uint8
+}
+
 type GameStartedOutput struct {
     ReplayName string
 }
@@ -437,6 +444,8 @@ Legacy egress 按 Targets 展开为每用户一个 `0x8644 GLHeader + 0x7400 Gam
 Legacy payload 固定为 282 字节 `0x7608 NHSK_GAME_SCENE`：44 字节主消息含 Scene suffix offset=44/size=42、PlayerCount=4、Players suffix offset=86/size=196；随后编码 GameScene 和四个 49 字节 Player。它只投递已经冻结的视图，不修改 Offline、Automated、ClientReady、手牌、TurnRevision 或 Timeline。`ReconnectPlayer` 与 `RequestGameScene` 的不同副作用、GameInfo→GameScene→可选 AskOutCard/ShowCards 的恢复线序由 Battle 的 `RestorePlayerView` 负责，不由 Legacy encoder 推断。
 
 `OutputOutCardRejection` 使用 `OutCardRejectionPayload{Reason}` 表达一次真人出牌被稳定拒绝，只允许 CardCount(1)、Seat(2)、VerifyCode(3)、CardType(4)、Paused(5)。它必须只有一个 Target，且该 Target 是被拒绝的请求玩家。Legacy payload 固定为 28 字节 `0x7609 NHSK_OUT_CARD_RESULT`，依次编码 Header 和 uint32 ErrorCode。参考枚举中的 NoError(0) 不可达：成功出牌没有同步 ACK；AI、机器人、托管和 Timeline 自动候选失败也不产生该输出。该事实不修改手牌、托管状态、TurnRevision 或 ActionDeadline，不重发 AskOutCard；错误判定和目标冻结都由 Battle handler 在提交状态前完成，Legacy adapter 只编码。
+
+`OutputCardSelectionPreview` 使用 `CardSelectionPreviewPayload{Player, Cards[26], CardCount}` 表达当前操作玩家的一次非权威选牌预览，Legacy 编码为固定 55 字节 `0x7611 NHSK_CARD_ACTION_WATCH`：Player、26 字节 CardData 和 CardCount。Player 必须非零但不要求位于 Targets；正常路径面向过滤 Exited 后的全桌。CardCount 必须位于 0..26，只有前 CardCount 项进入 wire，允许空列表。为保持参考行为，它不校验牌是否属于手牌、是否重复、是否构成牌型或能否压过上家；这些规则只属于真正的 `PlayCards`。Battle 只在 Playing/WaitingForAction 且 Player 是当前操作人时产生该事实，不迁移无效的 BaseRule 开关。该输出不修改手牌、当前墩、TurnRevision、ActionDeadline 或任何玩家状态。
 
 ### 结算与回放
 
