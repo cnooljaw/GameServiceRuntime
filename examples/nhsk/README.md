@@ -13,8 +13,22 @@
 - `NHSKHostService` 的 BattleID 索引、异步创建操作、BattleRef 解析和精确停止；`BattleFactoryService` 负责 Runtime 创建/停止。
 - Legacy relay 和 Cluster 调用都归一化为同一套类型化 Command，并进入同一个 Battle Mailbox。
 - 类型化 `GameOutputBatch` 到 `GameOutputService` 的交付边界，Legacy encoder 仍在该边界之外。
+- 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
+- `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
+- Battle 的最小唯一期限 fencing、托管当前行动人自动最小出牌和 `CompleteSettlement` 终态入口。
 
 这不是“已经可以无损替换生产旧 GameLogic”的声明。完整旧协议控制消息、origin/TCP connection owner、NEW_GAME/INIT/UPDATE_GAME 全量接入、完整双扣牌型/抓分/单扣双扣结算、回放、AI、Quarantine 取证和独立可部署进程仍属于后续切片。RFC 明确要求在达到这些验收条件前，不把示例描述为生产替换品。
+
+## 启动最小 GameLogic 进程
+
+组合根已经可以独立编译和启动：
+
+```bash
+GOCACHE=/tmp/gsr-gocache go run ./examples/nhsk/cmd/gamelogic \
+  -config examples/nhsk/config.example.json
+```
+
+它会创建 `.nhsk-battle-factory`、`.nhsk-game-host` 和主动 GM 连接，并在收到 `SIGINT`/`SIGTERM` 时按连接、Factory、Host、Runtime 的顺序关闭。示例配置默认连接 `127.0.0.1:9000`；没有旧 GM 时会按配置退避重连。完整 GM 控制面尚未接入，因此该入口目前用于进程生命周期和连接联调，不表示已经跑通四人生产牌局。
 
 ## 代码结构
 
@@ -25,6 +39,8 @@ examples/nhsk/
 ├── host.go                     # NHSKHostService + BattleFactoryService
 ├── outputs.go                  # GameOutput、ClientGameOutput、GameOutputBatch、payload
 ├── output_service.go           # 当代连接的输出 Service 与 sink 边界
+├── legacy_connection.go        # 主动 GM TCP、origin、重连、输出队列
+├── process.go                  # GameLogic 进程组合根
 ├── legacy_mapper.go            # 单个客户端 payload → GSR Command
 ├── legacy_relay_mapper.go      # 0x8605+0x7402 relay → Host Resolve → Battle Send/Call
 ├── legacy_egress.go             # 类型化输出 → Legacy frame 的组合边界
@@ -40,6 +56,9 @@ examples/nhsk/
 ├── logging.go                  # 结构化日志字段与脱敏边界
 ├── node.go                     # 节点 readiness 与关闭顺序模型
 └── *_test.go                   # golden、边界、Mailbox、Host 和路由测试
+
+examples/nhsk/cmd/gamelogic/
+└── main.go                     # JSON 配置、信号处理和进程入口
 ```
 
 `examples/nhsk` 是可导入的 `package nhsk`，不是不可复用的 `package main`。这样 Cluster 调用方可以直接引用 `PlayCardsCommand`、`PlayCardsRequest` 等公开 API；真正的进程组合根应放在独立 `cmd/` 目录，不把业务包改成 `main`。
@@ -239,13 +258,12 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 以下能力不能从当前最小切片推断为已完成：
 
-1. 单条主动 TCP GM 连接、双向 origin、指数退避重连、ConnectionGeneration fencing。
-2. Legacy NEW_GAME/INIT/UPDATE_PLAYER/UPDATE_GAME/MATCH_STOP/DEL_GAME/结算 ACK 的全量控制 codec 和 ACK 时序。
-3. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和结算。
-4. 唯一 ActionDeadline、托管自动出牌、外部 AI、回放 writer 和 GAME_OVER 完整线序。
-5. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
-6. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。
-7. 独立生产进程的部署文件、健康端口和旧 GM 联调录包。
+1. Legacy NEW_GAME/INIT/UPDATE_PLAYER/UPDATE_GAME/MATCH_STOP/DEL_GAME/结算 ACK 的全量控制 codec 和 ACK 时序。
+2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
+3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
+4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
+5. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。
+6. 生产部署文件、健康端口、输出 Service 与每代连接动态绑定，以及旧 GM 联调录包。
 
 这些不是隐藏欠账，而是下一阶段必须继续实现并在参考核对表中逐项关闭的范围。当前阶段的业务价值是先验证：`BattleID -> BattleRef -> Command -> Mailbox -> typed output` 这条新边界能够和旧 relay 共存。
 
@@ -269,4 +287,3 @@ NHSK 相关测试重点覆盖：
 - Legacy relay Send/Call 解析到 Host，再直达同一个 BattleRef。
 
 完成一个新功能切片后，先核对只读参考目录，再更新 `docs/reviews/nhsk-reference-reconciliation.md`；如果出现未裁决偏差，应先写 RFC/决策再继续代码。
-

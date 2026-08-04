@@ -110,6 +110,36 @@ func TestBattleAllowsPassAfterALeadWithoutReplacingTheLead(t *testing.T) {
 	}
 }
 
+func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
+	service, err := NewBattleService(NHSKBattleConfig{ID: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	if err := service.Init(&battleTestServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 10, ProductID: 82, MatchID: 1}}})
+	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
+	_ = service.Handle(ctx, gsr.Command{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}})
+	_ = service.Handle(ctx, gsr.Command{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}})
+	_ = service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}})
+	service.hands[service.bySeat[0]] = []byte{1}
+	state := service.snapshot()
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: state.ActivePlayer, Cards: []byte{1}, VerifyCode: state.VerifyCode}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleAwaitingSettlement {
+		t.Fatalf("phase after final card = %s", service.phase)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: true, Scores: [4]int32{1, -1, 1, -1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(SettlementCommandResult); !result.Accepted || service.phase != NHSKBattleFinished {
+		t.Fatalf("settlement = %#v phase=%s", result, service.phase)
+	}
+}
+
 type battleTestCommandContext struct{ reply any }
 
 func (*battleTestCommandContext) Self() gsr.ServiceRef    { return gsr.ServiceRef{Node: "test", ID: 1} }

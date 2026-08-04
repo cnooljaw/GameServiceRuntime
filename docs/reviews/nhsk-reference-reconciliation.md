@@ -605,6 +605,22 @@
 | RFC/决策 | RFC-0310、RFC-0410、RFC-0500、D-039、D-062、D-097 |
 | 备注 | Battle 的示例发牌采用确定性四座分片，当前只覆盖最小 Command 流；生产规则、Legacy NEW_GAME/INIT/UPDATE_PLAYER 全量 codec、连接代际和旧 GM 控制消息必须在后续切片补齐并逐项回查参考代码。 |
 
+### 4.29 Legacy connection owner、进程组合根与最小期限/结算
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 增加单条主动 GM TCP connection owner、双向 origin、bounded output queue、指数退避重连、独立 `cmd/gamelogic` 组合根，并把 Battle 的行动期限与结算入口接入 Mailbox |
+| GSR 文件/测试 | `examples/nhsk/legacy_connection.go`、`legacy_connection_test.go`、`process.go`、`process_test.go`、`cmd/gamelogic/main.go`；`internal/legacywire/packet.go`、`handshake.go`、`connection_config.go`；`battle.go`、`battle_test.go` |
+| 参考入口 | `gamelogic/app/handler/game.go` 的主动连接/控制器入口；`gamelogic/internal/game/game.go` 的消息分发；`protocol/gamelogic/gm2gl.go` 与 `gl2gm.go` 的 origin/控制消息常量；`nhsk/game/flow_core.go` 的出牌期限与结算阶段 |
+| 输入与校验 | connection owner 每个物理连接分配新 ConnectionGeneration，先写 origin=107、校验 GM origin=100，再读取受限 frame；输出入有界队列，队列满拒绝；Battle 每个 turn 只保存一个 turnRevision/期限，并对旧 Timer Command 做 fencing；最后一名玩家出完后只进入 AwaitingSettlement，CompleteSettlement 才进入 Finished |
+| 权威状态变化 | TCP socket、reader/writer、重连状态和输出队列由 LegacyGMConnection 拥有；Battle 仍只在 Mailbox 修改手牌、期限、TurnRevision 和结算；进程组合根拥有 Runtime、Host、Factory、Connection 的关闭顺序 |
+| Timer/Timeline | Timer 只投递私有 `nhskBattleTimerCommand`；托管当前行动人可用一个较短期限自动出最小单张；迟到 Timer 只忽略，不执行回调；尚未实现 AI 最小延迟替换和完整参考 timeout 分支 |
+| 输出目标与顺序 | writer 将类型化 `GameOutputBatch` 转成既有 Legacy egress frame；handshake 未 Ready 时不接受输出；socket writer 失败关闭当前代际，不关闭新代际 |
+| 生命周期结果 | `cmd/gamelogic` 可从 JSON 配置启动，收到 SIGINT/SIGTERM 后先停连接，再关闭 Runtime；连接重连采用配置的 bounded exponential backoff/jitter；控制面 frame 的完整 NEW_GAME/INIT/UPDATE_PLAYER/DEL_GAME/结算 ACK 解码和 ACK 发送仍未完成 |
+| 结论 | origin、连接代际、输出 owner、进程装配和最小期限/结算边界已建立；完整旧 GM 控制面、Quarantine、完整牌型与回放仍是 **发现遗漏/待实现** |
+| RFC/决策 | RFC-0180、RFC-0320、RFC-0410、RFC-0500、D-004、D-025、D-026、D-091、D-092 |
+| 备注 | connection owner 的 I/O goroutine 只读写 socket/队列，不直接修改 Battle；它通过 `OnFrame` seam 把控制面留给后续 adapter，不在本切片伪造旧结构体。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

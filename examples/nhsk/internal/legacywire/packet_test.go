@@ -2,6 +2,7 @@ package legacywire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"reflect"
@@ -81,6 +82,14 @@ func TestReadFrameReturnsIndependentStorage(t *testing.T) {
 	data[0] = 0xff
 	if frame.bytes[0] == 0xff {
 		t.Fatal("read frame retained caller storage")
+	}
+}
+
+func TestWriteFrameRejectsMismatchedHeaderLength(t *testing.T) {
+	data := testFrame(t, messageOrigin, []byte{1})
+	binary.LittleEndian.PutUint32(data[20:24], uint32(len(data)-1))
+	if err := WriteFrame(io.Discard, data); !errors.Is(err, errInvalidFrameLength) {
+		t.Fatalf("WriteFrame error = %v, want errInvalidFrameLength", err)
 	}
 }
 

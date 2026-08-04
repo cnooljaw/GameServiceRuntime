@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
@@ -29,6 +30,8 @@ const (
 	NHSKBattlePreparing NHSKBattlePhase = "preparing"
 	// NHSKBattlePlaying accepts card actions.
 	NHSKBattlePlaying NHSKBattlePhase = "playing"
+	// NHSKBattleAwaitingSettlement waits for the external settlement result.
+	NHSKBattleAwaitingSettlement NHSKBattlePhase = "awaiting_settlement"
 	// NHSKBattleFinished is the terminal phase for the example Battle.
 	NHSKBattleFinished NHSKBattlePhase = "finished"
 )
@@ -66,6 +69,8 @@ type NHSKBattleService struct {
 	lastRank             int
 	lastCount            int
 	revision             uint64
+	turnRevision         uint64
+	deadlineAt           time.Time
 	gameNum              uint16
 	subgameNum           uint16
 	nextRound            UpdateRoundContextRequest
@@ -128,6 +133,8 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.scene(ctx, command.Payload)
 	case ForceFinishSubgameCommand:
 		return battle.forceFinish(ctx, command.Payload)
+	case CompleteSettlementCommand:
+		return battle.completeSettlement(ctx, command.Payload)
 	case GetNHSKBattleSnapshotCommand:
 		return battle.snapshotReply(ctx)
 	case nhskBattleTimerCommand:
@@ -232,6 +239,13 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.phase = NHSKBattlePlaying
 	battle.activeSeat = 0
 	battle.verifyCode = 1
+	battle.turnRevision++
+	battle.deadlineAt = battle.service.Now().Add(15 * time.Second)
+	if battle.service != nil {
+		if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+			return err
+		}
+	}
 	battle.lastCards = nil
 	battle.lastRank = -1
 	battle.lastCount = 0
@@ -276,6 +290,12 @@ func (battle *NHSKBattleService) setAuto(ctx gsr.CommandContext, payload any) er
 		return battle.reject(ctx, errBattleInvalidRequest)
 	}
 	battle.auto[request.Player] = request.Enabled
+	if request.Enabled && battle.phase == NHSKBattlePlaying && request.Player == battle.bySeat[battle.activeSeat] && battle.service != nil {
+		battle.deadlineAt = battle.service.Now().Add(time.Second)
+		if _, err := battle.service.After(time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+			return err
+		}
+	}
 	if err := battle.emit(ctx, ClientGameOutput{Targets: []game.PlayerID{request.Player}, Kind: OutputGameScene, Payload: battle.scenePayload(request.Player)}); err != nil {
 		return err
 	}
@@ -346,10 +366,18 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		return err
 	}
 	if len(battle.hands[request.Player]) == 0 {
-		battle.phase = NHSKBattleFinished
+		battle.phase = NHSKBattleAwaitingSettlement
+		battle.deadlineAt = time.Time{}
 	} else {
 		battle.advanceSeat()
 		battle.verifyCode++
+		battle.turnRevision++
+		battle.deadlineAt = battle.service.Now().Add(15 * time.Second)
+		if battle.service != nil {
+			if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+				return err
+			}
+		}
 	}
 	return battle.reply(ctx, ActionResult{Accepted: true})
 }
@@ -375,10 +403,39 @@ func (battle *NHSKBattleService) forceFinish(ctx gsr.CommandContext, payload any
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
+func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payload any) error {
+	request, ok := payload.(CompleteSettlementRequest)
+	if !ok || battle.phase != NHSKBattleAwaitingSettlement {
+		return battle.reject(ctx, errBattleStateConflict)
+	}
+	if !request.Success {
+		request.Scores = [4]int32{}
+	}
+	for seat, player := range battle.bySeat {
+		if player == "" || battle.players[player].Player == "" {
+			return battle.reject(ctx, errBattleInvalidRequest)
+		}
+		value := battle.players[player]
+		value.Score = request.Scores[seat]
+		battle.players[player] = value
+	}
+	battle.phase = NHSKBattleFinished
+	battle.revision++
+	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
+}
+
 func (battle *NHSKBattleService) timer(ctx gsr.CommandContext, payload any) error {
 	value, ok := payload.(uint64)
-	if !ok || value != battle.revision || battle.phase != NHSKBattlePlaying {
+	if !ok || value != battle.turnRevision || battle.phase != NHSKBattlePlaying {
 		return nil
+	}
+	player := battle.bySeat[battle.activeSeat]
+	if player == "" || !battle.auto[player] || len(battle.hands[player]) == 0 {
+		return nil
+	}
+	request := PlayCardsRequest{Player: player, Cards: []byte{battle.hands[player][0]}, VerifyCode: battle.verifyCode}
+	if err := battle.play(ctx, request); err != nil {
+		return err
 	}
 	return nil
 }
@@ -401,7 +458,11 @@ func (battle *NHSKBattleService) snapshot() NHSKBattleSnapshot {
 	for player, enabled := range battle.auto {
 		auto[player] = enabled
 	}
-	return NHSKBattleSnapshot{BattleID: battle.id, Phase: string(battle.phase), Identity: battle.identity, Players: players, ActivePlayer: battle.bySeat[battle.activeSeat], VerifyCode: battle.verifyCode, Hands: hands, Auto: auto, Revision: battle.revision}
+	deadlineUnix := int64(0)
+	if !battle.deadlineAt.IsZero() {
+		deadlineUnix = battle.deadlineAt.Unix()
+	}
+	return NHSKBattleSnapshot{BattleID: battle.id, Phase: string(battle.phase), Identity: battle.identity, Players: players, ActivePlayer: battle.bySeat[battle.activeSeat], VerifyCode: battle.verifyCode, Hands: hands, Auto: auto, Revision: battle.revision, TurnRevision: battle.turnRevision, DeadlineUnix: deadlineUnix}
 }
 
 func (battle *NHSKBattleService) scenePayload(target game.PlayerID) GameScenePayload {

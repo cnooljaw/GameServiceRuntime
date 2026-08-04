@@ -36,6 +36,11 @@ func performOriginHandshake(connection net.Conn, timeout time.Duration) error {
 	return nil
 }
 
+// PerformOriginHandshake exchanges the GameLogic and GameMaster origin frames.
+func PerformOriginHandshake(connection net.Conn, timeout time.Duration) error {
+	return performOriginHandshake(connection, timeout)
+}
+
 func writeAll(writer io.Writer, data []byte) error {
 	for len(data) > 0 {
 		written, err := writer.Write(data)

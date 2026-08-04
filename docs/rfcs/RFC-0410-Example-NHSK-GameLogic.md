@@ -573,13 +573,15 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 
 ## 当前实现进度（2026-08）
 
-本 RFC 是目标契约；当前仓库已经交付的第一批可验证代码是 `examples/nhsk` 的 Legacy codec/mapper、Host/Factory/ Battle Mailbox 最小切片和 typed output seam。该切片已覆盖：
+本 RFC 是目标契约；当前仓库已经交付的可验证代码包括 `examples/nhsk` 的 Legacy codec/mapper、Host/Factory/Battle Mailbox、TCP connection owner、进程组合根和 typed output seam。当前实现已覆盖：
 
 - `0x7701`、`0x7702`、`0x720A` 的固定字节解码、三层身份核对和显式 Command 映射。
 - `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
+- 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
+- Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括完整 Legacy 控制面和连接 owner、最终唯一 ActionDeadline、104 张牌全规则、结算/回放/AI、Quarantine/诊断、GM 断线收敛以及独立可部署进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括完整 Legacy 控制面、104 张牌全规则、完整结算/回放/AI、Quarantine/诊断、GM 断线收敛以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

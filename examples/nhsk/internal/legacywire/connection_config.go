@@ -65,6 +65,33 @@ type backoffPolicy struct {
 	random func() float64
 }
 
+// BackoffPolicy is a bounded exponential reconnect policy with jitter.
+type BackoffPolicy struct{ policy *backoffPolicy }
+
+// NewBackoffPolicy creates a reconnect policy using the supplied random source.
+func NewBackoffPolicy(config ConnectionConfig, random func() float64) (*BackoffPolicy, error) {
+	policy, err := newBackoffPolicy(config, random)
+	if err != nil {
+		return nil, err
+	}
+	return &BackoffPolicy{policy: policy}, nil
+}
+
+// Next returns the next jittered delay and advances the capped base.
+func (policy *BackoffPolicy) Next() time.Duration {
+	if policy == nil || policy.policy == nil {
+		return 0
+	}
+	return policy.policy.next()
+}
+
+// ResetIfStable resets the base after a stable Ready period.
+func (policy *BackoffPolicy) ResetIfStable(readyFor time.Duration) {
+	if policy != nil && policy.policy != nil {
+		policy.policy.resetIfStable(readyFor)
+	}
+}
+
 func newBackoffPolicy(config ConnectionConfig, random func() float64) (*backoffPolicy, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
