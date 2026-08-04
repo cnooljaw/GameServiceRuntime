@@ -497,7 +497,25 @@
 | 生命周期结果 | payload 固定 55 字节，完整单目标 frame 长 145，relay suffix offset=56/size=55；非法玩家、容量、尾部或 payload 类型使整批返回零 frame |
 | 结论 | MessageID、UserID、26 字节上限、全桌广播和宽松预览语义与参考实现 **已一致**；删除未接入 BaseRule 开关、用非权威 Preview 领域命名是 D-062 下的 **有意偏差** |
 | RFC/决策 | RFC-0410、D-059、D-062、D-068、D-095、D-096 |
-| 备注 | 本切片不实现 `PreviewCardSelection` Command、阶段/当前玩家门禁、输入 `0x7702` 解码或真正 `PlayCards` 校验。 |
+| 备注 | 本切片不实现 `PreviewCardSelection` Command、阶段/当前玩家门禁或真正 `PlayCards` 校验。 |
+
+### 4.23 NHSK CARD_ACTION Legacy payload 解码
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将客户端 `0x7702 CARD_ACTION` 固定 payload 解码为独立 `CardActionRequest` 值 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/card_action_request.go`、`card_action_request_test.go` |
+| 参考入口 | `nhsk/protocol/tcpprotocol/gc2gs.go:CardActionRequest`、`nhsk/protocol/gc2gs.go:CardActionRequest.FormatFromTcp`、`nhsk/game/handlers.go:OnMsgCardAction` |
+| 参考测试/配置/录包 | 参考仓库没有 CARD_ACTION 专项测试；golden 按参考 struct 小端布局与 formatter 复核；参考测试环境仍受无权限私有模块依赖阻塞 |
+| Legacy MessageID | 输入 payload `0x7702`；本切片不解码外层 `0x8605 + 0x7402` relay |
+| 输入与校验 | 固定 51 字节；Header Type/Length 必须为 `0x7702`/51；CardCount 为 0..26；CardCount 后固定牌区必须为零；空选择有效；Header 其他字段不进入归一化结果 |
+| 权威状态变化 | 无；codec 返回复制后的 Cards/Count，不保存客户端缓冲区，不触达 Battle |
+| Timer/Timeline | 无 |
+| 输出目标与顺序 | 无；成功只提供给后续 bridge 映射，失败静默丢弃且不产生 `0x7609` |
+| 生命周期结果 | 解码不持有 caller storage；短包、长包、错误 MessageID、错误 Length、超量 count 和非零尾部均稳定失败 |
+| 结论 | MessageID、51 字节布局、26 字节容量、空选择和不做玩法校验与参考实现 **已一致**；显式拒绝非零未使用牌区是严格 wire 边界下的 **有意收紧**，不改变合法客户端行为 |
+| RFC/决策 | RFC-0410、D-062、D-068 |
+| 备注 | 本切片不实现 relay 身份校验、MessageID→CommandID 映射、Battle 阶段/当前玩家门禁或 `0x7611` 广播决策。 |
 
 ## 5. 切片追加模板
 
