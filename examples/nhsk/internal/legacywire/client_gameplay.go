@@ -12,6 +12,10 @@ const (
 	ClientGameplayCardAction ClientGameplayMessage = ClientGameplayMessage(messageNHSKCardAction)
 	// ClientGameplayUserStateChange identifies 0x720A USER_STATE_CHANGE.
 	ClientGameplayUserStateChange ClientGameplayMessage = ClientGameplayMessage(messageGameUserStateChange)
+	// ClientGameplayReconnect identifies 0x7208 USER_RECONNECT.
+	ClientGameplayReconnect ClientGameplayMessage = ClientGameplayMessage(messageGameUserReconnect)
+	// ClientGameplayScene identifies 0x720D GAME_SCENE.
+	ClientGameplayScene ClientGameplayMessage = ClientGameplayMessage(messageGameScene)
 )
 
 // DecodeClientGameplayMessage reads the MessageID from one complete client payload.

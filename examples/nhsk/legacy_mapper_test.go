@@ -103,6 +103,38 @@ func TestMapLegacyGameplayCommandMapsCardActionAndOwnsCards(t *testing.T) {
 	}
 }
 
+func TestMapLegacyGameplayCommandMapsReconnectAndScene(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		typeID uint32
+		want   gsr.CommandID
+	}{
+		{name: "reconnect", typeID: 0x7208, want: ReconnectPlayerCommand},
+		{name: "scene", typeID: 0x720d, want: RequestGameSceneCommand},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			frame := legacyPlayerViewRequest(t, test.typeID, 1001)
+			got, err := mapLegacyGameplayCommand(1001, frame)
+			if err != nil {
+				t.Fatalf("map %s: %v", test.name, err)
+			}
+			if got.ID != test.want {
+				t.Fatalf("map %s command = %#x, want %#x", test.name, got.ID, test.want)
+			}
+			if request, ok := got.Payload.(ReconnectPlayerRequest); !ok || request.Player != "1001" {
+				t.Fatalf("map %s payload = %#v", test.name, got.Payload)
+			}
+		})
+	}
+}
+
+func TestMapLegacyGameplayCommandRejectsReconnectUserMismatch(t *testing.T) {
+	frame := legacyPlayerViewRequest(t, 0x7208, 1002)
+	if _, err := mapLegacyGameplayCommand(1001, frame); !errors.Is(err, errInvalidLegacyGameplayCommand) {
+		t.Fatalf("mismatched reconnect error = %v, want errInvalidLegacyGameplayCommand", err)
+	}
+}
+
 func TestMapLegacyGameplayCommandLeavesGameplayValidationToBattle(t *testing.T) {
 	nineCards := decodeLegacyMapperGolden(t, "00000000000000000000000001770000000000003700000001020304050607080900000000000000000000000000000000000907000000")
 	emptyPreview := decodeLegacyMapperGolden(t, "000000000000000000000000027700000000000033000000000000000000000000000000000000000000000000000000000000")
@@ -159,5 +191,16 @@ func decodeLegacyMapperGolden(t *testing.T, value string) []byte {
 	if err != nil {
 		t.Fatalf("decode Legacy mapper golden: %v", err)
 	}
+	return data
+}
+
+func legacyPlayerViewRequest(t *testing.T, typeID, userID uint32) []byte {
+	t.Helper()
+	data := make([]byte, 24+24)
+	binary.LittleEndian.PutUint32(data[12:16], typeID)
+	binary.LittleEndian.PutUint32(data[20:24], uint32(len(data)))
+	binary.LittleEndian.PutUint32(data[24:28], userID)
+	binary.LittleEndian.PutUint32(data[36:40], 88)
+	binary.LittleEndian.PutUint32(data[40:44], 82)
 	return data
 }

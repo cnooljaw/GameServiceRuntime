@@ -20,6 +20,8 @@ const (
 
 	messageNHSKBase            uint32 = 0x7600
 	messageGameUserStateChange uint32 = 0x720a
+	messageGameUserReconnect   uint32 = 0x7208
+	messageGameScene           uint32 = 0x720d
 	messageGameStart           uint32 = 0x7205
 	messageNHSKGameInfo               = messageNHSKBase + 0x001
 	messageNHSKDeal                   = messageNHSKBase + 0x002

@@ -3,6 +3,7 @@ package nhsk
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"testing"
 	"time"
 
@@ -219,6 +220,103 @@ func TestBattleForceFinishBeforePlayingIsNoop(t *testing.T) {
 	if result, ok := ctx.reply.(CommandResult); !ok || !result.Accepted {
 		t.Fatalf("pre-playing force finish reply = %#v, want accepted no-op", ctx.reply)
 	}
+}
+
+func TestBattleReconnectRestoresSceneAndDoesNotLeakHands(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 13)
+	service.offline["1"] = true
+	service.auto["1"] = true
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: ReconnectPlayerCommand, Payload: ReconnectPlayerRequest{Player: "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := ctx.reply.(CommandResult); !ok || !result.Accepted {
+		t.Fatalf("reconnect reply = %#v", ctx.reply)
+	}
+	if service.offline["1"] || service.auto["1"] || !service.clientReady["1"] {
+		t.Fatalf("reconnect state offline=%t auto=%t ready=%t", service.offline["1"], service.auto["1"], service.clientReady["1"])
+	}
+	if len(output.sends) != 3 {
+		t.Fatalf("reconnect output count = %d, want GameInfo/Scene/Ask", len(output.sends))
+	}
+	if _, ok := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput); !ok {
+		t.Fatalf("reconnect first output = %#v", output.sends[0])
+	}
+	first := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if first.Kind != OutputGameInfo {
+		t.Fatalf("reconnect first kind = %s, want %s", first.Kind, OutputGameInfo)
+	}
+	scene := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if scene.Kind != OutputGameScene {
+		t.Fatalf("reconnect second kind = %s, want %s", scene.Kind, OutputGameScene)
+	}
+	payload := scene.Payload.(GameScenePayload)
+	for seat, player := range payload.Players {
+		if player.Player == "1" && player.HandCards == [26]byte{} {
+			t.Fatalf("reconnect own hand is hidden at seat %d", seat)
+		}
+		if player.Player != "1" && player.HandCards != [26]byte{} {
+			t.Fatalf("reconnect leaked hand at seat %d: %x", seat, player.HandCards)
+		}
+	}
+	if ask := output.sends[2].(GameOutputBatch).Outputs[0].(ClientGameOutput); ask.Kind != OutputAskOutCard {
+		t.Fatalf("reconnect third kind = %s, want %s", ask.Kind, OutputAskOutCard)
+	}
+}
+
+func TestBattleSceneRequestDoesNotClearOffline(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 14)
+	service.offline["1"] = true
+	service.auto["1"] = true
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: RequestGameSceneCommand, Payload: ReconnectPlayerRequest{Player: "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !service.offline["1"] || service.auto["1"] || !service.clientReady["1"] {
+		t.Fatalf("scene state offline=%t auto=%t ready=%t", service.offline["1"], service.auto["1"], service.clientReady["1"])
+	}
+	if len(output.sends) != 3 {
+		t.Fatalf("scene output count = %d, want GameInfo/Scene/Ask", len(output.sends))
+	}
+}
+
+func TestBattleRoundStatTargetsRequireReadyAndNonExitedPlayers(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 15)
+	service.clientReady["2"] = false
+	service.players["3"] = BattlePlayer{Player: "3", UserID: 3, SeatID: 2, Exited: true}
+	if got := service.roundStatPlayers(); !reflect.DeepEqual(got, []game.PlayerID{"1", "4"}) {
+		t.Fatalf("round stat targets = %v, want [1 4]", got)
+	}
+}
+
+func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleService, *recordingBattleTestServiceContext) {
+	t.Helper()
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	commands := []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	}
+	for _, command := range commands {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	return service, output
 }
 
 type battleTestCommandContext struct{ reply any }

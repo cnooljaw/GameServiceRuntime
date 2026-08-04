@@ -521,7 +521,7 @@ GL -> GameMaster: 0x8644 GLHeader + 0x7400 GameHeader + payload
 
 ### 消息范围
 
-Legacy bridge 只实现能映射到本 RFC Command 的消息。客户端玩法输入只保留 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` 和通用 USER_STATE_CHANGE。GAME_MSG 外围事实只保留离线、重连、场景和道具成功广播。未知内层 ID 丢弃并计量。无效的 `0x7200` 直传、`0x8655` 旧输出、PLAYER_LIMIT、GAME_END、旧结算 ACK、投票和骰子不进入 codec switch。
+Legacy bridge 只实现能映射到本 RFC Command 的消息。客户端玩法输入只保留 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION`、通用 USER_STATE_CHANGE、`0x7208 USER_RECONNECT` 和 `0x720D GAME_SCENE`。GAME_MSG 外围事实只保留离线、重连、场景和道具成功广播。未知内层 ID 丢弃并计量。无效的 `0x7200` 直传、`0x8655` 旧输出、PLAYER_LIMIT、GAME_END、旧结算 ACK、投票和骰子不进入 codec switch。
 
 `0x7701 OUT_CARD` payload 固定为 55 字节：24 字节 BSHeader、26 字节 CardData、1 字节 CardCount 和末尾 uint32 VerifyCode。codec 要求 Header.Type=`0x7701`、Header.Length=55、CardCount 位于 0..26，且 CardCount 后未使用的固定牌区全部为零；空选择和零 VerifyCode 都是可解码输入。codec 不应用 8 张玩法上限：9..26 张必须进入 `PlayCards`，再由 Battle 对真人产生 CardCount 拒绝；VerifyCode 是否等于当前行动机会也只由 Battle 判断。坏长度、超过 wire 容量的计数或非零尾部整条 payload 丢弃，不产生 Command 或客户端错误包。
 
@@ -576,16 +576,18 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 本 RFC 是目标契约；当前仓库已经交付的可验证代码包括 `examples/nhsk` 的 Legacy codec/mapper、Host/Factory/Battle Mailbox、TCP connection owner、进程组合根和 typed output seam。当前实现已覆盖：
 
 - `0x7701`、`0x7702`、`0x720A` 的固定字节解码、三层身份核对和显式 Command 映射。
+- `0x7208 USER_RECONNECT` 与 `0x720D GAME_SCENE` 的固定布局解码、显式 Command 映射和 Battle 恢复视图边界；Reconnect 与 Scene 保留不同的 Offline/托管副作用，场景 payload 按请求者隐藏其他玩家手牌。
 - `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
-- 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 ClientReady 权威来源、GameResult 和回放收敛后接入。
+- 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
+- Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序/ClientReady 资格、带玩家数据的 `GAME_OVER`/综合结算响应、104 张牌全规则、完整结算字段消费/回放/AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/综合结算响应、104 张牌全规则、完整结算字段消费/回放/AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

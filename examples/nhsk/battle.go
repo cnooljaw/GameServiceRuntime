@@ -63,6 +63,7 @@ type NHSKBattleService struct {
 	hands                map[game.PlayerID][]byte
 	auto                 map[game.PlayerID]bool
 	offline              map[game.PlayerID]bool
+	clientReady          map[game.PlayerID]bool
 	activeSeat           int
 	verifyCode           uint32
 	lastCards            []byte
@@ -73,6 +74,7 @@ type NHSKBattleService struct {
 	deadlineAt           time.Time
 	gameNum              uint16
 	subgameNum           uint16
+	fee                  int32
 	nextRound            UpdateRoundContextRequest
 }
 
@@ -89,7 +91,7 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
 		phase: NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
-		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool),
+		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 	}, nil
 }
 
@@ -164,6 +166,7 @@ func (battle *NHSKBattleService) initialize(ctx gsr.CommandContext, payload any)
 	battle.identity = request.Identity
 	battle.matchID = request.Identity.MatchID
 	battle.productID = request.Identity.ProductID
+	battle.fee = request.Fee
 	battle.initialized = true
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
@@ -192,11 +195,18 @@ func (battle *NHSKBattleService) updatePlayers(ctx gsr.CommandContext, payload a
 		return battle.reject(ctx, errBattleStateConflict)
 	}
 	candidate := make(map[game.PlayerID]BattlePlayer, len(battle.players)+len(request.Players))
+	candidateReady := make(map[game.PlayerID]bool, len(battle.players)+len(request.Players))
 	for playerID, player := range battle.players {
 		candidate[playerID] = player
+		candidateReady[playerID] = battle.clientReady[playerID]
 	}
 	for _, player := range request.Players {
 		candidate[player.Player] = player
+		if _, exists := candidateReady[player.Player]; !exists {
+			// Legacy GameLogic marks a newly admitted player client-ready before
+			// the first subgame starts. Reconnect/scene commands can refresh it.
+			candidateReady[player.Player] = true
+		}
 	}
 	candidateBySeat := [4]game.PlayerID{}
 	for _, player := range candidate {
@@ -207,6 +217,7 @@ func (battle *NHSKBattleService) updatePlayers(ctx gsr.CommandContext, payload a
 	}
 	battle.players = candidate
 	battle.bySeat = candidateBySeat
+	battle.clientReady = candidateReady
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
@@ -320,6 +331,12 @@ func (battle *NHSKBattleService) reconnect(ctx gsr.CommandContext, payload any) 
 		return battle.reject(ctx, errBattleInvalidRequest)
 	}
 	battle.offline[request.Player] = false
+	if battle.phase == NHSKBattlePlaying {
+		battle.auto[request.Player] = false
+		if err := battle.restorePlayerView(ctx, request.Player); err != nil {
+			return err
+		}
+	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
@@ -387,10 +404,16 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 
 func (battle *NHSKBattleService) scene(ctx gsr.CommandContext, payload any) error {
 	request, ok := payload.(ReconnectPlayerRequest)
-	if !ok || battle.players[request.Player].Player == "" {
+	if !ok || battle.players[request.Player].Player == "" || battle.gameNum == 0 || battle.subgameNum == 0 {
 		return battle.reject(ctx, errBattleInvalidRequest)
 	}
-	return battle.reply(ctx, battle.scenePayload(request.Player))
+	battle.auto[request.Player] = false
+	if battle.phase == NHSKBattlePlaying || battle.phase == NHSKBattleAwaitingSettlement {
+		if err := battle.restorePlayerView(ctx, request.Player); err != nil {
+			return err
+		}
+	}
+	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
 func (battle *NHSKBattleService) forceFinish(ctx gsr.CommandContext, payload any) error {
@@ -487,13 +510,64 @@ func (battle *NHSKBattleService) snapshot() NHSKBattleSnapshot {
 func (battle *NHSKBattleService) scenePayload(target game.PlayerID) GameScenePayload {
 	var payload GameScenePayload
 	payload.State = GameSceneStatePlaying
+	if battle.phase == NHSKBattleAwaitingSettlement {
+		payload.State = GameSceneStateShowingResult
+	}
 	payload.ActiveSeat = int8(battle.activeSeat)
+	payload.PreviousPlayerSeat = -1
+	payload.RemainingSeconds = battle.remainingActionMilliseconds() / 1000
 	for seat, player := range battle.bySeat {
 		payload.Players[seat] = GameScenePlayer{Player: player, Automated: battle.auto[player], Offline: battle.offline[player], HandCount: uint8(len(battle.hands[player]))}
-		copy(payload.Players[seat].HandCards[:], battle.hands[player])
+		if player == target {
+			copy(payload.Players[seat].HandCards[:], battle.hands[player])
+		}
 	}
-	_ = target
 	return payload
+}
+
+func (battle *NHSKBattleService) restorePlayerView(ctx gsr.CommandContext, player game.PlayerID) error {
+	battle.clientReady[player] = true
+	if err := battle.emit(ctx, ClientGameOutput{Targets: []game.PlayerID{player}, Kind: OutputGameInfo, Payload: battle.gameInfoPayload()}); err != nil {
+		return err
+	}
+	if err := battle.emit(ctx, ClientGameOutput{Targets: []game.PlayerID{player}, Kind: OutputGameScene, Payload: battle.scenePayload(player)}); err != nil {
+		return err
+	}
+	if battle.phase == NHSKBattlePlaying && battle.bySeat[battle.activeSeat] == player {
+		if err := battle.emit(ctx, ClientGameOutput{Targets: []game.PlayerID{player}, Kind: OutputAskOutCard, Payload: battle.askOutCardPayload()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (battle *NHSKBattleService) gameInfoPayload() GameInfoPayload {
+	var scores [4]int32
+	for seat, player := range battle.bySeat {
+		if player != "" {
+			scores[seat] = battle.players[player].Score
+		}
+	}
+	return GameInfoPayload{OutCardSeconds: 15, ServiceFee: battle.fee, Scores: scores, GameNum: battle.gameNum}
+}
+
+func (battle *NHSKBattleService) askOutCardPayload() AskOutCardPayload {
+	return AskOutCardPayload{ActivePlayer: battle.bySeat[battle.activeSeat], VerifyCode: battle.verifyCode, ActionMilliseconds: battle.remainingActionMilliseconds()}
+}
+
+func (battle *NHSKBattleService) remainingActionMilliseconds() uint32 {
+	if battle.deadlineAt.IsZero() {
+		return 0
+	}
+	now := time.Now()
+	if battle.service != nil {
+		now = battle.service.Now()
+	}
+	remaining := battle.deadlineAt.Sub(now)
+	if remaining <= 0 {
+		return 0
+	}
+	return uint32(remaining / time.Millisecond)
 }
 
 func (battle *NHSKBattleService) replayName() string {
@@ -514,6 +588,17 @@ func (battle *NHSKBattleService) activePlayers() []game.PlayerID {
 	for seat := range battle.bySeat {
 		player := battle.bySeat[seat]
 		if player != "" && !battle.players[player].Exited {
+			players = append(players, player)
+		}
+	}
+	return players
+}
+
+func (battle *NHSKBattleService) roundStatPlayers() []game.PlayerID {
+	players := make([]game.PlayerID, 0, len(battle.players))
+	for seat := range battle.bySeat {
+		player := battle.bySeat[seat]
+		if player != "" && !battle.players[player].Exited && battle.clientReady[player] {
 			players = append(players, player)
 		}
 	}

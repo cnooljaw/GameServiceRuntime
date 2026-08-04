@@ -70,6 +70,24 @@ func mapLegacyGameplayCommand(userID uint32, payload []byte) (gsr.Command, error
 				Enabled: request.State&legacyPlayerStateAuto != 0,
 			},
 		}, nil
+	case legacywire.ClientGameplayReconnect:
+		request, err := legacywire.DecodeUserReconnect(payload)
+		if err != nil {
+			return gsr.Command{}, fmt.Errorf("%w: %v", errInvalidLegacyGameplayCommand, err)
+		}
+		if request.UserID != userID {
+			return gsr.Command{}, fmt.Errorf("%w: reconnect user %d differs from outer user %d", errInvalidLegacyGameplayCommand, request.UserID, userID)
+		}
+		return gsr.Command{ID: ReconnectPlayerCommand, Payload: ReconnectPlayerRequest{Player: player}}, nil
+	case legacywire.ClientGameplayScene:
+		request, err := legacywire.DecodeGameSceneRequest(payload)
+		if err != nil {
+			return gsr.Command{}, fmt.Errorf("%w: %v", errInvalidLegacyGameplayCommand, err)
+		}
+		if request.UserID != userID {
+			return gsr.Command{}, fmt.Errorf("%w: scene user %d differs from outer user %d", errInvalidLegacyGameplayCommand, request.UserID, userID)
+		}
+		return gsr.Command{ID: RequestGameSceneCommand, Payload: ReconnectPlayerRequest{Player: player}}, nil
 	default:
 		return gsr.Command{}, fmt.Errorf("%w: unsupported client MessageID %#x", errInvalidLegacyGameplayCommand, message)
 	}

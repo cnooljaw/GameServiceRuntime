@@ -670,6 +670,23 @@
 | RFC/决策 | RFC-0410、D-059、D-093、D-095 |
 | 备注 | 参考目录未修改；不恢复 BaseRule index 5 的跨小局统计模块，也不把 Replay Summary 伪造成 ROUND_STAT。 |
 
+### 4.33 Legacy USER_RECONNECT/GAME_SCENE 与恢复视图
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 增加客户端 `0x7208 USER_RECONNECT`、`0x720D GAME_SCENE` 的固定布局 codec/mapper；Battle 建立 ClientReady 目标资格，并提供 Reconnect/Scene 的最小恢复线序 `GameInfo -> GameScene -> 当前 AskOutCard` |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/player_view.go`、`player_view_test.go`；`header.go`、`client_gameplay.go`、`legacy_mapper.go` 及测试；`battle.go`、`battle_test.go` |
+| 参考入口 | `protocol/game/game.go`；`protocol/game/tcpprotocol/game.go`；`gamelogic/internal/game/game.go:OnMsgUserReconnect/OnMsgUserGameScene`；`nhsk/game/interface.go`；`nhsk/game/messages.go:SendMsgGameScene/buildScenePlayer` |
+| MessageID/布局 | `0x7208/0x720D`；请求均为 `BSHeader (24) + TGameHeader (24)`，固定 48 字节；嵌入 UserID 必须与 relay 外层 UserID 一致，MatchID/ProductID 由 adapter 解码但不重复写入 Battle 状态 |
+| 状态/副作用 | Reconnect 清除 Offline；仅 Playing 时退出托管并恢复；Scene 要求有效 game/subgame，不清除 Offline，退出托管并恢复；成功恢复均标记 ClientReady |
+| 输出 | 目标玩家依次收到 GameInfo、GameScene；Playing 且目标为当前行动人时再收到 AskOutCard。Scene 只暴露请求者自己的手牌，其他玩家手牌隐藏 |
+| 已一致 | MessageID、固定长度/类型校验、三层身份一致性、Reconnect 与 Scene 的 Offline/托管差异、恢复输出顺序和 `!Exited && ClientReady` 目标模型 |
+| 有意偏差 | 当前最小 Scene 尚未实现完整 ShowCards/GameRecords/commentary 和“请求者无牌时显示伙伴手牌”的特殊规则；新加入玩家初始 ClientReady=true 以保持旧 GameLogic 的可投递行为，资格表仍只在 Battle 内维护 |
+| 发现遗漏 | 参考 `SendMsgGameScene` 在部分非 Playing 阶段也可能发送 GameInfo，并包含亮牌/回放记录；完整恢复需要等结算与回放状态权威来源后接入，不能用当前最小 Snapshot 伪造 |
+| 结论 | 两个旧请求现在进入统一类型化 Command，且不泄露其他玩家手牌；完整恢复 golden 和亮牌分支留给后续切片 |
+| RFC/决策 | RFC-0410、D-043、D-095、D-096 |
+| 备注 | 参考目录未修改；本切片只写入 GSR 和复核文档。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

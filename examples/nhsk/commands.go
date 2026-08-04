@@ -42,7 +42,7 @@ const (
 	SetPlayerOfflineCommand gsr.CommandID = 0x04100304
 	// ReconnectPlayerCommand marks a player reachable again.
 	ReconnectPlayerCommand gsr.CommandID = 0x04100305
-	// RequestGameSceneCommand returns a receiver-specific scene projection.
+	// RequestGameSceneCommand requests a receiver-specific scene restore.
 	RequestGameSceneCommand gsr.CommandID = 0x04100306
 	// RecordPropUseCommand records a supported prop use without a reply.
 	RecordPropUseCommand gsr.CommandID = 0x04100307
@@ -200,7 +200,7 @@ type SetPlayerOfflineRequest struct {
 	Offline bool
 }
 
-// ReconnectPlayerRequest marks one player reachable and requests its scene.
+// ReconnectPlayerRequest identifies the player receiving a reconnect or scene restore.
 type ReconnectPlayerRequest struct{ Player game.PlayerID }
 
 // CompleteSettlementRequest is the small example settlement payload.
