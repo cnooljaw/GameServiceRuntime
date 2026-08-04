@@ -638,6 +638,22 @@
 | RFC/决策 | RFC-0410、RFC-0180、RFC-0310、D-039、D-062、D-091、D-092 |
 | 备注 | 参考目录未修改；本切片只写 GSR 新代码和 `.codegraph` 外的测试/文档，不把旧 Go struct 作为运行时依赖。 |
 
+### 4.31 Legacy GM 回合结束通知出站
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 增加旧 GL→GM `NOTICE_ROUND_OVER (0x864e)` 的固定 codec、类型化 `NoticeRoundOverOutput` 和强制结束线序；强制结束时先发最小 `GAME_OVER (0x8641)`，再发 `NOTICE_ROUND_OVER` |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/round_over.go`、`round_over_test.go`；`examples/nhsk/outputs.go`、`legacy_egress.go`、`round_over_output_test.go`；`battle.go`、`battle_test.go` |
+| 参考入口 | `protocol/gamelogic/gl2gm.go` 的 `BS_MSG_GL2GM_NOTICE_ROUND_OVER`；`protocol/gamelogic/tcpprotocol/gl2gm.go` 的 `BS_GL2GM_NOTICE_ROUND_OVER` 固定布局；`gamelogic/internal/game/game.go` 的 `GameOverProcess`、`SendMsgGL2GMRoundOver` 和 `isForceRoundOver` |
+| Legacy MessageID/布局 | `0x864e`；`TGM2GLHeader (34 bytes) + YueJuEndReason int32 + YueJuEndPlayerId uint32`，总长度 42 字节；BattleID 仍使用现有十进制业务编号映射 |
+| 输出与顺序 | `ForceFinishSubgameCommand` 在 Battle Mailbox 内提交 `GameOverOutput` 后提交 `NoticeRoundOverOutput`；同一输出 owner 按队列顺序编码为 `0x8641 -> 0x864e`。正常 `CompleteSettlement` 只提交 `GAME_OVER`，不伪造 NOTICE |
+| 已一致 | MessageID、固定字段顺序、header 长度、force-round-over 条件和 `GAME_OVER` 在前/NOTICE 在后的参考时序已用源码与单元测试复核 |
+| 有意偏差 | 当前 `GAME_OVER` 仍是空 PlayerData 的最小响应，`ROUND_STAT`、综合结算 ResultDetail 和真实 `endReason/endPlayer` 领域来源尚未迁移；强制路径按已冻结契约使用 `Success(0)`/`IsGameOver=0`，不凭空建立结束原因状态 |
+| 发现遗漏 | 参考 `GameOverProcess` 在 GAME_OVER 前还发送 `ROUND_STAT`；该消息及其玩家数据投影需在结算 adapter 具备权威来源后单独实现，不能在本切片填充伪造数据 |
+| 结论 | `NOTICE_ROUND_OVER` wire 与强制结束出站线序已完成；ROUND_STAT、完整玩家结算数据和真实结束上下文仍保持待实现，不改变当前最小 Battle 终态语义 |
+| RFC/决策 | RFC-0410、D-091、D-092 |
+| 备注 | 参考目录未修改；新 codec 不 import 旧协议 struct，玩家结束 ID 为空时编码为 0。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

@@ -59,6 +59,20 @@ func encodeLegacyGameOutputBatch(batch GameOutputBatch) ([][]byte, error) {
 				return nil, fmt.Errorf("%w: GAME_OVER: %v", errInvalidLegacyGameOutput, err)
 			}
 			frames = append(frames, frame)
+		case NoticeRoundOverOutput:
+			var endPlayer uint32
+			if output.EndPlayer != "" {
+				players, err := legacyTargetUserIDs([]game.PlayerID{output.EndPlayer})
+				if err != nil {
+					return nil, fmt.Errorf("%w: NOTICE_ROUND_OVER player: %v", errInvalidLegacyGameOutput, err)
+				}
+				endPlayer = players[0]
+			}
+			frame, err := legacywire.EncodeNoticeRoundOver(legacywire.NoticeRoundOver{BattleID: uint32(batch.BattleID), YueJuEndReason: output.EndReason, YueJuEndPlayer: endPlayer})
+			if err != nil {
+				return nil, fmt.Errorf("%w: NOTICE_ROUND_OVER: %v", errInvalidLegacyGameOutput, err)
+			}
+			frames = append(frames, frame)
 		default:
 			return nil, fmt.Errorf("%w: unsupported output type %T", errInvalidLegacyGameOutput, gameOutput)
 		}

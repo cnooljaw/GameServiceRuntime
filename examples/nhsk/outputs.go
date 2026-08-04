@@ -259,6 +259,15 @@ type GameOverOutput struct {
 
 func (GameOverOutput) isNHSKGameOutput() {}
 
+// NoticeRoundOverOutput tells the old GameMaster that the whole round was
+// forcibly ended after the terminal GameOver message.
+type NoticeRoundOverOutput struct {
+	EndReason int32
+	EndPlayer game.PlayerID
+}
+
+func (NoticeRoundOverOutput) isNHSKGameOutput() {}
+
 // GameOutputBatch is one Battle's immutable, ordered output commit.
 type GameOutputBatch struct {
 	BattleID             game.BattleID

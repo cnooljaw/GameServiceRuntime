@@ -140,6 +140,87 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	}
 }
 
+func TestBattleForceFinishEmitsGameOverThenRoundOver(t *testing.T) {
+	service, err := NewBattleService(NHSKBattleConfig{
+		ID:                   11,
+		MatchID:              1,
+		ProductID:            NHSKDescriptor.GameID,
+		ConnectionGeneration: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 11, ProductID: NHSKDescriptor.GameID, MatchID: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
+	if err := service.Handle(ctx, gsr.Command{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	if err := service.Handle(ctx, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.sends) != 2 {
+		t.Fatalf("force finish outputs = %d, want 2", len(output.sends))
+	}
+	gameOver, ok := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	if !ok {
+		t.Fatalf("first force finish output = %#v, want GameOverOutput", output.sends[0])
+	}
+	if gameOver.Reason != int32(GameOverReasonSuccess) || gameOver.IsGameOver {
+		t.Fatalf("force finish GameOver = %#v, want success subgame", gameOver)
+	}
+	notice, ok := output.sends[1].(GameOutputBatch).Outputs[0].(NoticeRoundOverOutput)
+	if !ok {
+		t.Fatalf("second force finish output = %#v, want NoticeRoundOverOutput", output.sends[1])
+	}
+	if notice.EndReason != int32(GameOverReasonSuccess) {
+		t.Fatalf("force finish Notice = %#v, want success reason", notice)
+	}
+}
+
+func TestBattleForceFinishBeforePlayingIsNoop(t *testing.T) {
+	service, err := NewBattleService(NHSKBattleConfig{ID: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	if err := service.Init(&battleTestServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 12, ProductID: NHSKDescriptor.GameID, MatchID: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
+	if err := service.Handle(ctx, gsr.Command{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattlePreparing {
+		t.Fatalf("pre-playing force finish phase = %s, want preparing", service.phase)
+	}
+	if result, ok := ctx.reply.(CommandResult); !ok || !result.Accepted {
+		t.Fatalf("pre-playing force finish reply = %#v, want accepted no-op", ctx.reply)
+	}
+}
+
 type battleTestCommandContext struct{ reply any }
 
 func (*battleTestCommandContext) Self() gsr.ServiceRef    { return gsr.ServiceRef{Node: "test", ID: 1} }
@@ -147,6 +228,27 @@ func (*battleTestCommandContext) Source() gsr.ServiceRef  { return gsr.ServiceRe
 func (c *battleTestCommandContext) Reply(value any) error { c.reply = value; return nil }
 
 type battleTestServiceContext struct{}
+
+type recordingBattleTestServiceContext struct {
+	sends []any
+}
+
+func (*recordingBattleTestServiceContext) Self() gsr.ServiceRef {
+	return gsr.ServiceRef{Node: "test", ID: 1}
+}
+func (c *recordingBattleTestServiceContext) Send(_ gsr.ServiceRef, _ gsr.CommandID, payload any) error {
+	c.sends = append(c.sends, payload)
+	return nil
+}
+func (*recordingBattleTestServiceContext) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
+	return nil, nil
+}
+func (*recordingBattleTestServiceContext) After(time.Duration, gsr.CommandID, any) (gsr.TimerID, error) {
+	return 1, nil
+}
+func (*recordingBattleTestServiceContext) Now() time.Time       { return time.Unix(1, 0) }
+func (*recordingBattleTestServiceContext) Logger() *slog.Logger { return slog.Default() }
+func (*recordingBattleTestServiceContext) Metrics() gsr.Metrics { return battleTestMetrics{} }
 
 func (*battleTestServiceContext) Self() gsr.ServiceRef                          { return gsr.ServiceRef{Node: "test", ID: 1} }
 func (*battleTestServiceContext) Send(gsr.ServiceRef, gsr.CommandID, any) error { return nil }

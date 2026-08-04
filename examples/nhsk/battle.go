@@ -399,9 +399,22 @@ func (battle *NHSKBattleService) forceFinish(ctx gsr.CommandContext, payload any
 			return battle.reject(ctx, errBattleInvalidRequest)
 		}
 	}
-	if battle.phase == NHSKBattlePlaying || battle.phase == NHSKBattlePreparing {
+	if battle.phase == NHSKBattlePlaying || battle.phase == NHSKBattleAwaitingSettlement {
 		battle.phase = NHSKBattleFinished
 		battle.revision++
+		// The old GameLogic emits GAME_OVER before the force-round-over notice.
+		// Keep the two typed outputs in the same Mailbox order; the output owner
+		// then serializes them onto the single GM connection.
+		if err := battle.emit(ctx, GameOverOutput{
+			Reason:     int32(GameOverReasonSuccess),
+			ReplayName: battle.replayName(),
+			IsGameOver: false,
+		}); err != nil {
+			return err
+		}
+		if err := battle.emit(ctx, NoticeRoundOverOutput{EndReason: int32(GameOverReasonSuccess)}); err != nil {
+			return err
+		}
 	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }

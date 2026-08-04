@@ -16,10 +16,11 @@
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
+- 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
 - Battle 的最小唯一期限 fencing、托管当前行动人自动最小出牌和 `CompleteSettlement` 终态入口。
 
-这不是“已经可以无损替换生产旧 GameLogic”的声明。旧 GM 出站的 GAME_OVER/NOTICE/ROUND_STAT、完整双扣牌型/抓分/单扣双扣结算、回放、AI、Quarantine 取证，以及 Gateway/Login/Auth/Agent 仍属于后续切片。RFC 明确要求在达到这些验收条件前，不把示例描述为生产替换品。
+这不是“已经可以无损替换生产旧 GameLogic”的声明。旧 GM 出站的 ROUND_STAT、带完整玩家数据的 GAME_OVER/综合结算响应、完整双扣牌型/抓分/单扣双扣结算、回放、AI、Quarantine 取证，以及 Gateway/Login/Auth/Agent 仍属于后续切片。RFC 明确要求在达到这些验收条件前，不把示例描述为生产替换品。
 
 ## 启动最小 GameLogic 进程
 
@@ -58,6 +59,7 @@ examples/nhsk/
 │   ├── control.go               # GM→GL 生命周期/玩家/结算控制 codec
 │   ├── control_egress.go        # NEW_GAME ACK 0x800086c0
 │   ├── game_over.go              # 最小 GL→GM GAME_OVER 0x8641
+│   ├── round_over.go             # GL→GM NOTICE_ROUND_OVER 0x864e
 │   └── ...                     # 已确认输出/控制消息的固定 codec
 ├── config.go                   # gamelogic 配置与环境变量解析
 ├── logging.go                  # 结构化日志字段与脱敏边界
@@ -127,6 +129,10 @@ GameLogic -> GameMaster
 | `0x86c2` | DEL_GAME | `RequestDeleteBattleCommand` |
 | `0x80008650` | GM→GL 综合结算 ACK | `CompleteSettlementCommand`（结果 suffix 只解码） |
 | `0x8644` | GL→GM 输出 envelope | 不是业务 Command，只做边界编码 |
+| `0x8641` | GL→GM GAME_OVER | `GameOverOutput`；当前为最小空玩家数据响应 |
+| `0x864e` | GL→GM NOTICE_ROUND_OVER | `NoticeRoundOverOutput`；仅强制回合结束时发送 |
+
+旧 GameLogic 的强制结束线序是 `GAME_OVER -> NOTICE_ROUND_OVER`。当前 GSR 在 Battle Mailbox 中按同一顺序提交两个类型化输出，由当代 `GameOutputService` 串行写入旧 GM TCP；正常 `CompleteSettlement` 不发送 NOTICE。
 
 旧 TCP 入口没有同步 GSR Reply。它的业务语义是：完整 frame 解码成功后，把 Command `Send` 到 Battle；坏 frame 或身份冲突只丢当前 frame，并由连接 owner 负责日志、计量和必要的连接处理。
 
@@ -290,12 +296,12 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 以下能力不能从当前切片推断为已完成：
 
-1. Legacy GM 出站 NOTICE/ROUND_STAT/完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER 和 CompleteSettlement。
+1. Legacy GM 出站 ROUND_STAT、带玩家数据的完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER、强制结束 NOTICE 和 CompleteSettlement。
 2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
 5. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。
-6. 生产部署文件、健康端口、旧 GM 联调录包，以及完整 GAME_OVER/NOTICE golden。
+6. 生产部署文件、健康端口、旧 GM 联调录包，以及完整 GAME_OVER/ROUND_STAT golden。
 
 这些不是隐藏欠账，而是下一阶段必须继续实现并在参考核对表中逐项关闭的范围。当前阶段的业务价值是先验证：`BattleID -> BattleRef -> Command -> Mailbox -> typed output` 这条新边界能够和旧 relay 共存。
 
