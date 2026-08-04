@@ -589,6 +589,22 @@
 | RFC/决策 | RFC-0410、D-026、D-042、D-060、D-068、D-097 |
 | 备注 | 本切片不实现 Battle 阶段/座位校验、托管 mutation、RobotState 输出、主动自动出牌、BattleRef 路由或 Runtime Send/Call。 |
 
+### 4.28 NHSK Battle Mailbox 与 Host/Factory 生命周期最小切片
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 建立可由 Cluster 创建、解析、初始化并直接调用的 NHSK Battle；Host 只持有 `BattleID -> ServiceRef`，Factory Service 执行创建/停止，Legacy relay 与 Cluster Call 共用 Battle Command |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`battle_test.go`、`host.go`、`host_test.go`、`commands.go`、`legacy_relay_mapper.go`、`legacy_relay_mapper_test.go` |
+| 参考入口 | `gamelogic/app/handler/game.go` 的 GameLogic 生命周期转发；`gamelogic/internal/game/game.go:onMsgGameMsg` 的按 GameInnerID 路由；`nhsk/game/interface.go:OnMsg` 的初始化/玩家/玩法入口；GSR `game/battle.go` 的 Service、Mailbox、Snapshot 和 Timer 边界 |
+| 输入与校验 | Battle 只接受类型化 `InitializeBattle/UpdatePlayers/PrepareSubgame/StartSubgame/PlayCards/Preview/SetPlayerAutoState`；初始化冻结 BattleID/ProductID/MatchID；Start 前要求四个非零玩家与 0..3 座位；OUT_CARD 在 Battle 内校验行动玩家、VerifyCode、牌数、手牌、同点和基本压制关系；Preview 保持参考的宽松牌面校验；Host 只接受 0 外的 BattleID 且由 Factory 返回完整 ServiceRef |
+| 权威状态变化 | Battle Mailbox 独占阶段、玩家、手牌、当前座位、VerifyCode、Auto/Offline、最近出牌和业务 Revision；Host 独占活动 Ref 索引；Factory 不拥有牌局状态；Legacy relay 只解析、ResolveHost、再向 Battle 发送/调用，不保存旧 ServiceRef |
+| Timer/Timeline | 本切片保留私有 timer Command 入口和 Revision 检查 seam；完整唯一 ActionDeadline、托管自动动作和 AI provider 仍未进入本切片 |
+| 输出目标与顺序 | Battle 产生类型化 `GameOutputBatch`，不直接编码 `0x8644`；已配置 OutputService 时按当前玩家目标发送 GAME_START、OUT_CARD_INFO、CARD_ACTION_WATCH、OUT_CARD_RESULT/SCENE；无 OutputService 的 Cluster 测试只验证 Command 结果与 Snapshot |
+| 生命周期结果 | Host BeginCreate 返回 Creating Operation，Factory 完成后 Host 才发布 Active Ref；ResolveBattle 只返回 Active；Delete 通过有界 stop runner 停止精确 Ref，真实停止后移除索引并允许编号复用；Runtime Stop 由 Factory runner 执行，避免 Host Handler 在单 worker 上同步停 Battle 造成调用环 |
+| 结论 | Service/Command/Mailbox/Host/Factory 边界与“Legacy、Cluster 同一 Command”目标已建立；基础四座发牌与出牌可运行。与最终 RFC 的异步 runner、Quarantine/诊断、完整牌型/结算/回放、Origin/TCP owner 仍是 **发现遗漏/待实现**，本切片不宣称可无损替换旧 GameLogic |
+| RFC/决策 | RFC-0310、RFC-0410、RFC-0500、D-039、D-062、D-097 |
+| 备注 | Battle 的示例发牌采用确定性四座分片，当前只覆盖最小 Command 流；生产规则、Legacy NEW_GAME/INIT/UPDATE_PLAYER 全量 codec、连接代际和旧 GM 控制消息必须在后续切片补齐并逐项回查参考代码。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

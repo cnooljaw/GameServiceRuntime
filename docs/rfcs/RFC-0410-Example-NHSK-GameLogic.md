@@ -571,6 +571,16 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 100,000 次 Battle 创建/停止 churn 后，Registry、Timer、PendingCall、Mailbox 和 goroutine 回到基线。不预创建或复用 ServiceRef 池。
 - `go test ./...`、`go vet ./...`、`go test -race ./...` 和 `git diff --check` 全部通过；Core Runtime 的 import graph 不含 `examples/nhsk`。
 
+## 当前实现进度（2026-08）
+
+本 RFC 是目标契约；当前仓库已经交付的第一批可验证代码是 `examples/nhsk` 的 Legacy codec/mapper、Host/Factory/ Battle Mailbox 最小切片和 typed output seam。该切片已覆盖：
+
+- `0x7701`、`0x7702`、`0x720A` 的固定字节解码、三层身份核对和显式 Command 映射。
+- `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
+- `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
+
+尚未完成的 RFC 契约包括完整 Legacy 控制面和连接 owner、最终唯一 ActionDeadline、104 张牌全规则、结算/回放/AI、Quarantine/诊断、GM 断线收敛以及独立可部署进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+
 ## 实际作用与后续阶段
 
 本切片完成后，旧 GameMaster 可以把整个宁海双扣 GameLogic 进程切换到 GSR，无需同时修改 Agent 或客户端。它证明了 GSR Service、Command、Mailbox、Timeline、adapter 和外部 runner 可承载一个完整棋牌游戏。

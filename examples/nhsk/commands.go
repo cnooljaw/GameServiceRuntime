@@ -6,13 +6,221 @@ import (
 )
 
 const (
+	// BeginCreateBattleCommand asks the NHSK Host to create a Battle asynchronously.
+	BeginCreateBattleCommand gsr.CommandID = 0x04100101
+	// GetCreateBattleOperationCommand reads one Host create operation.
+	GetCreateBattleOperationCommand gsr.CommandID = 0x04100102
+	// ResolveBattleCommand resolves an active BattleID to its current ServiceRef.
+	ResolveBattleCommand gsr.CommandID = 0x04100103
+	// RequestDeleteBattleCommand asks the NHSK Host to stop one Battle.
+	RequestDeleteBattleCommand gsr.CommandID = 0x04100104
+	// GetHostSnapshotCommand reads the Host's active and quarantined index.
+	GetHostSnapshotCommand gsr.CommandID = 0x04100105
+	// InitializeBattleCommand freezes one Battle's identity and game configuration.
+	InitializeBattleCommand gsr.CommandID = 0x04100201
+	// UpdatePlayersCommand atomically upserts Battle participants.
+	UpdatePlayersCommand gsr.CommandID = 0x04100202
+	// PrepareSubgameCommand moves an initialized Battle into a prepared subgame.
+	PrepareSubgameCommand gsr.CommandID = 0x04100203
+	// StartSubgameCommand starts the prepared NHSK subgame.
+	StartSubgameCommand gsr.CommandID = 0x04100204
+	// UpdateRoundContextCommand updates replay context for the next subgame.
+	UpdateRoundContextCommand gsr.CommandID = 0x04100205
+	// ExitPlayerCommand marks one player exited without deleting identity.
+	ExitPlayerCommand gsr.CommandID = 0x04100206
+	// UpdatePlayerDressCommand updates a player's next-subgame dress metadata.
+	UpdatePlayerDressCommand gsr.CommandID = 0x04100207
+	// ForceFinishSubgameCommand requests an exceptional local subgame finish.
+	ForceFinishSubgameCommand gsr.CommandID = 0x04100208
 	// PlayCardsCommand submits one player play or pass to an NHSK Battle.
 	PlayCardsCommand gsr.CommandID = 0x04100301
 	// PreviewCardSelectionCommand publishes one non-authoritative player selection.
 	PreviewCardSelectionCommand gsr.CommandID = 0x04100302
 	// SetPlayerAutoStateCommand changes one NHSK player's auto-play state.
 	SetPlayerAutoStateCommand gsr.CommandID = 0x04100303
+	// SetPlayerOfflineCommand records a player transport disconnect.
+	SetPlayerOfflineCommand gsr.CommandID = 0x04100304
+	// ReconnectPlayerCommand marks a player reachable again.
+	ReconnectPlayerCommand gsr.CommandID = 0x04100305
+	// RequestGameSceneCommand returns a receiver-specific scene projection.
+	RequestGameSceneCommand gsr.CommandID = 0x04100306
+	// RecordPropUseCommand records a supported prop use without a reply.
+	RecordPropUseCommand gsr.CommandID = 0x04100307
+	// CompleteSettlementCommand applies the terminal settlement response.
+	CompleteSettlementCommand gsr.CommandID = 0x04100401
+	// GetNHSKBattleSnapshotCommand returns a read-only Battle projection.
+	GetNHSKBattleSnapshotCommand gsr.CommandID = 0x04100402
 )
+
+// GameDescriptor identifies the concrete game selected by this composition root.
+type GameDescriptor struct {
+	GameID   uint32
+	GameName string
+}
+
+// NHSKDescriptor is the fixed descriptor for Ninghai Double Buckle.
+var NHSKDescriptor = GameDescriptor{GameID: 82, GameName: "宁海双扣"}
+
+// CommandResult is the stable reply for lifecycle and player state Commands.
+type CommandResult struct {
+	Accepted  bool
+	Rejection string
+}
+
+// ActionResult is the stable reply for a card action or preview.
+type ActionResult struct {
+	Accepted  bool
+	Rejection string
+}
+
+// HostCommandResult is the stable reply for Host lifecycle Commands.
+type HostCommandResult struct {
+	Accepted    bool
+	Rejection   string
+	OperationID HostOperationID
+}
+
+// SettlementCommandResult is the stable reply for settlement application.
+type SettlementCommandResult struct {
+	Accepted  bool
+	Rejection string
+}
+
+// HostOperationID identifies an asynchronous Host lifecycle operation.
+type HostOperationID uint64
+
+// ConnectionGeneration identifies the physical GM connection used by a create request.
+// It is zero when the caller is a direct Cluster caller.
+type CreateBattleRequest struct {
+	BattleID             game.BattleID
+	IsNewbie             bool
+	ConnectionGeneration ConnectionGeneration
+}
+
+// HostOperationPhase describes a create or stop operation.
+type HostOperationPhase string
+
+const (
+	// HostOperationCreating means the factory has not returned a BattleRef.
+	HostOperationCreating HostOperationPhase = "creating"
+	// HostOperationCompleted means the requested lifecycle action completed.
+	HostOperationCompleted HostOperationPhase = "completed"
+	// HostOperationFailed means the requested lifecycle action failed.
+	HostOperationFailed HostOperationPhase = "failed"
+)
+
+// CreateBattleOperation is an independent Host operation projection.
+type CreateBattleOperation struct {
+	OperationID HostOperationID
+	BattleID    game.BattleID
+	Phase       HostOperationPhase
+	Ref         gsr.ServiceRef
+	Rejection   string
+}
+
+// GetCreateBattleOperationRequest reads one operation by ID.
+type GetCreateBattleOperationRequest struct{ OperationID HostOperationID }
+
+// ResolveBattleRequest resolves one business BattleID.
+type ResolveBattleRequest struct{ BattleID game.BattleID }
+
+// ResolveBattleResult is the Host's current active Battle binding.
+type ResolveBattleResult struct {
+	BattleID game.BattleID
+	Ref      gsr.ServiceRef
+}
+
+// RequestDeleteBattleRequest asks the Host to stop one Battle.
+type RequestDeleteBattleRequest struct {
+	BattleID game.BattleID
+	Ref      gsr.ServiceRef
+}
+
+// HostSnapshot is a read-only Host index summary.
+type HostSnapshot struct {
+	MaxActiveBattles uint32
+	ActiveBattles    map[game.BattleID]gsr.ServiceRef
+	Quarantined      []game.BattleID
+}
+
+// BattleIdentity freezes the Legacy/GameMaster identity for one Battle.
+type BattleIdentity struct {
+	BattleID     game.BattleID
+	ProductID    uint32
+	MatchID      uint32
+	RoundID      uint32
+	RoundUniCode string
+}
+
+// InitializeBattleRequest is the one-time Battle initialization payload.
+type InitializeBattleRequest struct {
+	Identity         BattleIdentity
+	MaxGameNum       uint16
+	MaxSubgameNum    uint16
+	Fee              int32
+	ScoreBase        int32
+	ScoreDenominator int32
+}
+
+// BattlePlayer is the normalized four-seat player record.
+type BattlePlayer struct {
+	Player    game.PlayerID
+	UserID    uint32
+	SeatID    uint8
+	Score     int32
+	Nickname  string
+	Automated bool
+	Exited    bool
+}
+
+// UpdatePlayersRequest atomically upserts a batch of players.
+type UpdatePlayersRequest struct{ Players []BattlePlayer }
+
+// PrepareSubgameRequest selects the next game/subgame number.
+type PrepareSubgameRequest struct{ GameNum, SubgameNum uint16 }
+
+// UpdateRoundContextRequest updates replay metadata for the next subgame.
+type UpdateRoundContextRequest struct {
+	SecRoundTotal, SecRoundUsed uint32
+	RoomInfo                    string
+}
+
+// ExitPlayerRequest marks one player exited.
+type ExitPlayerRequest struct{ Player game.PlayerID }
+
+// UpdatePlayerDressRequest updates a player's next-subgame dress identifier.
+type UpdatePlayerDressRequest struct {
+	Player game.PlayerID
+	Dress  string
+}
+
+// SetPlayerOfflineRequest changes a player's current reachability.
+type SetPlayerOfflineRequest struct {
+	Player  game.PlayerID
+	Offline bool
+}
+
+// ReconnectPlayerRequest marks one player reachable and requests its scene.
+type ReconnectPlayerRequest struct{ Player game.PlayerID }
+
+// CompleteSettlementRequest is the small example settlement payload.
+type CompleteSettlementRequest struct {
+	Success bool
+	Scores  [4]int32
+}
+
+// NHSKBattleSnapshot is the read-only state projection exposed by a Battle.
+type NHSKBattleSnapshot struct {
+	BattleID     game.BattleID
+	Phase        string
+	Identity     BattleIdentity
+	Players      []BattlePlayer
+	ActivePlayer game.PlayerID
+	VerifyCode   uint32
+	Hands        map[game.PlayerID][]byte
+	Auto         map[game.PlayerID]bool
+	Revision     uint64
+}
 
 // PlayCardsRequest submits one player play or pass candidate.
 type PlayCardsRequest struct {

@@ -1,6 +1,7 @@
 package nhsk
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"reflect"
@@ -101,6 +102,37 @@ func TestMapLegacyInboundGameplayRelayRejectsUserStatePayloadIdentityMismatch(t 
 	if _, err := mapLegacyInboundGameplayRelay(data); !errors.Is(err, errInvalidLegacyInboundGameplayRelay) {
 		t.Fatalf("map mismatched USER_STATE_CHANGE relay error = %v, want errInvalidLegacyInboundGameplayRelay", err)
 	}
+}
+
+func TestRouteLegacyGameplayCallUsesResolvedBattleRefAndMappedCommand(t *testing.T) {
+	runtime := &recordingCommandRuntime{resolve: ResolveBattleResult{BattleID: 1234, Ref: gsr.ServiceRef{Node: "nhsk", ID: 9}}}
+	value, err := RouteLegacyGameplayCall(context.Background(), runtime, gsr.ServiceRef{Node: "nhsk", ID: 1}, decodeLegacyMapperGolden(t, legacyOutCardRelayGolden))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "reply" || runtime.target.ID != 9 || runtime.command != PlayCardsCommand {
+		t.Fatalf("route = value=%#v target=%#v command=%#x", value, runtime.target, runtime.command)
+	}
+	request := runtime.payload.(PlayCardsRequest)
+	if request.Player != "1001" || !reflect.DeepEqual(request.Cards, []byte{0x03, 0x13}) {
+		t.Fatalf("route payload = %#v", request)
+	}
+}
+
+type recordingCommandRuntime struct {
+	resolve ResolveBattleResult
+	target  gsr.ServiceRef
+	command gsr.CommandID
+	payload any
+}
+
+func (runtime *recordingCommandRuntime) Send(gsr.ServiceRef, gsr.CommandID, any) error { return nil }
+func (runtime *recordingCommandRuntime) Call(_ context.Context, target gsr.ServiceRef, command gsr.CommandID, payload any) (any, error) {
+	if command == ResolveBattleCommand {
+		return runtime.resolve, nil
+	}
+	runtime.target, runtime.command, runtime.payload = target, command, payload
+	return "reply", nil
 }
 
 func mutateRelayUint32(offset int, value uint32) func([]byte) []byte {
