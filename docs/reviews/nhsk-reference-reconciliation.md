@@ -517,6 +517,24 @@
 | RFC/决策 | RFC-0410、D-062、D-068 |
 | 备注 | 本切片不实现 relay 身份校验、MessageID→CommandID 映射、Battle 阶段/当前玩家门禁或 `0x7611` 广播决策。 |
 
+### 4.24 NHSK OUT_CARD Legacy payload 解码
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将客户端 `0x7701 OUT_CARD` 固定 payload 解码为独立 `OutCardRequest` 值 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/out_card_request.go`、`out_card_request_test.go` |
+| 参考入口 | `nhsk/protocol/tcpprotocol/gc2gs.go:OutCardRequest`、`nhsk/protocol/gc2gs.go:OutCardRequest.FormatFromTcp`、`nhsk/game/handlers.go:OnMsgOutCard`、`nhsk/game/flow_core.go:DoOutCard` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestDoOutCardRejectsStaleVerifyCode` 证明 VerifyCode 属于业务拒绝；9..26 张到 `DoOutCard` 的 CardCount 分支由源码复核；golden 按参考 struct 小端布局核对；参考测试环境仍受无权限私有模块依赖阻塞 |
+| Legacy MessageID | 输入 payload `0x7701`；本切片不解码外层 `0x8605 + 0x7402` relay |
+| 输入与校验 | 固定 55 字节；Header Type/Length 必须为 `0x7701`/55；CardCount 为 0..26；CardCount 后固定牌区必须为零；保留末尾 uint32 VerifyCode；空选择和零 VerifyCode 可解码 |
+| 权威状态变化 | 无；codec 只返回复制后的 Cards/Count/VerifyCode，不触达 Battle |
+| Timer/Timeline | 无；VerifyCode 尚未和当前行动机会比较 |
+| 输出目标与顺序 | 无；9..26 张继续进入后续 PlayCards，以保留真人 `0x7609 CardCount(1)` 业务拒绝；结构坏包静默丢弃 |
+| 生命周期结果 | 解码不持有 caller storage；短包、长包、错误 MessageID、错误 Length、超过 26 的 count 和非零尾部均稳定失败 |
+| 结论 | MessageID、55 字节布局、26 字节 wire 容量、过牌和 VerifyCode 原样传递与参考实现 **已一致**；显式拒绝非零未使用牌区是严格 wire 边界下的 **有意收紧**，不改变合法客户端行为 |
+| RFC/决策 | RFC-0410、D-026、D-062、D-068 |
+| 备注 | 本切片不实现 relay 身份校验、MessageID→CommandID 映射、当前玩家/VerifyCode/牌数/手牌/牌型校验或出牌状态变化。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

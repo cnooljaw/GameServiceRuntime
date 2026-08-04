@@ -491,6 +491,8 @@ GL -> GameMaster: 0x8644 GLHeader + 0x7400 GameHeader + payload
 
 Legacy bridge 只实现能映射到本 RFC Command 的消息。客户端玩法输入只保留 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` 和通用 USER_STATE_CHANGE。GAME_MSG 外围事实只保留离线、重连、场景和道具成功广播。未知内层 ID 丢弃并计量。无效的 `0x7200` 直传、`0x8655` 旧输出、PLAYER_LIMIT、GAME_END、旧结算 ACK、投票和骰子不进入 codec switch。
 
+`0x7701 OUT_CARD` payload 固定为 55 字节：24 字节 BSHeader、26 字节 CardData、1 字节 CardCount 和末尾 uint32 VerifyCode。codec 要求 Header.Type=`0x7701`、Header.Length=55、CardCount 位于 0..26，且 CardCount 后未使用的固定牌区全部为零；空选择和零 VerifyCode 都是可解码输入。codec 不应用 8 张玩法上限：9..26 张必须进入 `PlayCards`，再由 Battle 对真人产生 CardCount 拒绝；VerifyCode 是否等于当前行动机会也只由 Battle 判断。坏长度、超过 wire 容量的计数或非零尾部整条 payload 丢弃，不产生 Command 或客户端错误包。
+
 `0x7702 CARD_ACTION` payload 固定为 51 字节：24 字节 BSHeader、26 字节 CardData 和末尾 1 字节 CardCount。codec 要求 Header.Type=`0x7702`、Header.Length=51、CardCount 位于 0..26，且 CardCount 后未使用的固定牌区全部为零；空选择有效。Magic、Serial、Origin、Reserve 和 Param 不进入归一化输入。codec 只复制前 CardCount 张牌，不校验重复、手牌归属、牌型或压牌关系；这些玩法门禁由 `PreviewCardSelection` Handler 决定。坏长度、坏计数或非零尾部整条 payload 丢弃，不产生 Command 或客户端错误包。
 
 客户端 NHSK 输出保留 `0x7601..0x7609` 和 `0x7611` 中已确认可达的 GameInfo、Deal、AskOutCard、OutCardInfo、TurnEnd、ShowCards、GameResult、GameScene、OutCardResult 和 CardActionWatch。托管状态继续使用参考代码中的通用消息，不把它伪装成 NHSK `0x76xx` 消息。已放弃的 `0x7610 COMMENTATE_TIME` 和客户端 `0x7612 ROBOT_RELAY` 不因为相邻编号而自动实现；外部 AI adapter 使用的 `0x7612` 只属于其 provider wire。
