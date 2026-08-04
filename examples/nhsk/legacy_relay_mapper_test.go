@@ -13,6 +13,7 @@ import (
 const (
 	legacyOutCardRelayGolden    = "0000000000000000000000000586000000000000910000002200d2040000e903000000000000000000000000000002740000000000006f000000e90300000300000004000000580000005200000009000000380000003700000000000000000000000000000001770000000000003700000003130000000000000000000000000000000000000000000000000205000000"
 	legacyCardActionRelayGolden = "00000000000000000000000005860000000000008d0000002200d2040000e903000000000000000000000000000002740000000000006b000000e903000003000000040000005800000052000000090000003800000033000000000000000000000000000000027700000000000033000000030325000000000000000000000000000000000000000000000003"
+	legacyUserStateRelayGolden  = "00000000000000000000000005860000000000007a0000002200d2040000e9030000000000000000000000000000027400000000000058000000e9030000030000000400000058000000520000000900000038000000200000000000000000000000000000000a7200000000000020000000e903000001000000"
 )
 
 func TestMapLegacyInboundGameplayRelayNormalizesOutCard(t *testing.T) {
@@ -59,6 +60,17 @@ func TestMapLegacyInboundGameplayRelayNormalizesCardAction(t *testing.T) {
 	}
 }
 
+func TestMapLegacyInboundGameplayRelayNormalizesUserStateChange(t *testing.T) {
+	got, err := mapLegacyInboundGameplayRelay(decodeLegacyMapperGolden(t, legacyUserStateRelayGolden))
+	if err != nil {
+		t.Fatalf("map inbound USER_STATE_CHANGE relay: %v", err)
+	}
+	want := SetPlayerAutoStateRequest{Player: game.PlayerID("1001"), Enabled: true}
+	if got.Command.ID != SetPlayerAutoStateCommand || !reflect.DeepEqual(got.Command.Payload, want) {
+		t.Fatalf("mapped inbound USER_STATE_CHANGE command = %#v, want %#v", got.Command, want)
+	}
+}
+
 func TestMapLegacyInboundGameplayRelayRejectsInvalidIdentityOrPayload(t *testing.T) {
 	valid := decodeLegacyMapperGolden(t, legacyOutCardRelayGolden)
 	tests := []struct {
@@ -79,6 +91,15 @@ func TestMapLegacyInboundGameplayRelayRejectsInvalidIdentityOrPayload(t *testing
 				t.Fatalf("map invalid inbound relay error = %v, want errInvalidLegacyInboundGameplayRelay", err)
 			}
 		})
+	}
+}
+
+func TestMapLegacyInboundGameplayRelayRejectsUserStatePayloadIdentityMismatch(t *testing.T) {
+	data := decodeLegacyMapperGolden(t, legacyUserStateRelayGolden)
+	binary.LittleEndian.PutUint32(data[114:118], 1002)
+
+	if _, err := mapLegacyInboundGameplayRelay(data); !errors.Is(err, errInvalidLegacyInboundGameplayRelay) {
+		t.Fatalf("map mismatched USER_STATE_CHANGE relay error = %v, want errInvalidLegacyInboundGameplayRelay", err)
 	}
 }
 

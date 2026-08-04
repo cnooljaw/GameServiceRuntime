@@ -539,11 +539,11 @@
 
 | 字段 | 内容 |
 |---|---|
-| 切片 | 将已校验的 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` payload 显式映射为公开 GSR gameplay Command |
+| 切片 | 将已校验的 `0x7701 OUT_CARD`、`0x7702 CARD_ACTION` payload 显式映射为公开 GSR gameplay Command；后续相邻切片追加通用 `0x720A USER_STATE_CHANGE` |
 | GSR 文件/测试 | `examples/nhsk/commands.go`、`commands_external_test.go`、`legacy_mapper.go`、`legacy_mapper_test.go`；`internal/legacywire/client_gameplay.go`、`client_gameplay_test.go` |
 | 参考入口 | `nhsk/game/interface.go:OnMsg`、`nhsk/game/handlers.go:OnMsgOutCard/OnMsgCardAction` |
 | 参考测试/配置/录包 | 两条已冻结 payload golden 复用真实 MessageID 与字段布局；参考仓库没有 CARD_ACTION 专项测试，OUT_CARD 业务拒绝继续由后续 handler 测试负责 |
-| Legacy MessageID | 显式 `0x7701 -> PlayCardsCommand(0x04100301)`；`0x7702 -> PreviewCardSelectionCommand(0x04100302)`；不做数值复用或算术转换 |
+| Legacy MessageID | 显式 `0x7701 -> PlayCardsCommand(0x04100301)`；`0x7702 -> PreviewCardSelectionCommand(0x04100302)`；不做数值复用或算术转换；`0x720A` 映射见 4.27 |
 | 输入与校验 | 外层归一化 UserID 必须非零并转为十进制 `game.PlayerID`；Cards 深拷贝为领域 `[]byte`，丢弃 Header 与 CardCount；OUT_CARD 保留 VerifyCode；未知 MessageID、坏 frame 或坏 body 拒绝 |
 | 权威状态变化 | 无；mapper 只产生 `gsr.Command`，不发送、不触达 Mailbox、不保存 Battle 状态 |
 | Timer/Timeline | 无；VerifyCode、行动机会和 Deadline 尚未判定 |
@@ -561,7 +561,7 @@
 | GSR 文件/测试 | `examples/nhsk/legacy_relay_mapper.go`、`legacy_relay_mapper_test.go`；复用 `internal/legacywire/codec.go` 与 `legacy_mapper.go` |
 | 参考入口 | `protocol/gamelogic/gm2gl.go:ReqGM2GLGameMsg.FormatFromTcp`、`gamelogic/app/handler/game.go:ReqGameMsg.Execute`、`gamelogic/internal/game/game.go:onMsgGameMsg`、`nhsk/game/interface.go:OnMsg` |
 | 参考测试/配置/录包 | 145 字节 OUT_CARD 与 141 字节 CARD_ACTION 完整 relay golden 按参考 `GLHeader + BSHeader + GameHeader + BSSUFFIXIDX + payload` 逐字段复算；参考仓库没有完整 relay 专项测试 |
-| Legacy MessageID | 外层 `0x8605`、内层 `0x7402`；payload `0x7701/0x7702` 分别进入既有显式 Command 映射 |
+| Legacy MessageID | 外层 `0x8605`、内层 `0x7402`；payload `0x7701/0x7702` 分别进入既有显式 Command 映射；`0x720A` 由 4.27 追加到同一入口 |
 | 输入与校验 | BattleID、外层 UserID 必须非零；内层 GameHeader.UserID 必须与外层一致；保留 MatchID/ProductID 供 bridge 与已初始化 Battle 身份核对；ConnectType/PlatformID/Reserved 不进入 Command |
 | 权威状态变化 | 无；返回私有 `legacyInboundGameplayCommand{BattleID, MatchID, ProductID, Command}`，不查询 Host、不发送 Mailbox |
 | Timer/Timeline | 无 |
@@ -570,6 +570,24 @@
 | 结论 | 外层 GameInnerID/UserID、内层 UserID 与 payload 的业务流向和参考实现 **已一致**；在进入 Battle 前显式拒绝双层身份冲突是已冻结 adapter 安全边界 |
 | RFC/决策 | RFC-0410、D-039、D-049、D-068、D-097 |
 | 备注 | 本切片不实现 INIT 身份缓存、MatchID/ProductID 最终比对、BattleRef 解析、ConnectionGeneration fence、Runtime Send/Call 或 Battle handler。 |
+
+### 4.27 USER_STATE_CHANGE 托管 Command 映射
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将通用 `0x720A USER_STATE_CHANGE` payload 及完整 gameplay relay 归一化为 `SetPlayerAutoStateCommand` |
+| GSR 文件/测试 | `examples/nhsk/commands.go`、`legacy_mapper.go`、`legacy_mapper_test.go`、`legacy_relay_mapper_test.go`；`internal/legacywire/header.go`、`user_state_change.go`、`user_state_change_test.go`、`client_gameplay.go` 及对应测试 |
+| 参考入口 | `protocol/game/tcpprotocol/game.go:BS_USER_STATE_CHANGE`、`protocol/game/game.go:ReqGC2GSGameUserStateChange`、`nhsk/game/interface.go:OnMsg`、`nhsk/game/second_batch.go:OnMsgUserStateChange` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestOnMsgUserStateChangePacketTogglesAuto/TestUserStateChangeTogglesAutoAndBroadcastsRobotState/TestUserStateChangeRejectsOutsidePlayState/TestUserStateChangeActiveSeatAutoForcesOutCard`；32 字节 payload 与 122 字节完整 relay golden |
+| Legacy MessageID | `0x720A -> SetPlayerAutoStateCommand(0x04100303)`；仍位于允许的 `0x7402` gameplay relay 内，不接受裸 `0x7200` wrapper |
+| 输入与校验 | payload 固定 32 字节 Header+UserId+State；Header Type/Length 必须为 `0x720A`/32；payload UserId 必须非零并与 relay 外层和 GameHeader UserID 一致；State bit 0 映射 Enabled，其他 bit 忽略 |
+| 权威状态变化 | mapper 无状态变化，只产生 `SetPlayerAutoStateRequest{Player, Enabled}`；托管状态、广播和当前玩家自动动作由 Battle Mailbox Handler 负责 |
+| Timer/Timeline | mapper 不取消或替换期限；后续 Battle 按 D-060 决定当前操作人的 100ms 边界和唯一 ActionDeadline |
+| 输出目标与顺序 | mapper 无输出；Battle 成功后才产生一次全桌状态通知和一次请求者定向确认，非法阶段或身份静默拒绝 |
+| 生命周期结果 | 任意 uint32 State 可解码，只有 bit 0 进入领域；坏结构、三层 UserID 冲突或未知消息不产生 Command；完整 relay 不持有 caller storage |
+| 结论 | `0x720A` 布局、payload UserId、bit 0 托管语义及进入 NHSK `OnMsgUserStateChange` 的流向与参考实现 **已一致**；显式三层身份一致性是既有 adapter 安全边界 |
+| RFC/决策 | RFC-0410、D-026、D-042、D-060、D-068、D-097 |
+| 备注 | 本切片不实现 Battle 阶段/座位校验、托管 mutation、RobotState 输出、主动自动出牌、BattleRef 路由或 Runtime Send/Call。 |
 
 ## 5. 切片追加模板
 

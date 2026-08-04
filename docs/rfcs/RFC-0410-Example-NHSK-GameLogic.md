@@ -124,6 +124,7 @@ CommandID 不复用 Legacy MessageID。已导出常量是 Cluster Service 的公
 const (
     PlayCardsCommand            gsr.CommandID = 0x04100301
     PreviewCardSelectionCommand gsr.CommandID = 0x04100302
+    SetPlayerAutoStateCommand   gsr.CommandID = 0x04100303
 )
 
 type PlayCardsRequest struct {
@@ -136,9 +137,16 @@ type PreviewCardSelectionRequest struct {
     Player game.PlayerID
     Cards  []byte
 }
+
+type SetPlayerAutoStateRequest struct {
+    Player  game.PlayerID
+    Enabled bool
+}
 ```
 
 `Cards` 是领域列表，不暴露 Legacy 固定数组或重复的 CardCount。Command payload 进入 Send/Call 后按不可变值使用；Legacy mapper 必须为它分配独立 slice，不保留 frame 缓冲区。`PlayCardsRequest` 允许携带 0..26 张 Legacy 输入，Battle 再应用 8 张玩法上限及完整合法性校验。`PreviewCardSelectionRequest` 允许 0..26 张，只应用已冻结的宽松预览门禁。
+
+`SetPlayerAutoStateRequest` 只表达 NHSK 实际消费的托管开关。Legacy `0x720A USER_STATE_CHANGE` 固定为 32 字节 BSHeader、uint32 UserId 和 uint32 State；State bit 0 映射 Enabled，其他 bit 按参考行为忽略，不进入第二份玩家状态。payload UserId 必须非零并与 relay 外层和 GameHeader UserID 一致。结构或身份冲突使当前 frame 静默丢弃，不产生 Command 或错误包。
 
 `examples/nhsk` 是可导入的 `package nhsk`，Cluster 调用方直接引用上述 CommandID 和 request。可执行组合根后续放在独立 `cmd/` 目录；不得把该业务包改成不可导入的 `package main`，也不为导出常量增加一层转发 package。
 

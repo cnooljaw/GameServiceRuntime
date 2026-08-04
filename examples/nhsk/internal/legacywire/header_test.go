@@ -11,6 +11,7 @@ func TestRetainedNHSKMessageIDsMatchReference(t *testing.T) {
 		t.Fatalf("BS_MSG_GAME = %#x, want 0x7600", messageNHSKBase)
 	}
 	want := map[string]uint32{
+		"user_state_change": 0x720a,
 		"game_info":         0x7601,
 		"deal":              0x7602,
 		"ask_out_card":      0x7603,
@@ -25,6 +26,7 @@ func TestRetainedNHSKMessageIDsMatchReference(t *testing.T) {
 		"card_action":       0x7702,
 	}
 	got := map[string]uint32{
+		"user_state_change": messageGameUserStateChange,
 		"game_info":         messageNHSKGameInfo,
 		"deal":              messageNHSKDeal,
 		"ask_out_card":      messageNHSKAskOutCard,

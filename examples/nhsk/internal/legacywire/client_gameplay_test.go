@@ -6,8 +6,8 @@ import (
 )
 
 func TestDecodeClientGameplayMessageUsesCanonicalMessageIDs(t *testing.T) {
-	if ClientGameplayOutCard != 0x7701 || ClientGameplayCardAction != 0x7702 {
-		t.Fatalf("client gameplay MessageIDs = %#x/%#x, want 0x7701/0x7702", ClientGameplayOutCard, ClientGameplayCardAction)
+	if ClientGameplayOutCard != 0x7701 || ClientGameplayCardAction != 0x7702 || ClientGameplayUserStateChange != 0x720a {
+		t.Fatalf("client gameplay MessageIDs = %#x/%#x/%#x, want 0x7701/0x7702/0x720a", ClientGameplayOutCard, ClientGameplayCardAction, ClientGameplayUserStateChange)
 	}
 
 	tests := []struct {
@@ -16,6 +16,7 @@ func TestDecodeClientGameplayMessageUsesCanonicalMessageIDs(t *testing.T) {
 	}{
 		{name: "out card", id: ClientGameplayOutCard},
 		{name: "card action", id: ClientGameplayCardAction},
+		{name: "user state change", id: ClientGameplayUserStateChange},
 		{name: "unknown remains classifiable", id: 0x7777},
 	}
 	for _, test := range tests {

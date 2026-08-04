@@ -18,8 +18,39 @@ func TestGameplayCommandIDsUseDedicatedNHSKNamespace(t *testing.T) {
 	if PreviewCardSelectionCommand != gsr.CommandID(0x04100302) {
 		t.Fatalf("PreviewCardSelectionCommand = %#x, want 0x04100302", PreviewCardSelectionCommand)
 	}
+	if SetPlayerAutoStateCommand != gsr.CommandID(0x04100303) {
+		t.Fatalf("SetPlayerAutoStateCommand = %#x, want 0x04100303", SetPlayerAutoStateCommand)
+	}
 	if PlayCardsCommand == 0x7701 || PreviewCardSelectionCommand == 0x7702 {
 		t.Fatal("gameplay CommandID reused a Legacy MessageID")
+	}
+}
+
+func TestMapLegacyGameplayCommandMapsUserStateChangeAutoBit(t *testing.T) {
+	frame := decodeLegacyMapperGolden(t, "0000000000000000000000000a7200000000000020000000e903000005000000")
+
+	got, err := mapLegacyGameplayCommand(1001, frame)
+	if err != nil {
+		t.Fatalf("map USER_STATE_CHANGE: %v", err)
+	}
+	want := gsr.Command{
+		ID: SetPlayerAutoStateCommand,
+		Payload: SetPlayerAutoStateRequest{
+			Player:  game.PlayerID("1001"),
+			Enabled: true,
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mapped USER_STATE_CHANGE = %#v, want %#v", got, want)
+	}
+
+	binary.LittleEndian.PutUint32(frame[28:32], 4)
+	got, err = mapLegacyGameplayCommand(1001, frame)
+	if err != nil {
+		t.Fatalf("map cleared USER_STATE_CHANGE: %v", err)
+	}
+	if got.Payload.(SetPlayerAutoStateRequest).Enabled {
+		t.Fatalf("state without auto bit mapped enabled: %#v", got.Payload)
 	}
 }
 
@@ -109,6 +140,7 @@ func TestMapLegacyGameplayCommandRejectsInvalidIdentityOrPayload(t *testing.T) {
 		{name: "zero user", payload: outCard},
 		{name: "short payload", userID: 1001, payload: outCard[:23]},
 		{name: "known message with bad body", userID: 1001, payload: malformedOutCard},
+		{name: "state change payload user mismatch", userID: 1001, payload: decodeLegacyMapperGolden(t, "0000000000000000000000000a7200000000000020000000ea03000001000000")},
 		{name: "unsupported message", userID: 1001, payload: unknown},
 	}
 

@@ -10,6 +10,8 @@ const (
 	ClientGameplayOutCard ClientGameplayMessage = ClientGameplayMessage(messageNHSKOutCard)
 	// ClientGameplayCardAction identifies 0x7702 NHSK CARD_ACTION.
 	ClientGameplayCardAction ClientGameplayMessage = ClientGameplayMessage(messageNHSKCardAction)
+	// ClientGameplayUserStateChange identifies 0x720A USER_STATE_CHANGE.
+	ClientGameplayUserStateChange ClientGameplayMessage = ClientGameplayMessage(messageGameUserStateChange)
 )
 
 // DecodeClientGameplayMessage reads the MessageID from one complete client payload.

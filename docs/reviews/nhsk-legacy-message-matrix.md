@@ -150,6 +150,7 @@ Agent、GM、GL 的三层路由字段。
 |---|---|---|---|
 | `0x7701` `NHSK_OUT_CARD` | Client → Battle | `PlayCards` | Legacy 映射为 Send；Cluster 可 Send/Call 同一 handler |
 | `0x7702` `NHSK_CARD_ACTION` | Client → Battle | `PreviewCardSelection` | 同上；宽松预览，不代替 OUT_CARD 校验 |
+| `0x720A` `USER_STATE_CHANGE` | Client → Battle | `SetPlayerAutoState` | 只消费 State bit 0；payload UserId 必须与 relay 身份一致 |
 | `0x7601` `GAME_INFO` | Battle → Client | `GameInfoOutput` | 单播/广播目标按参考路径 |
 | `0x7602` `DEAL` | Battle → Client | `DealOutput` | 每位玩家只收到自己的手牌 |
 | `0x7603` `ASK_OUT_CARD` | Battle → Client | `AskOutCardOutput` | 携带当前 VerifyCode/期限 |

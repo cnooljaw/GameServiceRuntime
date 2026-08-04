@@ -12,6 +12,8 @@ import (
 
 var errInvalidLegacyGameplayCommand = errors.New("nhsk: invalid Legacy gameplay command")
 
+const legacyPlayerStateAuto uint32 = 1 << 0
+
 func mapLegacyGameplayCommand(userID uint32, payload []byte) (gsr.Command, error) {
 	if userID == 0 {
 		return gsr.Command{}, fmt.Errorf("%w: zero user ID", errInvalidLegacyGameplayCommand)
@@ -46,6 +48,26 @@ func mapLegacyGameplayCommand(userID uint32, payload []byte) (gsr.Command, error
 			Payload: PreviewCardSelectionRequest{
 				Player: player,
 				Cards:  copyLegacyGameplayCards(request.Cards[:], request.CardCount),
+			},
+		}, nil
+	case legacywire.ClientGameplayUserStateChange:
+		request, err := legacywire.DecodeUserStateChange(payload)
+		if err != nil {
+			return gsr.Command{}, fmt.Errorf("%w: %v", errInvalidLegacyGameplayCommand, err)
+		}
+		if request.UserID != userID {
+			return gsr.Command{}, fmt.Errorf(
+				"%w: outer UserID %d differs from payload UserID %d",
+				errInvalidLegacyGameplayCommand,
+				userID,
+				request.UserID,
+			)
+		}
+		return gsr.Command{
+			ID: SetPlayerAutoStateCommand,
+			Payload: SetPlayerAutoStateRequest{
+				Player:  player,
+				Enabled: request.State&legacyPlayerStateAuto != 0,
 			},
 		}, nil
 	default:
