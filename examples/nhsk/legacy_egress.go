@@ -87,6 +87,11 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return legacywire.EncodeGameStart(), nil
+	case OutputRoundStat:
+		if _, ok := output.Payload.(RoundStatPayload); !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		return legacywire.EncodeRoundStat(), nil
 	case OutputGameInfo:
 		payload, ok := output.Payload.(GameInfoPayload)
 		if !ok {

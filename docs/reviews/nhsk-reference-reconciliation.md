@@ -654,6 +654,22 @@
 | RFC/决策 | RFC-0410、D-091、D-092 |
 | 备注 | 参考目录未修改；新 codec 不 import 旧协议 struct，玩家结束 ID 为空时编码为 0。 |
 
+### 4.32 Legacy Client ROUND_STAT 空投影 egress
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 增加客户端 `ROUND_STAT (0x7246)` 的空统计固定 codec、类型化 `OutputRoundStat/RoundStatPayload` 和 Legacy relay egress；暂不伪造结算时序 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/round_stat.go`、`round_stat_test.go`；`examples/nhsk/outputs.go`、`legacy_egress.go`、`round_stat_output_test.go` |
+| 参考入口 | `protocol/game/game.go:ReqGS2GCRoundStat.FormatToTcp`；`protocol/game/tcpprotocol/game.go:BS_MSG_GAME_ROUND_STAT`；`gamelogic/internal/game/game_send_message.go:SendMsgPlayerRoundStat`；`gamelogic/internal/game/game.go:GameOverProcess` |
+| Legacy MessageID/布局 | payload `0x7246`；`BSHeader (24) + PlayerCount uint32 + BSSUFFIXIDX (8)`，固定长度 36 字节；首版 `PlayerCount=0`、suffix offset=36、size=0 |
+| 输出目标与顺序 | `ClientGameOutput{Kind: OutputRoundStat}` 复用既有按目标逐用户 `0x8644 + 0x7400` relay；目标列表由调用方冻结，adapter 不生成 UserID=0 广播 |
+| 已一致 | MessageID、固定长度、空统计字段、suffix index 和逐用户 relay 结构已用参考源码与单元测试复核 |
+| 有意偏差 | 参考 `SendMsgPlayerRoundStat` 只向 `!Exited && ClientReady` 玩家投递；当前 Battle 尚未建立独立 ClientReady 权威来源，因此本切片只提供 codec/adapter，不在 `CompleteSettlement` 或 `MATCH_STOP` 中主动发包 |
+| 发现遗漏 | 参考 `GameOverProcess` 先 ROUND_STAT 后 GAME_OVER；正式接入必须与 GameResult、回放收敛及 ClientReady 资格一起完成，不能只在当前最小结算入口插入一个广播 |
+| 结论 | ROUND_STAT 的协议边界已就绪；结算时序、目标资格和完整统计来源继续保持待实现，避免建立无证据的业务状态 |
+| RFC/决策 | RFC-0410、D-059、D-093、D-095 |
+| 备注 | 参考目录未修改；不恢复 BaseRule index 5 的跨小局统计模块，也不把 Replay Summary 伪造成 ROUND_STAT。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

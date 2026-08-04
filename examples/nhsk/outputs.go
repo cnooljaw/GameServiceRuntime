@@ -14,6 +14,8 @@ type OutputKind string
 const (
 	// OutputGameStart tells clients that one NHSK subgame is starting.
 	OutputGameStart OutputKind = "game_start"
+	// OutputRoundStat publishes the empty legacy cross-subgame stat projection.
+	OutputRoundStat OutputKind = "round_stat"
 	// OutputGameInfo publishes the current NHSK subgame configuration and seat scores.
 	OutputGameInfo OutputKind = "game_info"
 	// OutputDeal privately delivers one seat's initial hand.
@@ -111,6 +113,11 @@ type OutputPayload interface {
 type GameStartPayload struct{}
 
 func (GameStartPayload) isNHSKOutputPayload() {}
+
+// RoundStatPayload is the first-slice empty legacy round-stat projection.
+type RoundStatPayload struct{}
+
+func (RoundStatPayload) isNHSKOutputPayload() {}
 
 // GameInfoPayload is the protocol-independent NHSK game information snapshot.
 type GameInfoPayload struct {

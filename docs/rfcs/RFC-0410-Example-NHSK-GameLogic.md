@@ -581,10 +581,11 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
+- 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 ClientReady 权威来源、GameResult 和回放收敛后接入。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 `ROUND_STAT`、带玩家数据的 `GAME_OVER`/综合结算响应、104 张牌全规则、完整结算字段消费/回放/AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序/ClientReady 资格、带玩家数据的 `GAME_OVER`/综合结算响应、104 张牌全规则、完整结算字段消费/回放/AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 
