@@ -721,6 +721,27 @@
 | RFC/决策 | RFC-0410、D-091、D-092 |
 | 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
 
+### 4.36 NHSK 牌型识别、比较与真实双副牌堆
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 用参考 NHSK `Logic.GetCardType/CompareCardType/RemoveCards` 替换旧 Battle 中仅按低位相等和数量比较的简化牌规，并把示例发牌改为两副完整无王牌堆 |
+| GSR 文件/测试 | `examples/nhsk/card_rules.go`、`card_rules_test.go`、`battle.go`；`battle_test.go` 的既有出牌生命周期回归 |
+| 参考入口 | `nhsk/logic/logic.go:GetCardType`、`CompareCardType`、`RemoveCards`；`nhsk/logic/logic_test.go`；`nhsk/macros/macros.go` 的 `FullCount=104`、`CardCount=26`、`MinBombNum=4` 和 1..13 牌值 |
+| 参考测试/配置/录包 | 参考测试覆盖单牌、对子、三张、三带二、炸弹、A/2 逻辑值、炸弹长度和不同非炸弹牌型不可互压；旧 `FullCardData` 是四种花色、1..13 牌值的两份副本 |
+| Legacy MessageID | 本切片不新增 MessageID；`OUT_CARD (0x7701)` 与 `CARD_ACTION (0x7702)` 仍通过既有 relay/Command 入口进入 Battle |
+| 输入与校验 | 牌值低四位必须为 1..13；识别单牌、同值对子、同值三张、三带二和 4 张以上同值炸弹；出牌仍要求来自当前玩家手牌并保留 8 张上限，双副允许相同物理牌字节按出现次数消费 |
+| 权威状态变化 | `NHSKBattleService` Mailbox 仍独占手牌、最近牌型和回合状态；`classifyCards/compareCardSets` 只返回私有牌型值，不建立额外持久状态；`deal` 为四座按 26 张切分 104 张合法牌 |
+| Timer/Timeline | 无新增 Timer/Timeline；现有 `TurnRevision` 和期限边界不变 |
+| 输出目标与顺序 | 无新增输出；成功出牌仍按既有 `OUT_CARD_INFO -> SHOW_CARDS/ASK_OUT_CARD` 线序，非法牌型仍返回既有 `card_type` 拒绝 |
+| 生命周期结果 | 不改变对家出完牌、AwaitingSettlement 或 CompleteSettlement 门禁；牌堆仍为确定性示例数据，未声称具备生产随机洗牌 |
+| 已一致 | 牌型集合、A/2 逻辑值、不同非炸弹牌型不可互压、炸弹优先、同型炸弹长度优先、双副重复物理牌消费，以及 104 张/每座 26 张的牌堆规模均与参考源码和测试一致 |
+| 有意偏差 | 当前牌堆按固定顺序切分，不实现参考中的随机、新手换牌、散牌调整、自定义牌堆和计分/单扣双扣；牌型仅作为 Battle 校验结果，不写入回放或完整 GameResult |
+| 发现遗漏 | 参考还包含牌堆策略、抓分、名次和完整结算输出；这些需要 CARD-022、CARD-024、CARD-031 后续切片提供权威来源，不能在本切片伪造 |
+| 结论 | 牌型识别/比较和合法双副牌堆 **已一致**；随机、特殊发牌、抓分、单双扣、完整结算和回放仍为 **发现遗漏/待实现** |
+| RFC/决策 | RFC-0410、D-026、D-044、D-060 |
+| 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

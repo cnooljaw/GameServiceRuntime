@@ -391,14 +391,14 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 	if len(request.Cards) == 0 && len(battle.lastCards) == 0 {
 		return battle.actionReject(ctx, request.Player, "first_play_cannot_pass")
 	}
-	rank, valid := battle.validateCards(request.Player, request.Cards)
-	if !valid || (len(request.Cards) > 0 && len(battle.lastCards) > 0 && (len(request.Cards) != battle.lastCount || rank <= battle.lastRank)) {
+	pattern, valid := battle.validateCards(request.Player, request.Cards)
+	if !valid || (len(request.Cards) > 0 && len(battle.lastCards) > 0 && compareCardSets(request.Cards, battle.lastCards) <= 0) {
 		return battle.actionReject(ctx, request.Player, "card_type")
 	}
 	battle.removeCards(request.Player, request.Cards)
 	if len(request.Cards) > 0 {
 		battle.lastCards = append(battle.lastCards[:0], request.Cards...)
-		battle.lastRank, battle.lastCount = rank, len(request.Cards)
+		battle.lastRank, battle.lastCount = pattern.rank, pattern.count
 	}
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputOutCardInfo, Payload: OutCardInfoPayload{Player: request.Player, Cards: toFixedEight(request.Cards), CardCount: uint8(len(request.Cards))}}); err != nil {
@@ -778,12 +778,17 @@ func (battle *NHSKBattleService) roundStatPlayers() []game.PlayerID {
 
 func (battle *NHSKBattleService) deal() {
 	battle.hands = make(map[game.PlayerID][]byte, 4)
-	for seat, player := range battle.bySeat {
-		cards := make([]byte, 26)
-		for index := range cards {
-			cards[index] = byte((seat*26 + index) % 52)
+	deck := make([]byte, 0, 104)
+	for copyIndex := 0; copyIndex < 2; copyIndex++ {
+		for suit := 0; suit < 4; suit++ {
+			for value := 1; value <= 13; value++ {
+				deck = append(deck, byte(suit<<4|value))
+			}
 		}
-		battle.hands[player] = cards
+	}
+	for seat, player := range battle.bySeat {
+		start := seat * 26
+		battle.hands[player] = append([]byte(nil), deck[start:start+26]...)
 	}
 }
 
@@ -797,18 +802,16 @@ func (battle *NHSKBattleService) advanceSeat() {
 	}
 }
 
-func (battle *NHSKBattleService) validateCards(player game.PlayerID, cards []byte) (int, bool) {
+func (battle *NHSKBattleService) validateCards(player game.PlayerID, cards []byte) (cardPattern, bool) {
 	if len(cards) == 0 {
-		return 0, true
+		return cardPattern{}, true
+	}
+	pattern, valid := classifyCards(cards)
+	if !valid {
+		return cardPattern{}, false
 	}
 	hand := append([]byte(nil), battle.hands[player]...)
-	seen := make(map[byte]bool, len(cards))
-	rank := int(cards[0] % 13)
 	for _, card := range cards {
-		if seen[card] || int(card%13) != rank {
-			return 0, false
-		}
-		seen[card] = true
 		found := false
 		for index, held := range hand {
 			if held == card {
@@ -818,10 +821,10 @@ func (battle *NHSKBattleService) validateCards(player game.PlayerID, cards []byt
 			}
 		}
 		if !found {
-			return 0, false
+			return cardPattern{}, false
 		}
 	}
-	return rank, true
+	return pattern, true
 }
 
 func (battle *NHSKBattleService) removeCards(player game.PlayerID, cards []byte) {
