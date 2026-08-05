@@ -19,7 +19,7 @@
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
-- 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
+- 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
 - Battle 的最小唯一期限 fencing、托管当前行动人自动最小出牌和 `CompleteSettlement` 终态入口。
@@ -308,7 +308,7 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 以下能力不能从当前切片推断为已完成：
 
-1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整 GAME_OVER/客户端 GameResult，以及综合结算后的完整回放收敛；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、0x8650 两段 suffix 类型化解码与交易矩阵门禁、最小 GAME_STARTED/GAME_OVER 和强制结束 NOTICE。
+1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整 GAME_OVER/客户端 GameResult，以及综合结算后的完整回放收敛；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、0x8650 两段 suffix 类型化解码、交易矩阵与 Flag 门禁、失败 Dissolve 收敛、最小 GAME_STARTED/GAME_OVER 和强制结束 NOTICE。
 2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。

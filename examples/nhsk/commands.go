@@ -171,6 +171,8 @@ type BattlePlayer struct {
 	Nickname  string
 	Automated bool
 	Exited    bool
+	IsBreak   bool
+	IsSeal    bool
 }
 
 // UpdatePlayersRequest atomically upserts a batch of players.

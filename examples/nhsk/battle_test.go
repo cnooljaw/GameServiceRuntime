@@ -143,8 +143,9 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 }
 
 func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
-	service, _ := newPlayingBattleForRestore(t, 19)
+	service, output := newPlayingBattleForRestore(t, 19)
 	service.phase = NHSKBattleAwaitingSettlement
+	output.sends = nil
 	ctx := &battleTestCommandContext{}
 	request := CompleteSettlementRequest{
 		Success:    true,
@@ -155,10 +156,10 @@ func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
 			{PayTeamID: 2, GainTeamID: 3, Score: 5},
 		},
 		Players: []SettlementPlayerResult{
-			{PlayerID: 1, TeamID: 0},
-			{PlayerID: 2, TeamID: 1},
+			{PlayerID: 1, Flag: 0x300, TeamID: 0},
+			{PlayerID: 2, Flag: 0x100, TeamID: 1},
 			{PlayerID: 3, TeamID: 2},
-			{PlayerID: 4, TeamID: 3},
+			{PlayerID: 4, Flag: 0x200, TeamID: 3},
 		},
 	}
 	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: request}); err != nil {
@@ -172,6 +173,16 @@ func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
 		if got := service.players[player].Score; got != want[seat] {
 			t.Fatalf("seat %d score=%d, want %d", seat, got, want[seat])
 		}
+	}
+	if !service.players["1"].IsBreak || !service.players["1"].IsSeal || !service.players["2"].IsSeal || service.players["2"].IsBreak || !service.players["4"].IsBreak || service.players["4"].IsSeal {
+		t.Fatalf("settlement flags = %#v", service.players)
+	}
+	if len(output.sends) != 1 {
+		t.Fatalf("settlement outputs = %d, want one GAME_OVER", len(output.sends))
+	}
+	gameOver := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	if gameOver.Reason != int32(GameOverReasonSuccess) {
+		t.Fatalf("success GAME_OVER = %#v", gameOver)
 	}
 }
 
@@ -203,6 +214,66 @@ func TestBattleRejectsMalformedSettlementWithoutMutation(t *testing.T) {
 	after := service.snapshot()
 	if !reflect.DeepEqual(before.Players, after.Players) || before.Revision != after.Revision {
 		t.Fatalf("malformed settlement mutated state: before=%#v after=%#v", before, after)
+	}
+}
+
+func TestBattleSettlementFailureDissolvesAndClearsFlags(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 21)
+	service.phase = NHSKBattleAwaitingSettlement
+	service.players["1"] = BattlePlayer{Player: "1", UserID: 1, SeatID: 0, Score: 9, IsBreak: true, IsSeal: true}
+	output.sends = nil
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{
+		Success:    false,
+		ResultType: 99,
+		TeamCount:  99,
+		Gains:      []SettlementGain{{PayTeamID: 0, GainTeamID: 1, Score: -1}},
+		Players:    []SettlementPlayerResult{{PlayerID: 999, Flag: 0x300, TeamID: 99}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(SettlementCommandResult); !result.Accepted || service.phase != NHSKBattleFinished {
+		t.Fatalf("failure settlement = %#v phase=%s", result, service.phase)
+	}
+	for seat, player := range service.bySeat {
+		value := service.players[player]
+		if value.Score != 0 || value.IsBreak || value.IsSeal {
+			t.Fatalf("seat %d failure state = %#v", seat, value)
+		}
+	}
+	if len(output.sends) != 1 {
+		t.Fatalf("failure outputs = %d, want one GAME_OVER", len(output.sends))
+	}
+	gameOver := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	if gameOver.Reason != int32(GameOverReasonDissolve) || !gameOver.IsGameOver {
+		t.Fatalf("failure GAME_OVER = %#v", gameOver)
+	}
+}
+
+func TestBattleStartSubgameClearsPreviousSettlementFlags(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 22)
+	service.phase = NHSKBattlePreparing
+	service.players["1"] = BattlePlayer{Player: "1", UserID: 1, SeatID: 0, IsBreak: true, IsSeal: true}
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	for seat, player := range service.bySeat {
+		if service.players[player].IsBreak || service.players[player].IsSeal {
+			t.Fatalf("seat %d flags not reset = %#v", seat, service.players[player])
+		}
+	}
+}
+
+func TestBattleUpdatePlayersDoesNotAcceptSettlementFlags(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 23)
+	service.phase = NHSKBattlePreparing
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0, IsBreak: true, IsSeal: true}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.players["1"].IsBreak || service.players["1"].IsSeal {
+		t.Fatalf("UPDATE_PLAYER injected settlement flags = %#v", service.players["1"])
 	}
 }
 

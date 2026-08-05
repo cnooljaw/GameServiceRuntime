@@ -13,6 +13,11 @@ import (
 
 const nhskBattleTimerCommand gsr.CommandID = 0x0410f003
 
+const (
+	settlementFlagSeal  int32 = 0x00000100
+	settlementFlagBreak int32 = 0x00000200
+)
+
 var (
 	errInvalidBattleConfig  = errors.New("nhsk: invalid Battle config")
 	errBattleNotInitialized = errors.New("nhsk: battle not initialized")
@@ -77,6 +82,7 @@ type NHSKBattleService struct {
 	fee                  int32
 	finished             [4]bool
 	ranks                [4]uint8
+	settlementFailed     bool
 	nextRound            UpdateRoundContextRequest
 }
 
@@ -203,6 +209,9 @@ func (battle *NHSKBattleService) updatePlayers(ctx gsr.CommandContext, payload a
 		candidateReady[playerID] = battle.clientReady[playerID]
 	}
 	for _, player := range request.Players {
+		settlementFlags := candidate[player.Player]
+		player.IsBreak = settlementFlags.IsBreak
+		player.IsSeal = settlementFlags.IsSeal
 		candidate[player.Player] = player
 		if _, exists := candidateReady[player.Player]; !exists {
 			// Legacy GameLogic marks a newly admitted player client-ready before
@@ -264,6 +273,12 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.lastCount = 0
 	battle.finished = [4]bool{}
 	battle.ranks = [4]uint8{}
+	battle.settlementFailed = false
+	for playerID, player := range battle.players {
+		player.IsBreak = false
+		player.IsSeal = false
+		battle.players[playerID] = player
+	}
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameStart, Payload: GameStartPayload{}}); err != nil {
 		return err
@@ -461,7 +476,7 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 	if !ok || battle.phase != NHSKBattleAwaitingSettlement {
 		return battle.settlementReject(ctx, errBattleStateConflict)
 	}
-	scores, err := battle.settlementScores(request)
+	plan, err := battle.settlementPlan(request)
 	if err != nil {
 		return battle.settlementReject(ctx, err)
 	}
@@ -470,77 +485,93 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 			return battle.settlementReject(ctx, errBattleInvalidRequest)
 		}
 		value := battle.players[player]
-		value.Score = scores[seat]
+		value.Score = plan.scores[seat]
+		value.IsBreak = plan.isBreak[seat]
+		value.IsSeal = plan.isSeal[seat]
 		battle.players[player] = value
 	}
+	battle.settlementFailed = plan.failed
 	battle.phase = NHSKBattleFinished
 	battle.revision++
-	if err := battle.emit(ctx, GameOverOutput{Reason: 0, ReplayName: battle.replayName(), IsGameOver: true}); err != nil {
+	reason := int32(GameOverReasonSuccess)
+	if plan.failed {
+		reason = int32(GameOverReasonDissolve)
+	}
+	if err := battle.emit(ctx, GameOverOutput{Reason: reason, ReplayName: battle.replayName(), IsGameOver: true}); err != nil {
 		return err
 	}
 	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
 }
 
-func (battle *NHSKBattleService) settlementScores(request CompleteSettlementRequest) ([4]int32, error) {
+type settlementPlan struct {
+	scores  [4]int32
+	isBreak [4]bool
+	isSeal  [4]bool
+	failed  bool
+}
+
+func (battle *NHSKBattleService) settlementPlan(request CompleteSettlementRequest) (settlementPlan, error) {
 	if !request.Success {
-		return [4]int32{}, nil
+		return settlementPlan{failed: true}, nil
 	}
 	if len(request.Gains) == 0 && len(request.Players) == 0 && request.TeamCount == 0 {
-		return request.Scores, nil
+		return settlementPlan{scores: request.Scores}, nil
 	}
 	if request.TeamCount != 4 || len(request.Players) != 4 {
-		return [4]int32{}, fmt.Errorf("%w: settlement player matrix", errBattleInvalidRequest)
+		return settlementPlan{}, fmt.Errorf("%w: settlement player matrix", errBattleInvalidRequest)
 	}
 	playerSeats := make(map[uint32]int, len(battle.bySeat))
 	for seat, playerID := range battle.bySeat {
 		if playerID == "" || battle.players[playerID].Player == "" {
-			return [4]int32{}, fmt.Errorf("%w: settlement Battle player", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: settlement Battle player", errBattleInvalidRequest)
 		}
 		userID := battle.players[playerID].UserID
 		if userID == 0 {
-			return [4]int32{}, fmt.Errorf("%w: settlement player identity", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: settlement player identity", errBattleInvalidRequest)
 		}
 		if _, exists := playerSeats[userID]; exists {
-			return [4]int32{}, fmt.Errorf("%w: duplicate settlement identity", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: duplicate settlement identity", errBattleInvalidRequest)
 		}
 		playerSeats[userID] = seat
 	}
 	seenPlayers := make(map[uint32]struct{}, len(request.Players))
+	var plan settlementPlan
 	for _, result := range request.Players {
 		seat, ok := playerSeats[result.PlayerID]
 		if !ok || result.TeamID != uint32(seat) {
-			return [4]int32{}, fmt.Errorf("%w: settlement player/team", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: settlement player/team", errBattleInvalidRequest)
 		}
 		if _, exists := seenPlayers[result.PlayerID]; exists {
-			return [4]int32{}, fmt.Errorf("%w: duplicate settlement player", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: duplicate settlement player", errBattleInvalidRequest)
 		}
 		seenPlayers[result.PlayerID] = struct{}{}
+		plan.isSeal[seat] = result.Flag&settlementFlagSeal != 0
+		plan.isBreak[seat] = result.Flag&settlementFlagBreak != 0
 	}
 	if len(seenPlayers) != len(playerSeats) {
-		return [4]int32{}, fmt.Errorf("%w: incomplete settlement players", errBattleInvalidRequest)
+		return settlementPlan{}, fmt.Errorf("%w: incomplete settlement players", errBattleInvalidRequest)
 	}
 	var values [4]int64
 	seenGains := make(map[[2]uint32]struct{}, len(request.Gains))
 	for _, gain := range request.Gains {
 		if gain.Score <= 0 || gain.PayTeamID >= 4 || gain.GainTeamID >= 4 || gain.PayTeamID == gain.GainTeamID {
-			return [4]int32{}, fmt.Errorf("%w: settlement gain", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: settlement gain", errBattleInvalidRequest)
 		}
 		key := [2]uint32{gain.PayTeamID, gain.GainTeamID}
 		if _, exists := seenGains[key]; exists {
-			return [4]int32{}, fmt.Errorf("%w: duplicate settlement gain", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: duplicate settlement gain", errBattleInvalidRequest)
 		}
 		seenGains[key] = struct{}{}
 		values[gain.PayTeamID] -= int64(gain.Score)
 		values[gain.GainTeamID] += int64(gain.Score)
 	}
-	var scores [4]int32
 	for seat, value := range values {
 		if value < -1<<31 || value > 1<<31-1 {
-			return [4]int32{}, fmt.Errorf("%w: settlement score overflow", errBattleInvalidRequest)
+			return settlementPlan{}, fmt.Errorf("%w: settlement score overflow", errBattleInvalidRequest)
 		}
-		scores[seat] = int32(value)
+		plan.scores[seat] = int32(value)
 	}
-	return scores, nil
+	return plan, nil
 }
 
 func (battle *NHSKBattleService) settlementReject(ctx gsr.CommandContext, err error) error {
