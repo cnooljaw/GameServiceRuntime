@@ -104,10 +104,21 @@ func MapLegacyControl(control legacywire.LegacyControl, generation ConnectionGen
 		}
 		return battleRoute(control.Kind, battleID, ExitPlayerCommand, ExitPlayerRequest{Player: playerID(control.UserID)}), nil
 	case legacywire.ControlSettlementAck:
-		// The old comprehensive result suffix is deliberately only decoded in
-		// this example. Score ownership remains external to Battle until the
-		// settlement adapter is implemented.
-		return battleRoute(control.Kind, battleID, CompleteSettlementCommand, CompleteSettlementRequest{Success: control.SettlementSuccess}), nil
+		gains := make([]SettlementGain, 0, len(control.ResultDetails))
+		for _, gain := range control.ResultDetails {
+			gains = append(gains, SettlementGain{PayTeamID: gain.PayTeamID, GainTeamID: gain.GainTeamID, Score: gain.Score})
+		}
+		players := make([]SettlementPlayerResult, 0, len(control.PlayerResults))
+		for _, player := range control.PlayerResults {
+			players = append(players, SettlementPlayerResult{PlayerID: player.PlayerID, Flag: player.Flag, Score: player.Score, Exp: player.Exp, TeamID: player.TeamID})
+		}
+		return battleRoute(control.Kind, battleID, CompleteSettlementCommand, CompleteSettlementRequest{
+			Success:    control.SettlementSuccess,
+			ResultType: control.ResultType,
+			TeamCount:  control.TeamCount,
+			Gains:      gains,
+			Players:    players,
+		}), nil
 	case legacywire.ControlUnsupported:
 		return LegacyControlRoute{Kind: control.Kind, BattleID: battleID}, nil
 	default:

@@ -485,6 +485,8 @@ Legacy payload 固定为 282 字节 `0x7608 NHSK_GAME_SCENE`：44 字节主消�
 
 成功响应必须完整覆盖当前四名玩家，TeamID 唯一且等于 SeatID，TeamCount=4，交易只引用有效 TeamID，非零 Score 为正数，同一有向交易不重复。坏包整包拒绝并保持 AwaitingSettlement，不部分提交。通过后只消费身份、Flag 和 ResultDetail 交易矩阵；PlayerData.Score/Exp、ResultType 只解码。
 
+当前已实现 Legacy adapter 对 `0x8650` 固定后缀的类型化解码：每条 ResultDetail 为 12 字节 `PayTeamID/GainTeamID/Score`，每条 PlayerData 为 20 字节 `PlayerID/Flag/Score/Exp/TeamID`，两个 suffix 的 offset、长度和记录数必须精确匹配。Battle 在 Mailbox 内先完成四名冻结玩家、TeamID、正分、有效有向键和无重复交易的整包校验，再一次性应用分数；任一项失败都保持 AwaitingSettlement。旧的最小 Cluster `Scores[4]int32` 形状暂时保留兼容测试/调用，Legacy 真实路径不使用它。
+
 `IsSuccess=false` 保持旧客户端外观：Dissolve(4)、平局、四座零分，但内部另记 `SettlementFailed`。MATCH_STOP 在 Playing/AwaitingSettlement 废止当前 Timeline/结算单飞，按 Success(0) 本地强制收尾；其他阶段 no-op。
 
 客户端 GameResult 先提交，再把不可变 ReplayDocument 交给有界 writer。writer 成功、失败或有界超时中第一个有效结果使 Battle 产生 ROUND_STAT 和 GAME_OVER，然后进入 SubgameFinished。回放失败仍使用已冻结 ReplayName，不隔离 Battle，不原子改名、`fsync`、自动重试或上传。
@@ -582,13 +584,14 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
+- `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
 - 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
 - Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/综合结算响应、104 张牌全规则、完整结算字段消费/回放/AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/客户端 GameResult、回放收敛、104 张牌全规则、完整 Flag/失败原因领域消费、AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

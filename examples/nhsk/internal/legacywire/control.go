@@ -29,6 +29,8 @@ const (
 	controlGLHeaderSize                 = 34
 	controlSuffixSize                   = 8
 	controlPlayerSize                   = 90
+	settlementGainSize                  = 12
+	settlementPlayerResultSize          = 20
 )
 
 // ControlKind identifies one supported old GameMaster control message.
@@ -60,8 +62,7 @@ const (
 	ControlUnsupported
 )
 
-// LegacyControl is a normalized fixed-wire control message. Variable suffixes
-// remain copied bytes until the outer adapter maps them to typed domain values.
+// LegacyControl is a normalized fixed-wire control message.
 type LegacyControl struct {
 	Kind     ControlKind
 	Type     uint32
@@ -91,13 +92,29 @@ type LegacyControl struct {
 	ForceExit     uint8
 	Command       int32
 
-	SettlementSuccess  bool
-	ResultType         int32
-	ResultCount        int32
-	PlayerCount        int32
-	TeamCount          int32
-	ResultSuffix       []byte
-	PlayerResultSuffix []byte
+	SettlementSuccess bool
+	ResultType        int32
+	ResultCount       int32
+	PlayerCount       int32
+	TeamCount         int32
+	ResultDetails     []LegacySettlementGain
+	PlayerResults     []LegacySettlementPlayerResult
+}
+
+// LegacySettlementGain is one decoded 0x8650 ResultDetail record.
+type LegacySettlementGain struct {
+	PayTeamID  uint32
+	GainTeamID uint32
+	Score      int32
+}
+
+// LegacySettlementPlayerResult is one decoded 0x8650 PlayerData record.
+type LegacySettlementPlayerResult struct {
+	PlayerID uint32
+	Flag     int32
+	Score    int32
+	Exp      int32
+	TeamID   uint32
 }
 
 // LegacyPlayer is the fixed 90-byte old TPLAYERINFO projection.
@@ -241,13 +258,46 @@ func DecodeControl(data []byte) (LegacyControl, error) {
 		control.ResultCount = int32(binary.LittleEndian.Uint32(data[39:43]))
 		control.PlayerCount = int32(binary.LittleEndian.Uint32(data[43:47]))
 		control.TeamCount = int32(binary.LittleEndian.Uint32(data[47:51]))
-		control.ResultSuffix, err = suffixBytes(data, 51, 59)
-		if err != nil {
-			return LegacyControl{}, err
+		resultOffset, resultSize, suffixErr := readSuffixIndex(data, 51, 59)
+		if suffixErr != nil {
+			return LegacyControl{}, suffixErr
 		}
-		control.PlayerResultSuffix, err = suffixBytes(data, 59, 67)
-		if err != nil {
-			return LegacyControl{}, err
+		playerOffset, playerSize, suffixErr := readSuffixIndex(data, 59, 67)
+		if suffixErr != nil {
+			return LegacyControl{}, suffixErr
+		}
+		if uint64(resultOffset)+uint64(resultSize) != uint64(playerOffset) {
+			return LegacyControl{}, fmt.Errorf("legacywire: settlement result boundary")
+		}
+		if uint64(playerOffset)+uint64(playerSize) != uint64(len(data)) {
+			return LegacyControl{}, fmt.Errorf("legacywire: settlement player boundary")
+		}
+		resultSuffix := data[int(resultOffset):int(resultOffset+resultSize)]
+		playerSuffix := data[int(playerOffset):int(playerOffset+playerSize)]
+		if control.ResultCount < 0 || control.PlayerCount < 0 ||
+			uint64(control.ResultCount)*settlementGainSize != uint64(len(resultSuffix)) ||
+			uint64(control.PlayerCount)*settlementPlayerResultSize != uint64(len(playerSuffix)) {
+			return LegacyControl{}, fmt.Errorf("legacywire: settlement record count")
+		}
+		control.ResultDetails = make([]LegacySettlementGain, control.ResultCount)
+		for index := range control.ResultDetails {
+			offset := index * settlementGainSize
+			control.ResultDetails[index] = LegacySettlementGain{
+				PayTeamID:  binary.LittleEndian.Uint32(resultSuffix[offset : offset+4]),
+				GainTeamID: binary.LittleEndian.Uint32(resultSuffix[offset+4 : offset+8]),
+				Score:      int32(binary.LittleEndian.Uint32(resultSuffix[offset+8 : offset+12])),
+			}
+		}
+		control.PlayerResults = make([]LegacySettlementPlayerResult, control.PlayerCount)
+		for index := range control.PlayerResults {
+			offset := index * settlementPlayerResultSize
+			control.PlayerResults[index] = LegacySettlementPlayerResult{
+				PlayerID: binary.LittleEndian.Uint32(playerSuffix[offset : offset+4]),
+				Flag:     int32(binary.LittleEndian.Uint32(playerSuffix[offset+4 : offset+8])),
+				Score:    int32(binary.LittleEndian.Uint32(playerSuffix[offset+8 : offset+12])),
+				Exp:      int32(binary.LittleEndian.Uint32(playerSuffix[offset+12 : offset+16])),
+				TeamID:   binary.LittleEndian.Uint32(playerSuffix[offset+16 : offset+20]),
+			}
 		}
 		return control, nil
 	default:
@@ -256,15 +306,25 @@ func DecodeControl(data []byte) (LegacyControl, error) {
 }
 
 func suffixBytes(data []byte, indexOffset, fixed int) ([]byte, error) {
-	if indexOffset+controlSuffixSize > len(data) {
-		return nil, fmt.Errorf("legacywire: suffix index outside frame")
+	offset, size, err := readSuffixIndex(data, indexOffset, fixed)
+	if err != nil {
+		return nil, err
 	}
-	offset, size := binary.LittleEndian.Uint32(data[indexOffset:indexOffset+4]), binary.LittleEndian.Uint32(data[indexOffset+4:indexOffset+8])
-	if uint64(offset)+uint64(size) != uint64(len(data)) || int(offset) < fixed {
+	if uint64(offset)+uint64(size) != uint64(len(data)) {
 		return nil, fmt.Errorf("legacywire: suffix boundary")
 	}
-	end := offset + size
-	return append([]byte(nil), data[int(offset):int(end)]...), nil
+	return append([]byte(nil), data[int(offset):int(offset+size)]...), nil
+}
+
+func readSuffixIndex(data []byte, indexOffset, fixed int) (uint32, uint32, error) {
+	if indexOffset+controlSuffixSize > len(data) {
+		return 0, 0, fmt.Errorf("legacywire: suffix index outside frame")
+	}
+	offset, size := binary.LittleEndian.Uint32(data[indexOffset:indexOffset+4]), binary.LittleEndian.Uint32(data[indexOffset+4:indexOffset+8])
+	if uint64(offset)+uint64(size) > uint64(len(data)) || int(offset) < fixed {
+		return 0, 0, fmt.Errorf("legacywire: suffix boundary")
+	}
+	return offset, size, nil
 }
 
 func suffixString(data []byte, indexOffset, fixed int) (string, error) {

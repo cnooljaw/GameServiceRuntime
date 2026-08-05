@@ -19,6 +19,7 @@
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
+- 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
 - Battle 的最小唯一期限 fencing、托管当前行动人自动最小出牌和 `CompleteSettlement` 终态入口。
@@ -98,7 +99,7 @@ GameMaster -> GameLogic（控制面）
   0x86c1 NEW_GAME -> Host 创建，完成后 GameLogic -> GameMaster 0x800086c0 ACK
   0x8600/01/02/04/06/0x860d/0x8610/0x86c2
     -> Resolve BattleID -> Battle Command
-  0x80008650 综合结算 ACK -> CompleteSettlement（当前只消费成功标志）
+  0x80008650 综合结算 ACK -> CompleteSettlement（adapter 解码两段 suffix，Battle 消费身份/TeamID 与 ResultDetail 矩阵）
 ```
 
 旧 GameLogic 通过外层 `GameInnerID` 找到牌局，通过外层 `UserID` 找到玩家，再由 `OnMsg` 按内层 MessageID 分发到 NHSK。内层 `TGameHeader.UserID` 是重复身份，应该与外层 UserID 一致；初始化完成后，MatchID/ProductID 也需要和本局已冻结身份一致。校验通过后，业务只需要 BattleID、玩家和 payload，不应把三层 header 继续带进牌局状态。
@@ -134,7 +135,7 @@ GameLogic -> GameMaster
 | `0x8606`/`0x8610` | 玩家退出/装扮 | `ExitPlayerCommand`/`UpdatePlayerDressCommand` |
 | `0x860d` | START_NEW_GAME | `UpdateRoundContextCommand` |
 | `0x86c2` | DEL_GAME | `RequestDeleteBattleCommand` |
-| `0x80008650` | GM→GL 综合结算 ACK | `CompleteSettlementCommand`（结果 suffix 只解码） |
+| `0x80008650` | GM→GL 综合结算 ACK | `CompleteSettlementCommand`（12/20 字节 suffix 类型化解码；Battle 原子校验交易矩阵） |
 | `0x8644` | GL→GM 输出 envelope | 不是业务 Command，只做边界编码 |
 | `0x8641` | GL→GM GAME_OVER | `GameOverOutput`；当前为最小空玩家数据响应 |
 | `0x864e` | GL→GM NOTICE_ROUND_OVER | `NoticeRoundOverOutput`；仅强制回合结束时发送 |
@@ -307,7 +308,7 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 以下能力不能从当前切片推断为已完成：
 
-1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER、强制结束 NOTICE 和 CompleteSettlement。
+1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整 GAME_OVER/客户端 GameResult，以及综合结算后的完整回放收敛；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、0x8650 两段 suffix 类型化解码与交易矩阵门禁、最小 GAME_STARTED/GAME_OVER 和强制结束 NOTICE。
 2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。

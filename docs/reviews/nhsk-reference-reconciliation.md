@@ -704,6 +704,23 @@
 | RFC/决策 | RFC-0410、D-026、D-043、D-095 |
 | 备注 | 参考目录未修改；Legacy `0x7606` codec/egress 复用既有实现。 |
 
+### 4.35 Legacy 0x8650 综合结算后缀与矩阵门禁
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 类型化解码旧 GM→GL `0x80008650` 的 ResultDetail/PlayerData 两段 suffix，并在 CompleteSettlement 中建立整包分数矩阵校验 |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/control.go`、`control_test.go`；`examples/nhsk/commands.go`；`examples/nhsk/legacy_control_mapper.go`、`legacy_control_mapper_test.go`；`examples/nhsk/battle.go`、`battle_test.go` |
+| 参考入口 | `protocol/gamelogic/gm2gl.go:ReqGM2GLGameResultComprehensive`；`protocol/gamelogic/common/playerresult.go:TComGain/TComPlayerResult`；`gamelogic/internal/game/game.go:onMsgGameResultComprehensive/buildGameScore` |
+| Legacy 布局 | 固定 67 字节（GLHeader 34 + `IsSuccess/ResultType/ResultCount/PlayerCount/TeamCount` 20 + 两个 BSSUFFIXIDX 16）；ResultDetail 每条 12 字节 `PayTeamId/GainTeamId/Score`，PlayerData 每条 20 字节 `PlayerId/Flag/Score/Exp/TeamId`；两个 offset/size 必须连续并精确到 frame 尾 |
+| 输入与校验 | 记录数与 suffix 字节数精确匹配；Battle 成功路径要求四名冻结玩家、TeamCount=4、PlayerID 可映射、TeamID=SeatID、正分、有效 TeamID、Pay≠Gain 且有向交易键不重复；坏包整包拒绝并保留 AwaitingSettlement，不部分写分数 |
+| 权威状态变化 | 交易矩阵计算每座分数（付款方扣分、收款方加分）后一次性应用；`PlayerData.Score/Exp` 和 `ResultType` 不进入 Battle 权威分数；`IsSuccess=false` 忽略详情并按四座零分继续旧最小路径；早期 Cluster `Scores[4]int32` 兼容回退暂保留 |
+| 已一致 | 旧 12/20 字节记录布局、计数/边界语义、有效交易矩阵的分数方向与四座 TeamID/SeatID 关系，已用源码和失败/成功测试复核；Legacy 与 Cluster 进入同一 CompleteSettlement Mailbox |
+| 有意偏差 | 尚未迁移 PlayerFlag 的 IsBreak/IsSeal 状态、PlayerData.Score/Exp 的展示、ResultType 领域含义、客户端 GameResult、回放、ROUND_STAT/GAME_OVER 完整终局时序；不在本切片伪造这些状态或输出 |
+| 发现遗漏 | 参考旧实现仍允许跳过无法映射的记录并把 ResultDetail 交给玩法逻辑；生产替换前需完成真实 Flag/失败原因、完整 NHSK 分数/名次算法与重复/迟到/MATCH_STOP 竞争测试 |
+| 结论 | `0x8650` 不再是只解码成功标志的空入口；adapter 已完成最小协议归一化，Battle 已具备全量矩阵原子门禁，但完整结算输出仍保持后续切片 |
+| RFC/决策 | RFC-0410、D-091、D-092 |
+| 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

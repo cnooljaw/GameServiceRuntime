@@ -86,6 +86,38 @@ func TestMapLegacyControlRoundCommandKeepsOnlySupportedTransitions(t *testing.T)
 	}
 }
 
+func TestMapLegacySettlementNormalizesDetails(t *testing.T) {
+	route, err := MapLegacyControl(legacywire.LegacyControl{
+		Kind:              legacywire.ControlSettlementAck,
+		BattleID:          12,
+		SettlementSuccess: true,
+		ResultType:        7,
+		TeamCount:         4,
+		ResultDetails: []legacywire.LegacySettlementGain{
+			{PayTeamID: 0, GainTeamID: 1, Score: 3},
+		},
+		PlayerResults: []legacywire.LegacySettlementPlayerResult{
+			{PlayerID: 101, Flag: 1, Score: 20, Exp: 4, TeamID: 0},
+			{PlayerID: 102, TeamID: 1},
+			{PlayerID: 103, TeamID: 2},
+			{PlayerID: 104, TeamID: 3},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, ok := route.Command.Payload.(CompleteSettlementRequest)
+	if !ok {
+		t.Fatalf("settlement payload = %T", route.Command.Payload)
+	}
+	if request.ResultType != 7 || request.TeamCount != 4 || len(request.Gains) != 1 || len(request.Players) != 4 {
+		t.Fatalf("settlement request = %#v", request)
+	}
+	if request.Gains[0] != (SettlementGain{PayTeamID: 0, GainTeamID: 1, Score: 3}) || request.Players[0].PlayerID != 101 {
+		t.Fatalf("settlement details = %#v", request)
+	}
+}
+
 func controlTestFrame(message uint32, length int, fill func([]byte)) []byte {
 	data := make([]byte, length)
 	putControl32(data, 12, message)

@@ -142,6 +142,70 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	}
 }
 
+func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 19)
+	service.phase = NHSKBattleAwaitingSettlement
+	ctx := &battleTestCommandContext{}
+	request := CompleteSettlementRequest{
+		Success:    true,
+		ResultType: 7,
+		TeamCount:  4,
+		Gains: []SettlementGain{
+			{PayTeamID: 0, GainTeamID: 1, Score: 3},
+			{PayTeamID: 2, GainTeamID: 3, Score: 5},
+		},
+		Players: []SettlementPlayerResult{
+			{PlayerID: 1, TeamID: 0},
+			{PlayerID: 2, TeamID: 1},
+			{PlayerID: 3, TeamID: 2},
+			{PlayerID: 4, TeamID: 3},
+		},
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: request}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(SettlementCommandResult); !result.Accepted || service.phase != NHSKBattleFinished {
+		t.Fatalf("settlement result = %#v phase=%s", result, service.phase)
+	}
+	want := [4]int32{-3, 3, -5, 5}
+	for seat, player := range service.bySeat {
+		if got := service.players[player].Score; got != want[seat] {
+			t.Fatalf("seat %d score=%d, want %d", seat, got, want[seat])
+		}
+	}
+}
+
+func TestBattleRejectsMalformedSettlementWithoutMutation(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 20)
+	service.phase = NHSKBattleAwaitingSettlement
+	before := service.snapshot()
+	ctx := &battleTestCommandContext{}
+	request := CompleteSettlementRequest{
+		Success:    true,
+		ResultType: 7,
+		TeamCount:  4,
+		Gains: []SettlementGain{
+			{PayTeamID: 0, GainTeamID: 1, Score: 3},
+			{PayTeamID: 0, GainTeamID: 1, Score: 5},
+		},
+		Players: []SettlementPlayerResult{
+			{PlayerID: 1, TeamID: 0},
+			{PlayerID: 2, TeamID: 1},
+			{PlayerID: 3, TeamID: 2},
+		},
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: request}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(SettlementCommandResult); result.Accepted || service.phase != NHSKBattleAwaitingSettlement {
+		t.Fatalf("malformed settlement result = %#v phase=%s", result, service.phase)
+	}
+	after := service.snapshot()
+	if !reflect.DeepEqual(before.Players, after.Players) || before.Revision != after.Revision {
+		t.Fatalf("malformed settlement mutated state: before=%#v after=%#v", before, after)
+	}
+}
+
 func TestBattleSingleSeatOutKeepsPlayingAndShowsPartnerCards(t *testing.T) {
 	service, output := newPlayingBattleForRestore(t, 16)
 	service.activeSeat = 0

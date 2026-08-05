@@ -203,10 +203,35 @@ type SetPlayerOfflineRequest struct {
 // ReconnectPlayerRequest identifies the player receiving a reconnect or scene restore.
 type ReconnectPlayerRequest struct{ Player game.PlayerID }
 
-// CompleteSettlementRequest is the small example settlement payload.
+// SettlementGain is one directed team score transfer from the old 0x8650
+// comprehensive settlement message.
+type SettlementGain struct {
+	PayTeamID  uint32
+	GainTeamID uint32
+	Score      int32
+}
+
+// SettlementPlayerResult is one decoded player metadata record from the old
+// 0x8650 comprehensive settlement message. Score and Exp are retained for
+// protocol compatibility but are not authoritative Battle scores.
+type SettlementPlayerResult struct {
+	PlayerID uint32
+	Flag     int32
+	Score    int32
+	Exp      int32
+	TeamID   uint32
+}
+
+// CompleteSettlementRequest is the terminal settlement payload. Gains and
+// Players are populated by the legacy adapter; Scores remains a compatibility
+// fallback for the earlier minimal Cluster call shape.
 type CompleteSettlementRequest struct {
-	Success bool
-	Scores  [4]int32
+	Success    bool
+	ResultType int32
+	TeamCount  int32
+	Gains      []SettlementGain
+	Players    []SettlementPlayerResult
+	Scores     [4]int32
 }
 
 // NHSKBattleSnapshot is the read-only state projection exposed by a Battle.

@@ -125,6 +125,68 @@ func TestDecodeControlRejectsMalformedSuffixAndHugePlayerCount(t *testing.T) {
 	}
 }
 
+func TestDecodeControlParsesSettlementDetails(t *testing.T) {
+	const (
+		gainCount   = 2
+		playerCount = 4
+		fixed       = 67
+		gainBytes   = gainCount * 12
+		playerBytes = playerCount * 20
+	)
+	frame := controlFrame(messageGM2GLSettlementAck, fixed+gainBytes+playerBytes, func(data []byte) {
+		putGLHeader(data, 12345, 0)
+		data[34] = 1
+		put32(data, 35, 7)
+		put32(data, 39, gainCount)
+		put32(data, 43, playerCount)
+		put32(data, 47, 4)
+		putSuffix(data, 51, fixed, make([]byte, gainBytes))
+		putSuffix(data, 59, fixed+gainBytes, make([]byte, playerBytes))
+		put32(data, fixed+0, 0)
+		put32(data, fixed+4, 1)
+		put32(data, fixed+8, 3)
+		put32(data, fixed+12, 2)
+		put32(data, fixed+16, 3)
+		put32(data, fixed+20, 5)
+		for index := 0; index < playerCount; index++ {
+			offset := fixed + gainBytes + index*20
+			put32(data, offset, uint32(1001+index))
+			put32(data, offset+4, uint32(index+1))
+			put32(data, offset+8, uint32(index*10))
+			put32(data, offset+12, uint32(index*100))
+			put32(data, offset+16, uint32(index))
+		}
+	})
+	got, err := DecodeControl(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.SettlementSuccess || got.ResultType != 7 || got.ResultCount != gainCount || got.PlayerCount != playerCount || got.TeamCount != 4 {
+		t.Fatalf("settlement metadata = %#v", got)
+	}
+	if len(got.ResultDetails) != gainCount || got.ResultDetails[0] != (LegacySettlementGain{PayTeamID: 0, GainTeamID: 1, Score: 3}) || got.ResultDetails[1].Score != 5 {
+		t.Fatalf("settlement gains = %#v", got.ResultDetails)
+	}
+	if len(got.PlayerResults) != playerCount || got.PlayerResults[0] != (LegacySettlementPlayerResult{PlayerID: 1001, Flag: 1, Score: 0, Exp: 0, TeamID: 0}) || got.PlayerResults[3].TeamID != 3 {
+		t.Fatalf("settlement players = %#v", got.PlayerResults)
+	}
+}
+
+func TestDecodeControlRejectsSettlementCountMismatch(t *testing.T) {
+	frame := controlFrame(messageGM2GLSettlementAck, 67, func(data []byte) {
+		putGLHeader(data, 1, 0)
+		data[34] = 1
+		put32(data, 39, 1)
+		put32(data, 43, 4)
+		put32(data, 47, 4)
+		putSuffix(data, 51, 67, nil)
+		putSuffix(data, 59, 67, nil)
+	})
+	if _, err := DecodeControl(frame); err == nil {
+		t.Fatal("expected settlement count mismatch")
+	}
+}
+
 func controlFrame(message uint32, length int, fill func([]byte)) []byte {
 	data := make([]byte, length)
 	put32(data, 12, message)
