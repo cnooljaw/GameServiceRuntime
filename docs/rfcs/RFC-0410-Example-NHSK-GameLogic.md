@@ -576,7 +576,8 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 本 RFC 是目标契约；当前仓库已经交付的可验证代码包括 `examples/nhsk` 的 Legacy codec/mapper、Host/Factory/Battle Mailbox、TCP connection owner、进程组合根和 typed output seam。当前实现已覆盖：
 
 - `0x7701`、`0x7702`、`0x720A` 的固定字节解码、三层身份核对和显式 Command 映射。
-- `0x7208 USER_RECONNECT` 与 `0x720D GAME_SCENE` 的固定布局解码、显式 Command 映射和 Battle 恢复视图边界；Reconnect 与 Scene 保留不同的 Offline/托管副作用，场景 payload 按请求者隐藏其他玩家手牌。
+- `0x7208 USER_RECONNECT` 与 `0x720D GAME_SCENE` 的固定布局解码、显式 Command 映射和 Battle 恢复视图边界；Reconnect 与 Scene 保留不同的 Offline/托管副作用，场景按请求者视角隐藏手牌，并在请求者已出完时显示固定对家手牌。
+- Battle 已按固定对家组实现出完牌边界：单个玩家出完后继续 Playing、输出定向 `SHOW_CARDS` 并推进下一次 `ASK_OUT_CARD`；同组两座都出完才进入 AwaitingSettlement，输出全桌 `SHOW_CARDS`。
 - `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。

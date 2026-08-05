@@ -15,6 +15,7 @@
 - 类型化 `GameOutputBatch` 到 `GameOutputService` 的交付边界，Legacy encoder 仍在该边界之外。
 - Legacy `ROUND_STAT (0x7246)` 的空统计投影 codec 和逐目标 relay egress 已就绪；Battle 已建立 `!Exited && ClientReady` 的目标资格表，正式结算时序仍等待 GameResult/回放权威来源。
 - Battle 已按参考分离 Reconnect 与 Scene 的副作用；恢复线序为 `GameInfo -> GameScene -> 当前 AskOutCard`，场景只暴露请求者可见的手牌。
+- Battle 已按固定对家组处理出完牌：单个玩家出完后继续小局、向该玩家展示对家手牌并推进下一 Ask；同一对家组都出完才进入 AwaitingSettlement，并向未退出玩家展示剩余手牌。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
@@ -140,7 +141,7 @@ GameLogic -> GameMaster
 
 客户端 `ROUND_STAT (0x7246)` 是 `0x8644 + 0x7400` relay 的 payload，当前首版固定 `PlayerCount=0`；Legacy egress 会按调用方提供的目标列表逐用户展开。Battle 已维护只包含 `!Exited && ClientReady` 玩家的独立目标资格，但正式结算发送仍等待 GameResult/回放收敛。
 
-`USER_RECONNECT` 和 `GAME_SCENE` 都进入 Battle 的恢复命令，但副作用不同：Reconnect 清除 Offline，只有 Playing 时退出托管；Scene 要求有效的 `GameNum/SubgameNum`，不清除 Offline，但会退出托管。两者成功恢复时都按 `GameInfo -> GameScene -> 当前行动 AskOutCard` 输出；Scene payload 只包含请求者自己的手牌，其他玩家手牌保持隐藏。
+`USER_RECONNECT` 和 `GAME_SCENE` 都进入 Battle 的恢复命令，但副作用不同：Reconnect 清除 Offline，只有 Playing 时退出托管；Scene 要求有效的 `GameNum/SubgameNum`，不清除 Offline，但会退出托管。两者成功恢复时都按 `GameInfo -> GameScene -> 当前行动 AskOutCard` 输出；Scene 默认只包含请求者自己的手牌，请求者已出完时额外显示其固定对家的手牌，其他玩家手牌保持隐藏。
 
 旧 GameLogic 的强制结束线序是 `GAME_OVER -> NOTICE_ROUND_OVER`。当前 GSR 在 Battle Mailbox 中按同一顺序提交两个类型化输出，由当代 `GameOutputService` 串行写入旧 GM TCP；正常 `CompleteSettlement` 不发送 NOTICE。
 
@@ -306,7 +307,7 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 
 以下能力不能从当前切片推断为已完成：
 
-1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER、强制结束 NOTICE 和 CompleteSettlement。
+1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整结算响应，以及综合结算 ResultDetail 的领域消费；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、最小 GAME_STARTED/GAME_OVER、强制结束 NOTICE 和 CompleteSettlement。
 2. 完整 104 张牌的随机/新手/散牌调整、所有牌型、跟牌压制、抓分、单扣/双扣和完整结算。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。

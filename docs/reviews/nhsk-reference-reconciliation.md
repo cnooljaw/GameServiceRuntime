@@ -687,6 +687,23 @@
 | RFC/决策 | RFC-0410、D-043、D-095、D-096 |
 | 备注 | 参考目录未修改；本切片只写入 GSR 和复核文档。 |
 
+### 4.34 NHSK 对家出完牌与 SHOW_CARDS
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 修正单个玩家出完牌的生命周期：继续当前小局并向该玩家展示固定对家手牌；只有同一对家组两座都出完才进入 AwaitingSettlement，并向全桌展示剩余手牌；下一行动继续输出 AskOutCard |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`battle_test.go`；复用 `outputs.go` 的 `ShowCardsPayload` 和既有 Legacy `0x7606` egress |
+| 参考入口 | `nhsk/game/flow_core.go:DoOutCard`；`nhsk/game/messages.go:SendMsgShowCard/buildScenePlayer/shouldRevealHand`；`nhsk/game/game_flow_test.go:TestDoOutCardSendsShowCardsToFinishedPlayerWhenPartnerHasCards`；`gamelogic/internal/game/game_send_message.go` 的客户端输出资格过滤 |
+| 业务规则 | 两副牌固定对家为 Seat 0/2、1/3；单座出完只记录 Rank、增加 FinishedPlayerCount、跳过该座继续行动；对家也出完后进入 AwaitingSettlement |
+| 输出目标与顺序 | 单座出完：`OUT_CARD_INFO -> SHOW_CARDS(target=出完玩家) -> ASK_OUT_CARD`；对家组结束：`OUT_CARD_INFO -> SHOW_CARDS(target=所有未退出玩家)`；SHOW_CARDS 保留所有座位 HandCount，单座路径只填对家 Cards，终局路径填所有剩余 Cards |
+| 场景恢复 | 请求者手牌为空时，`GameScene` 额外显示其固定对家手牌；其他对手手牌仍隐藏。FinishedPlayerCount 和最小 Rank 从 Battle Mailbox 状态读取 |
+| 已一致 | 单座出完不提前结算、固定对家显示、对家组结束门禁、SHOW_CARDS 目标/隐藏信息和下一 Ask 线序已用旧源码与 GSR 测试复核 |
+| 有意偏差 | 当前 GSR 仍未迁移真实墩分、LastPlayedCards、CapturedPoints、完整牌型/名次算法和 GameRecords；Rank 只记录出完顺序，不作为综合结算结果来源 |
+| 发现遗漏 | 参考终局还会进入亮牌等待、GameResult、回放和 ROUND_STAT/GAME_OVER；本切片只修正出完牌边界和客户端可见手牌，不伪造后续结算事实 |
+| 结论 | Battle 不再把单个玩家出完误判为小局结束；对家组结束才允许 CompleteSettlement，且 Legacy/Cluster 共用同一 Mailbox 状态门禁 |
+| RFC/决策 | RFC-0410、D-026、D-043、D-095 |
+| 备注 | 参考目录未修改；Legacy `0x7606` codec/egress 复用既有实现。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

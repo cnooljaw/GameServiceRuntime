@@ -126,18 +126,113 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	_ = service.Handle(ctx, gsr.Command{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}})
 	_ = service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}})
 	service.hands[service.bySeat[0]] = []byte{1}
+	service.hands[service.bySeat[2]] = []byte{}
 	state := service.snapshot()
 	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: state.ActivePlayer, Cards: []byte{1}, VerifyCode: state.VerifyCode}}); err != nil {
 		t.Fatal(err)
 	}
 	if service.phase != NHSKBattleAwaitingSettlement {
-		t.Fatalf("phase after final card = %s", service.phase)
+		t.Fatalf("phase after partner final card = %s", service.phase)
 	}
 	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: true, Scores: [4]int32{1, -1, 1, -1}}}); err != nil {
 		t.Fatal(err)
 	}
 	if result := ctx.reply.(SettlementCommandResult); !result.Accepted || service.phase != NHSKBattleFinished {
 		t.Fatalf("settlement = %#v phase=%s", result, service.phase)
+	}
+}
+
+func TestBattleSingleSeatOutKeepsPlayingAndShowsPartnerCards(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 16)
+	service.activeSeat = 0
+	service.verifyCode = 9
+	service.hands[service.bySeat[0]] = []byte{1}
+	service.hands[service.bySeat[2]] = []byte{2, 3}
+	service.lastCards = nil
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: service.bySeat[0], Cards: []byte{1}, VerifyCode: 9}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattlePlaying || service.activeSeat != 1 {
+		t.Fatalf("single seat out state phase=%s active=%d", service.phase, service.activeSeat)
+	}
+	if len(output.sends) != 3 {
+		t.Fatalf("single seat out outputs=%d, want out-card/show-cards/ask", len(output.sends))
+	}
+	show := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if show.Kind != OutputShowCards || !reflect.DeepEqual(show.Targets, []game.PlayerID{"1"}) {
+		t.Fatalf("show output=%#v", show)
+	}
+	payload := show.Payload.(ShowCardsPayload)
+	if payload.HandCounts[2] != 2 || payload.Cards[2][0] != 2 || payload.Cards[2][1] != 3 {
+		t.Fatalf("partner hand not shown: counts=%v cards=%x", payload.HandCounts, payload.Cards[2][:4])
+	}
+	for seat := range payload.Cards {
+		if seat != 2 && payload.Cards[seat] != [26]byte{} {
+			t.Fatalf("unexpected hand reveal at seat %d: %x", seat, payload.Cards[seat][:4])
+		}
+	}
+}
+
+func TestBattleSceneRevealsPartnerForFinishedRequester(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 17)
+	service.hands["1"] = nil
+	service.hands["3"] = []byte{7, 8}
+	service.finished[0] = true
+	service.ranks[0] = 1
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: RequestGameSceneCommand, Payload: ReconnectPlayerRequest{Player: "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.sends) < 2 {
+		t.Fatalf("scene outputs=%d", len(output.sends))
+	}
+	scene := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput).Payload.(GameScenePayload)
+	if scene.Players[2].HandCount != 2 || scene.Players[2].HandCards[0] != 7 || scene.Players[2].HandCards[1] != 8 {
+		t.Fatalf("partner scene hand not shown: %#v", scene.Players[2])
+	}
+	if scene.FinishedPlayerCount != 1 || scene.Players[0].Rank != 1 {
+		t.Fatalf("scene finish metadata = count:%d rank:%d", scene.FinishedPlayerCount, scene.Players[0].Rank)
+	}
+	for seat, player := range scene.Players {
+		if seat != 0 && seat != 2 && player.HandCards != [26]byte{} {
+			t.Fatalf("scene leaked hand at seat %d: %x", seat, player.HandCards[:4])
+		}
+	}
+}
+
+func TestBattlePartnerPairFinishShowsAllRemainingHands(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 18)
+	service.activeSeat = 0
+	service.verifyCode = 10
+	service.hands[service.bySeat[0]] = []byte{1}
+	service.hands[service.bySeat[2]] = nil
+	service.hands[service.bySeat[1]] = []byte{4, 5}
+	service.hands[service.bySeat[3]] = []byte{6}
+	service.lastCards = nil
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: service.bySeat[0], Cards: []byte{1}, VerifyCode: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleAwaitingSettlement {
+		t.Fatalf("pair finish phase=%s, want awaiting_settlement", service.phase)
+	}
+	if len(output.sends) != 2 {
+		t.Fatalf("pair finish outputs=%d, want out-card/show-cards", len(output.sends))
+	}
+	show := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if show.Kind != OutputShowCards || !reflect.DeepEqual(show.Targets, []game.PlayerID{"1", "2", "3", "4"}) {
+		t.Fatalf("pair show output=%#v", show)
+	}
+	payload := show.Payload.(ShowCardsPayload)
+	if payload.Cards[1][0] != 4 || payload.Cards[3][0] != 6 || payload.HandCounts[2] != 0 {
+		t.Fatalf("pair hands=%#v counts=%v", payload.Cards, payload.HandCounts)
 	}
 }
 
