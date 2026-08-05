@@ -742,6 +742,27 @@
 | RFC/决策 | RFC-0410、D-026、D-044、D-060 |
 | 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
 
+### 4.37 NHSK 当前墩抓分与 TurnEnd 线序
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 迁移参考 `DoOutCard/advanceTurnAfterOut/endCurrentRound` 的当前墩状态：累计出牌中的 5、10、K，三家过牌结束一墩，向赢家归属分值并发送 `TurnEnd` |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`battle_test.go`、`card_rules.go`、`card_rules_test.go`；`outputs.go` 与既有 `legacy_egress.go`/TurnEnd codec |
+| 参考入口 | `nhsk/game/flow_core.go:DoOutCard` 的 `PassCount/PreOutCardSeat/ScoreCards` 更新与 `endCurrentRound`；`nhsk/game/helpers.go:awardCurrentScoreCardsToPreOutSeat`；`nhsk/logic/logic.go:GetScoreCard`；`nhsk/game/messages.go:SendMsgTurnEnd` |
+| 参考测试/配置/录包 | `nhsk/logic/logic_test.go:TestGetScoreCard/TestXuRuoxuanEightCardBombAndScoreCards`；`nhsk/game/game_flow_test.go` 的出牌/场景分牌事实；既有 Legacy `0x7605` TurnEnd golden |
+| Legacy MessageID | `0x7605 NHSK_TURN_END`；本切片不新增 MessageID，仍通过既有 `OutputTurnEnd` egress |
+| 输入与校验 | 合法非过牌的牌面按低位 5=5 分、10/K=10 分累积；过牌保留当前领先牌和分牌；三家实际过牌，加上已出完/退出座位的跳过等价条件达到一墩结束；首出不能过和牌型/压牌校验不变 |
+| 权威状态变化 | Battle Mailbox 独占 `preOutSeat`、`passCount`、`scoreCards`、四座 `capturedPoints`、本墩 `lastPlayedCards/lastPlayCounts`；结束时一次性计算当前分牌、累加赢家累计抓分，然后清空本墩状态；不修改综合结算 Score |
+| Timer/Timeline | TurnEnd 不创建额外 Timer；结束后复用现有唯一回合期限入口并提交下一 Ask，旧期限继续由 TurnRevision fencing |
+| 输出目标与顺序 | 当前墩结束严格为 `OUT_CARD_INFO -> TURN_END -> ASK_OUT_CARD`；TurnEnd Targets 使用当前未退出玩家，Winner 可不在 Targets；GameScene 同步暴露当前墩分牌、PreviousPlayerSeat、LastPlayedCards、CapturedPoints |
+| 生命周期结果 | 普通出牌不提前结束小局；对家组均出完仍进入 AwaitingSettlement，最终 GameResult/0x8650/回放未在本切片接入；赢家已出完时下一墩由固定对家优先领出 |
+| 已一致 | 5/10/K 分牌值、PassCount/PreOutCardSeat 语义、赢家归属、出完赢家由对家领出、TurnEnd 位置和场景临时状态与参考源码/测试一致 |
+| 有意偏差 | 当前只实现每墩抓分与客户端 TurnEnd，不实现参考的 Replay CurrentPoint/CatchPoint、名次/单双扣、综合结算分数、AI/托管统计；累计抓分只保存在 Battle/Scene，不写入最终 GameResult |
+| 发现遗漏 | 参考还在终局前后将累计抓分投影到 GameResult、回放和 GAME_OVER；这些需要完整结算/回放权威来源后再接入，不能在当前切片伪造 |
+| 结论 | 当前墩抓分、清墩和 `TurnEnd` 线序 **已一致**；最终计分、名次、单双扣、GameResult 和回放仍为 **发现遗漏/待实现** |
+| RFC/决策 | RFC-0410、D-058、D-059、D-081 |
+| 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

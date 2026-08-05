@@ -57,6 +57,17 @@ func TestCompareNHSKCardPatternsMatchesReferenceRules(t *testing.T) {
 	}
 }
 
+func TestScoreCardsMatchesReferenceValues(t *testing.T) {
+	score, cards := scoreCardsIn([]byte{0x05, 0x1a, 0x2d, 0x03, 0x3d, 0x5d})
+	if score != 35 {
+		t.Fatalf("scoreCardsIn score = %d, want 35", score)
+	}
+	want := []byte{0x05, 0x1a, 0x2d, 0x3d}
+	if string(cards) != string(want) {
+		t.Fatalf("scoreCardsIn cards = %#v, want %#v", cards, want)
+	}
+}
+
 func TestBattleAcceptsDuplicatePhysicalCardsFromTwoDecks(t *testing.T) {
 	service, _ := newPlayingBattleForRestore(t, 24)
 	service.activeSeat = 0

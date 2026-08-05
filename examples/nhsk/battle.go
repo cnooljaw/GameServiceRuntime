@@ -74,6 +74,12 @@ type NHSKBattleService struct {
 	lastCards            []byte
 	lastRank             int
 	lastCount            int
+	preOutSeat           int
+	passCount            int
+	scoreCards           []byte
+	capturedPoints       [4]uint16
+	lastPlayedCards      [4][8]byte
+	lastPlayCounts       [4]int8
 	revision             uint64
 	turnRevision         uint64
 	deadlineAt           time.Time
@@ -100,6 +106,8 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
 		phase: NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
+		preOutSeat:     -1,
+		lastPlayCounts: [4]int8{-1, -1, -1, -1},
 	}, nil
 }
 
@@ -268,11 +276,10 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 			return err
 		}
 	}
-	battle.lastCards = nil
-	battle.lastRank = -1
-	battle.lastCount = 0
+	battle.resetTrick()
 	battle.finished = [4]bool{}
 	battle.ranks = [4]uint8{}
+	battle.capturedPoints = [4]uint16{}
 	battle.settlementFailed = false
 	for playerID, player := range battle.players {
 		player.IsBreak = false
@@ -399,6 +406,16 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 	if len(request.Cards) > 0 {
 		battle.lastCards = append(battle.lastCards[:0], request.Cards...)
 		battle.lastRank, battle.lastCount = pattern.rank, pattern.count
+		battle.preOutSeat = battle.activeSeat
+		battle.passCount = 0
+		_, scoreCards := scoreCardsIn(request.Cards)
+		battle.scoreCards = append(battle.scoreCards, scoreCards...)
+		battle.lastPlayCounts[battle.activeSeat] = int8(len(request.Cards))
+		copy(battle.lastPlayedCards[battle.activeSeat][:], request.Cards)
+	} else {
+		battle.passCount++
+		battle.lastPlayCounts[battle.activeSeat] = 0
+		battle.lastPlayedCards[battle.activeSeat] = [8]byte{}
 	}
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputOutCardInfo, Payload: OutCardInfoPayload{Player: request.Player, Cards: toFixedEight(request.Cards), CardCount: uint8(len(request.Cards))}}); err != nil {
@@ -626,12 +643,23 @@ func (battle *NHSKBattleService) scenePayload(target game.PlayerID) GameScenePay
 		payload.State = GameSceneStateShowingResult
 	}
 	payload.ActiveSeat = int8(battle.activeSeat)
-	payload.PreviousPlayerSeat = -1
+	payload.PreviousPlayerSeat = int8(battle.preOutSeat)
 	payload.RemainingSeconds = battle.remainingActionMilliseconds() / 1000
 	payload.FinishedPlayerCount = uint8(battle.finishedPlayerCount())
+	payload.TrickScoreCardCount = uint8(len(battle.scoreCards))
+	copy(payload.TrickScoreCards[:], battle.scoreCards)
 	targetSeat := battle.seatOf(target)
 	for seat, player := range battle.bySeat {
-		payload.Players[seat] = GameScenePlayer{Player: player, Automated: battle.auto[player], Offline: battle.offline[player], HandCount: uint8(len(battle.hands[player])), Rank: battle.ranks[seat]}
+		payload.Players[seat] = GameScenePlayer{
+			Player:          player,
+			Automated:       battle.auto[player],
+			Offline:         battle.offline[player],
+			HandCount:       uint8(len(battle.hands[player])),
+			LastPlayedCards: battle.lastPlayedCards[seat],
+			LastPlayCount:   battle.lastPlayCounts[seat],
+			CapturedPoints:  battle.capturedPoints[seat],
+			Rank:            battle.ranks[seat],
+		}
 		if player == target || (targetSeat >= 0 && len(battle.hands[target]) == 0 && seat == battle.partnerSeat(targetSeat)) {
 			copy(payload.Players[seat].HandCards[:], battle.hands[player])
 		}
@@ -726,6 +754,13 @@ func (battle *NHSKBattleService) activePlayers() []game.PlayerID {
 
 func (battle *NHSKBattleService) advanceTurn(ctx gsr.CommandContext) error {
 	battle.advanceSeat()
+	if battle.preOutSeat >= 0 && battle.passCount >= 3 {
+		return battle.finishTrick(ctx)
+	}
+	return battle.startTurn(ctx)
+}
+
+func (battle *NHSKBattleService) startTurn(ctx gsr.CommandContext) error {
 	battle.verifyCode++
 	battle.turnRevision++
 	if battle.service != nil {
@@ -740,6 +775,26 @@ func (battle *NHSKBattleService) advanceTurn(ctx gsr.CommandContext) error {
 		return nil
 	}
 	return battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputAskOutCard, Payload: battle.askOutCardPayload()})
+}
+
+func (battle *NHSKBattleService) finishTrick(ctx gsr.CommandContext) error {
+	if battle.preOutSeat < 0 || battle.preOutSeat >= len(battle.bySeat) || battle.bySeat[battle.preOutSeat] == "" {
+		return nil
+	}
+	winnerSeat := battle.preOutSeat
+	winner := battle.bySeat[winnerSeat]
+	points, _ := scoreCardsIn(battle.scoreCards)
+	battle.capturedPoints[winnerSeat] += uint16(points)
+	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputTurnEnd, Payload: TurnEndPayload{Winner: winner, CapturedPoints: points}}); err != nil {
+		return err
+	}
+	if len(battle.hands[winner]) == 0 {
+		battle.activeSeat = battle.partnerSeat(winnerSeat)
+	} else {
+		battle.activeSeat = winnerSeat
+	}
+	battle.resetTrick()
+	return battle.startTurn(ctx)
 }
 
 func (battle *NHSKBattleService) seatOf(player game.PlayerID) int {
@@ -799,7 +854,21 @@ func (battle *NHSKBattleService) advanceSeat() {
 			battle.activeSeat = seat
 			return
 		}
+		if battle.preOutSeat >= 0 {
+			battle.passCount++
+		}
 	}
+}
+
+func (battle *NHSKBattleService) resetTrick() {
+	battle.lastCards = nil
+	battle.lastRank = -1
+	battle.lastCount = 0
+	battle.preOutSeat = -1
+	battle.passCount = 0
+	battle.scoreCards = nil
+	battle.lastPlayedCards = [4][8]byte{}
+	battle.lastPlayCounts = [4]int8{-1, -1, -1, -1}
 }
 
 func (battle *NHSKBattleService) validateCards(player game.PlayerID, cards []byte) (cardPattern, bool) {

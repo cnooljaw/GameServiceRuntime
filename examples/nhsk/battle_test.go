@@ -111,6 +111,73 @@ func TestBattleAllowsPassAfterALeadWithoutReplacingTheLead(t *testing.T) {
 	}
 }
 
+func TestBattleEndsTrickAfterThreePassesAndPublishesCapturedPoints(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 16)
+	service.hands[service.bySeat[0]] = []byte{0x05, 0x06}
+	service.hands[service.bySeat[1]] = []byte{0x07}
+	service.hands[service.bySeat[2]] = []byte{0x08}
+	service.hands[service.bySeat[3]] = []byte{0x09}
+	service.activeSeat = 0
+	service.verifyCode = 11
+	output.sends = nil
+
+	ctx := &battleTestCommandContext{}
+	play := func(player game.PlayerID, cards []byte) {
+		t.Helper()
+		if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: player, Cards: cards, VerifyCode: service.verifyCode}}); err != nil {
+			t.Fatal(err)
+		}
+		if result := ctx.reply.(ActionResult); !result.Accepted {
+			t.Fatalf("play %s %x = %#v", player, cards, result)
+		}
+	}
+	play("1", []byte{0x05})
+	if scene := service.scenePayload("1"); scene.TrickScoreCardCount != 1 || scene.TrickScoreCards[0] != 0x05 || scene.Players[0].LastPlayCount != 1 {
+		t.Fatalf("scene during trick = %#v", scene)
+	}
+	play("2", nil)
+	play("3", nil)
+	play("4", nil)
+
+	var turnEndAt, askAt int
+	for index, value := range output.sends {
+		batch, ok := value.(GameOutputBatch)
+		if !ok || len(batch.Outputs) != 1 {
+			continue
+		}
+		switch payload := batch.Outputs[0].(ClientGameOutput).Payload.(type) {
+		case TurnEndPayload:
+			turnEndAt = index + 1
+			if payload.Winner != "1" || payload.CapturedPoints != 5 {
+				t.Fatalf("turn end payload = %#v", payload)
+			}
+		case AskOutCardPayload:
+			if payload.ActivePlayer == "1" {
+				askAt = index + 1
+			}
+		}
+	}
+	if turnEndAt == 0 || askAt <= turnEndAt {
+		t.Fatalf("missing TurnEnd -> AskOutCard order: turnEnd=%d ask=%d sends=%#v", turnEndAt, askAt, output.sends)
+	}
+	if scene := service.scenePayload("1"); scene.TrickScoreCardCount != 0 || scene.Players[0].CapturedPoints != 5 || scene.Players[0].LastPlayCount != -1 {
+		t.Fatalf("scene after trick = %#v", scene)
+	}
+}
+
+func TestBattleStartSubgameClearsCapturedPoints(t *testing.T) {
+	service, _ := newPlayingBattleForRestore(t, 17)
+	service.capturedPoints = [4]uint16{5, 10, 15, 20}
+	service.phase = NHSKBattlePreparing
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.capturedPoints != [4]uint16{} {
+		t.Fatalf("captured points after new subgame = %v", service.capturedPoints)
+	}
+}
+
 func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	service, err := NewBattleService(NHSKBattleConfig{ID: 10})
 	if err != nil {

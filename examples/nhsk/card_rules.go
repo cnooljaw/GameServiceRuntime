@@ -111,3 +111,22 @@ func cardLogicValue(value int) int {
 	}
 	return value
 }
+
+func scoreCardsIn(cards []byte) (uint32, []byte) {
+	var score uint32
+	scoreCards := make([]byte, 0, len(cards))
+	for _, card := range cards {
+		if card>>4 > 4 {
+			continue
+		}
+		switch card & 0x0f {
+		case 5:
+			score += 5
+			scoreCards = append(scoreCards, card)
+		case 10, 13:
+			score += 10
+			scoreCards = append(scoreCards, card)
+		}
+	}
+	return score, scoreCards
+}
