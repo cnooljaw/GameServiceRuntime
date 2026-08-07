@@ -783,6 +783,26 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-051、D-058；TODO CARD-022、CARD-024、CARD-036、CARD-037 |
 | 备注 | 参考目录只读未修改；`.codegraph/` 仅作分析元数据，未写入业务源码。 |
 
+### 4.39 NHSK Battle-owned Clock 与期限读取
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将 Battle 的期限起点、剩余时间和到期边界从 Runtime 服务时钟/直接系统时间收拢到可注入的 `NHSKClock` |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`examples/nhsk/battle_test.go`；`docs/TODO.md` CARD-024；`examples/nhsk/README.md` |
+| 参考入口 | `nhsk/game/flow_core.go:DoAskOutCard` 的 `LastActionAt=time.Now()`、`StartTimer`；`nhsk/game/timers.go:OnTimer/onTimerOutCard`；`nhsk/game/interface.go` 的 `MsFirstOutCard/MsOutCard/MsOutCardRobot` 默认值和 `StopAllTimers` |
+| Legacy MessageID | 本切片不新增 MessageID；既有 `ASK_OUT_CARD (0x7603)` 的 `SecRemain` 仍由同一 Battle 输出，单位和线序不变 |
+| 输入与校验 | `NHSKBattleConfig.Clock` 可注入实现 `Now() time.Time`；nil 时只由私有 `systemNHSKClock` 使用系统时间。`StartSubgame`、新回合和托管期限用该 Clock 计算 deadline；deadline 前剩余毫秒向下取整，达到或超过 deadline 返回 0 |
+| 权威状态变化 | Battle 仍在 Mailbox 内写入 `deadlineAt`；Clock 只提供只读时间事实，不持有 Battle 状态、不创建 Timer、不绕过 `ServiceContext.After`。Timer 仍由 Runtime 投递 `nhskBattleTimerCommand`，业务 Handler 决定是否自动出牌 |
+| Timer/Timeline | 没有新增 Timer；现有唯一期限和 `turnRevision` fencing 不变。注入 Clock 不改变 Timer 的真实调度，只使 deadline 计算和场景剩余时间可复现 |
+| 输出目标与顺序 | 不改变 GameStart、AskOutCard、Reconnect/Scene 恢复或托管输出；只替换期限计算的时间来源，Legacy adapter 不编码 Clock 或测试时间 |
+| 生命周期结果 | Battle 初始化获得完整 Clock 依赖；生产默认 Clock 保持现有墙上时间行为，测试可推进 fake Clock 验证起点、500ms 边界和到期零值。回放开始/结束时间、诊断导出和其他未来时间事实仍未接入 |
+| 已一致 | 旧实现的出牌期限由 `MsFirstOutCard/MsOutCard` 启动 Timer、期限事件进入统一 Timer Handler；新实现仍由 Battle 设置唯一 deadline、通过 Runtime Timer 投递 Command，并保持既有输出/VerifyCode fencing。Clock 所有读取集中到 Battle owner，满足 D-051 的可复现时间 seam |
+| 有意偏差 | 参考直接调用 `time.Now()` 保存 `LastActionAt`，并由独立 timer manager 查询剩余；新实现不复制该全局/多 Timer 结构，改用 Battle-owned Clock + Runtime `After`，理由见 D-051 与 RFC-0410 Timeline 契约。生产 Clock 的默认 provider 仍返回系统时间，不增加新的外部时间服务 |
+| 发现遗漏 | 参考的首次出牌/普通出牌/机器人/AI 专用期限、Timer 响应矩阵和回放操作耗时仍未完整接入；本切片只使现有 15 秒示例期限可注入、可测试，不宣称完成 CARD-033 或回放时间字段 |
+| 结论 | Battle-owned Clock、期限起点、剩余毫秒和到期边界 **已按 RFC 实现**；完整配置化期限、专用 Timer、回放时间事实 **发现遗漏/待后续切片** |
+| RFC/决策 | RFC-0410、RFC-0320、RFC-0500、D-025、D-051、D-075、D-080；TODO CARD-024、CARD-033、CARD-048、CARD-053 |
+| 备注 | 参考目录只读未修改；`.codegraph/` 已同步且状态为 up to date。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

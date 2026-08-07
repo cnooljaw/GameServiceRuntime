@@ -115,6 +115,26 @@ func TestNewBattleServiceFailsWhenRandomSeedUnavailable(t *testing.T) {
 	}
 }
 
+func TestBattleUsesInjectedClockForDeadlineAndRemainingTime(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(100, 500*int64(time.Millisecond))}
+	service, _ := newBattleForTest(t, 28, mathrand.New(mathrand.NewSource(3)), clock)
+	wantDeadline := clock.now.Add(15 * time.Second)
+	if !service.deadlineAt.Equal(wantDeadline) {
+		t.Fatalf("deadline = %v, want %v", service.deadlineAt, wantDeadline)
+	}
+	if got := service.remainingActionMilliseconds(); got != 15_000 {
+		t.Fatalf("remaining at start = %dms, want 15000ms", got)
+	}
+	clock.now = wantDeadline.Add(-500 * time.Millisecond)
+	if got := service.remainingActionMilliseconds(); got != 500 {
+		t.Fatalf("remaining near deadline = %dms, want 500ms", got)
+	}
+	clock.now = wantDeadline
+	if got := service.remainingActionMilliseconds(); got != 0 {
+		t.Fatalf("remaining at deadline = %dms, want 0", got)
+	}
+}
+
 func TestBattleRejectsOutOfTurnAndInvalidCardsWithoutMutation(t *testing.T) {
 	service, err := NewBattleService(NHSKBattleConfig{ID: 8})
 	if err != nil {
@@ -656,7 +676,7 @@ func TestBattleRoundStatTargetsRequireReadyAndNonExitedPlayers(t *testing.T) {
 
 func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
-	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3))})
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,13 +702,13 @@ func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleServ
 
 func newPlayingBattleWithSeed(t *testing.T, id game.BattleID, seed int64) *NHSKBattleService {
 	t.Helper()
-	service, _ := newBattleForTest(t, id, mathrand.New(mathrand.NewSource(seed)))
+	service, _ := newBattleForTest(t, id, mathrand.New(mathrand.NewSource(seed)), &nhskTestClock{now: time.Unix(1, 0)})
 	return service
 }
 
-func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource) (*NHSKBattleService, *recordingBattleTestServiceContext) {
+func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource, clock NHSKClock) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
-	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: random})
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: random, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,6 +730,12 @@ func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource) (
 	}
 	return service, output
 }
+
+type nhskTestClock struct {
+	now time.Time
+}
+
+func (clock *nhskTestClock) Now() time.Time { return clock.now }
 
 type battleTestCommandContext struct{ reply any }
 

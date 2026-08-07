@@ -37,6 +37,17 @@ type NHSKRandomSource interface {
 	Shuffle(n int, swap func(i, j int))
 }
 
+// NHSKClock supplies wall-clock reads to one NHSK Battle. Tests can inject a
+// fixed or advancing implementation; production uses the system clock when
+// the configuration leaves it nil.
+type NHSKClock interface {
+	Now() time.Time
+}
+
+type systemNHSKClock struct{}
+
+func (systemNHSKClock) Now() time.Time { return time.Now() }
+
 var readRandomSeed = cryptorand.Read
 
 // NHSKBattlePhase is the business lifecycle of one NHSK Battle.
@@ -66,6 +77,9 @@ type NHSKBattleConfig struct {
 	// Random optionally injects the Battle-owned random source. When nil,
 	// NewBattleService seeds a private source from crypto/rand.
 	Random NHSKRandomSource
+	// Clock optionally injects the Battle-owned wall clock. When nil,
+	// NewBattleService uses the process system clock.
+	Clock NHSKClock
 }
 
 // NHSKBattleService owns one Battle's state and serializes all game mutations in its Mailbox.
@@ -108,6 +122,7 @@ type NHSKBattleService struct {
 	settlementFailed     bool
 	nextRound            UpdateRoundContextRequest
 	random               NHSKRandomSource
+	clock                NHSKClock
 }
 
 // NewBattleService creates an NHSK Battle Service with no initialized business state.
@@ -123,6 +138,10 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 			return nil, err
 		}
 	}
+	clock := config.Clock
+	if clock == nil {
+		clock = systemNHSKClock{}
+	}
 	productID := config.ProductID
 	if productID == 0 {
 		productID = NHSKDescriptor.GameID
@@ -131,6 +150,7 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
 		random: random,
+		clock:  clock,
 		phase:  NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
@@ -311,7 +331,7 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
 	battle.turnRevision++
-	battle.deadlineAt = battle.service.Now().Add(15 * time.Second)
+	battle.deadlineAt = battle.clock.Now().Add(15 * time.Second)
 	if battle.service != nil {
 		if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
@@ -372,7 +392,7 @@ func (battle *NHSKBattleService) setAuto(ctx gsr.CommandContext, payload any) er
 	}
 	battle.auto[request.Player] = request.Enabled
 	if request.Enabled && battle.phase == NHSKBattlePlaying && request.Player == battle.bySeat[battle.activeSeat] && battle.service != nil {
-		battle.deadlineAt = battle.service.Now().Add(time.Second)
+		battle.deadlineAt = battle.clock.Now().Add(time.Second)
 		if _, err := battle.service.After(time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
 		}
@@ -758,10 +778,7 @@ func (battle *NHSKBattleService) remainingActionMilliseconds() uint32 {
 	if battle.deadlineAt.IsZero() {
 		return 0
 	}
-	now := time.Now()
-	if battle.service != nil {
-		now = battle.service.Now()
-	}
+	now := battle.clock.Now()
 	remaining := battle.deadlineAt.Sub(now)
 	if remaining <= 0 {
 		return 0
@@ -805,7 +822,7 @@ func (battle *NHSKBattleService) startTurn(ctx gsr.CommandContext) error {
 	battle.verifyCode++
 	battle.turnRevision++
 	if battle.service != nil {
-		battle.deadlineAt = battle.service.Now().Add(15 * time.Second)
+		battle.deadlineAt = battle.clock.Now().Add(15 * time.Second)
 		if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
 		}
