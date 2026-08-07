@@ -9,14 +9,14 @@
 目前已完成的是一个可测试的最小纵向切片：
 
 - Legacy `0x7701 OUT_CARD`、`0x7702 CARD_ACTION`、`0x720A USER_STATE_CHANGE`、`0x7208 USER_RECONNECT`、`0x720D GAME_SCENE` 的固定字节解码、relay 身份核对和显式 MessageID→CommandID 映射。
-- NHSK `BattleService` 的初始化、四座玩家更新、准备/开始小局、确定性发牌、基础出牌/过牌、预览选牌、托管开关、离线/重连状态和 Snapshot。
+- NHSK `BattleService` 的初始化、四座玩家更新、准备/开始小局、Battle 独立随机源、单次庄家抽取、洗牌与庄家环形发牌、基础出牌/过牌、预览选牌、托管开关、离线/重连状态和 Snapshot。
 - `NHSKHostService` 的 BattleID 索引、异步创建操作、BattleRef 解析和精确停止；`BattleFactoryService` 负责 Runtime 创建/停止。
 - Legacy relay 和 Cluster 调用都归一化为同一套类型化 Command，并进入同一个 Battle Mailbox。
 - 类型化 `GameOutputBatch` 到 `GameOutputService` 的交付边界，Legacy encoder 仍在该边界之外。
 - Legacy `ROUND_STAT (0x7246)` 的空统计投影 codec 和逐目标 relay egress 已就绪；Battle 已建立 `!Exited && ClientReady` 的目标资格表，正式结算时序仍等待 GameResult/回放权威来源。
 - Battle 已按参考分离 Reconnect 与 Scene 的副作用；恢复线序为 `GameInfo -> GameScene -> 当前 AskOutCard`，场景只暴露请求者可见的手牌。
 - Battle 已按固定对家组处理出完牌：单个玩家出完后继续小局、向该玩家展示对家手牌并推进下一 Ask；同一对家组都出完才进入 AwaitingSettlement，并向未退出玩家展示剩余手牌。
-- Battle 当前牌规层已按参考覆盖单牌、对子、三张、三带二和 4～8 张炸弹；A/2 使用旧逻辑值，炸弹优先且同型炸弹按长度比较；发牌使用两副完整 1..K 牌，双副中的相同物理牌可同时出。
+- Battle 当前牌规层已按参考覆盖单牌、对子、三张、三带二和 4～8 张炸弹；A/2 使用旧逻辑值，炸弹优先且同型炸弹按长度比较；普通发牌使用两副完整 1..K 牌，先由 Battle 随机源抽庄家并 Fisher-Yates 洗牌，再按庄家环形分给四座，双副中的相同物理牌可同时出。生产随机源只由 `crypto/rand` 种子创建，测试显式注入固定 seed。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌结束一墩后，按 `OutCardInfo -> TurnEnd -> AskOutCard` 提交抓分归属，并在 GameScene 投影当前墩牌、上次出牌、累计抓分。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
@@ -311,7 +311,7 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 以下能力不能从当前切片推断为已完成：
 
 1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整 GAME_OVER/客户端 GameResult，以及综合结算后的完整回放收敛；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、0x8650 两段 suffix 类型化解码、交易矩阵与 Flag 门禁、失败 Dissolve 收敛、最小 GAME_STARTED/GAME_OVER 和强制结束 NOTICE。
-2. 完整 104 张牌的随机/新手/散牌调整、名次、单扣/双扣和完整结算；当前已完成最小牌型识别、比较、真实双副牌集合和当前墩抓分/TurnEnd。
+2. 完整 104 张牌的新手/散牌/自定义牌堆调整、名次、单扣/双扣和完整结算；当前已完成 Battle 独立随机、庄家轮转、标准洗牌发牌、最小牌型识别/比较、真实双副牌集合和当前墩抓分/TurnEnd。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
 5. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。

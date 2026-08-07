@@ -2,7 +2,9 @@ package nhsk
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	mathrand "math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -49,6 +51,67 @@ func TestBattleLifecycleAndClusterCallUseOneMailbox(t *testing.T) {
 	}
 	if value, err := runtime.Call(context.Background(), ref, PlayCardsCommand, PlayCardsRequest{Player: snapshot.ActivePlayer, Cards: []byte{snapshot.Hands[snapshot.ActivePlayer][0]}, VerifyCode: snapshot.VerifyCode}); err != nil || !value.(ActionResult).Accepted {
 		t.Fatalf("play = %#v, %v", value, err)
+	}
+}
+
+func TestBattleUsesInjectedRandomForRotatedShuffledDeal(t *testing.T) {
+	first := newPlayingBattleWithSeed(t, 25, 42)
+	second := newPlayingBattleWithSeed(t, 26, 42)
+
+	wantBanker := mathrand.New(mathrand.NewSource(42)).Intn(4)
+	if first.activeSeat != wantBanker {
+		t.Fatalf("banker seat = %d, want deterministic seat %d", first.activeSeat, wantBanker)
+	}
+	if first.activeSeat != second.activeSeat {
+		t.Fatalf("same seed banker seats = %d and %d", first.activeSeat, second.activeSeat)
+	}
+	expectedDeck := make([]byte, 0, 104)
+	for copyIndex := 0; copyIndex < 2; copyIndex++ {
+		for suit := 0; suit < 4; suit++ {
+			for value := 1; value <= 13; value++ {
+				expectedDeck = append(expectedDeck, byte(suit<<4|value))
+			}
+		}
+	}
+	expectedRandom := mathrand.New(mathrand.NewSource(42))
+	expectedRandom.Intn(4)
+	expectedRandom.Shuffle(len(expectedDeck), func(i, j int) { expectedDeck[i], expectedDeck[j] = expectedDeck[j], expectedDeck[i] })
+	for seat, player := range first.bySeat {
+		if got := len(first.hands[player]); got != 26 {
+			t.Fatalf("seat %d hand size = %d, want 26", seat, got)
+		}
+		if !reflect.DeepEqual(first.hands[player], second.hands[second.bySeat[seat]]) {
+			t.Fatalf("same seed hand differs at seat %d: %x != %x", seat, first.hands[player], second.hands[second.bySeat[seat]])
+		}
+		offset := (seat - first.activeSeat + len(first.bySeat)) % len(first.bySeat)
+		want := expectedDeck[offset*26 : offset*26+26]
+		if !reflect.DeepEqual(first.hands[player], want) {
+			t.Fatalf("seat %d hand does not follow banker rotation: got %x want %x", seat, first.hands[player], want)
+		}
+	}
+
+	counts := make(map[byte]int, 52)
+	for _, hand := range first.hands {
+		for _, card := range hand {
+			counts[card]++
+		}
+	}
+	if len(counts) != 52 {
+		t.Fatalf("deal distinct card count = %d, want 52", len(counts))
+	}
+	for card, count := range counts {
+		if count != 2 {
+			t.Fatalf("card %x count = %d, want 2", card, count)
+		}
+	}
+}
+
+func TestNewBattleServiceFailsWhenRandomSeedUnavailable(t *testing.T) {
+	previous := readRandomSeed
+	readRandomSeed = func([]byte) (int, error) { return 0, errors.New("seed unavailable") }
+	t.Cleanup(func() { readRandomSeed = previous })
+	if _, err := NewBattleService(NHSKBattleConfig{ID: 27}); !errors.Is(err, errBattleRandomFailure) {
+		t.Fatalf("NewBattleService error = %v, want random failure", err)
 	}
 }
 
@@ -192,6 +255,7 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	_ = service.Handle(ctx, gsr.Command{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}})
 	_ = service.Handle(ctx, gsr.Command{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}})
 	_ = service.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}})
+	service.activeSeat = 0
 	service.hands[service.bySeat[0]] = []byte{1}
 	service.hands[service.bySeat[2]] = []byte{}
 	state := service.snapshot()
@@ -592,7 +656,7 @@ func TestBattleRoundStatTargetsRequireReadyAndNonExitedPlayers(t *testing.T) {
 
 func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
-	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1})
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,6 +677,37 @@ func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleServ
 		}
 	}
 	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	return service, output
+}
+
+func newPlayingBattleWithSeed(t *testing.T, id game.BattleID, seed int64) *NHSKBattleService {
+	t.Helper()
+	service, _ := newBattleForTest(t, id, mathrand.New(mathrand.NewSource(seed)))
+	return service
+}
+
+func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource) (*NHSKBattleService, *recordingBattleTestServiceContext) {
+	t.Helper()
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: random})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	commands := []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	}
+	for _, command := range commands {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return service, output
 }
 

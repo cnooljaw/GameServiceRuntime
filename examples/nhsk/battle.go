@@ -2,8 +2,11 @@ package nhsk
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	mathrand "math/rand"
 	"sort"
 	"time"
 
@@ -23,7 +26,18 @@ var (
 	errBattleNotInitialized = errors.New("nhsk: battle not initialized")
 	errBattleStateConflict  = errors.New("nhsk: battle state conflict")
 	errBattleInvalidRequest = errors.New("nhsk: invalid Battle request")
+	errBattleRandomFailure  = errors.New("nhsk: Battle random source failure")
 )
+
+// NHSKRandomSource supplies the Battle-owned random operations used by one
+// NHSK subgame. *rand.Rand satisfies this interface and is suitable for tests
+// when constructed with a fixed seed.
+type NHSKRandomSource interface {
+	Intn(n int) int
+	Shuffle(n int, swap func(i, j int))
+}
+
+var readRandomSeed = cryptorand.Read
 
 // NHSKBattlePhase is the business lifecycle of one NHSK Battle.
 type NHSKBattlePhase string
@@ -49,6 +63,9 @@ type NHSKBattleConfig struct {
 	ProductID            uint32
 	ConnectionGeneration ConnectionGeneration
 	OutputReporter       ConnectionFailureReporter
+	// Random optionally injects the Battle-owned random source. When nil,
+	// NewBattleService seeds a private source from crypto/rand.
+	Random NHSKRandomSource
 }
 
 // NHSKBattleService owns one Battle's state and serializes all game mutations in its Mailbox.
@@ -90,12 +107,21 @@ type NHSKBattleService struct {
 	ranks                [4]uint8
 	settlementFailed     bool
 	nextRound            UpdateRoundContextRequest
+	random               NHSKRandomSource
 }
 
 // NewBattleService creates an NHSK Battle Service with no initialized business state.
 func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	if config.ID == 0 {
 		return nil, errInvalidBattleConfig
+	}
+	random := config.Random
+	if random == nil {
+		var err error
+		random, err = newBattleRandom()
+		if err != nil {
+			return nil, err
+		}
 	}
 	productID := config.ProductID
 	if productID == 0 {
@@ -104,11 +130,22 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	return &NHSKBattleService{
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
-		phase: NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
+		random: random,
+		phase:  NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
 		lastPlayCounts: [4]int8{-1, -1, -1, -1},
 	}, nil
+}
+
+func newBattleRandom() (NHSKRandomSource, error) {
+	var seedBytes [8]byte
+	if n, err := readRandomSeed(seedBytes[:]); err != nil {
+		return nil, fmt.Errorf("%w: %v", errBattleRandomFailure, err)
+	} else if n != len(seedBytes) {
+		return nil, fmt.Errorf("%w: short seed read", errBattleRandomFailure)
+	}
+	return mathrand.New(mathrand.NewSource(int64(binary.LittleEndian.Uint64(seedBytes[:])))), nil
 }
 
 // Init captures the Service capability used for timers and output delivery.
@@ -265,9 +302,13 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	if battle.phase != NHSKBattlePreparing || !battle.hasFourPlayers() {
 		return battle.reject(ctx, errBattleStateConflict)
 	}
-	battle.deal()
+	bankerSeat := battle.random.Intn(len(battle.bySeat))
+	if bankerSeat < 0 || bankerSeat >= len(battle.bySeat) {
+		return battle.reject(ctx, errBattleRandomFailure)
+	}
+	battle.deal(bankerSeat)
 	battle.phase = NHSKBattlePlaying
-	battle.activeSeat = 0
+	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
 	battle.turnRevision++
 	battle.deadlineAt = battle.service.Now().Add(15 * time.Second)
@@ -831,7 +872,7 @@ func (battle *NHSKBattleService) roundStatPlayers() []game.PlayerID {
 	return players
 }
 
-func (battle *NHSKBattleService) deal() {
+func (battle *NHSKBattleService) deal(bankerSeat int) {
 	battle.hands = make(map[game.PlayerID][]byte, 4)
 	deck := make([]byte, 0, 104)
 	for copyIndex := 0; copyIndex < 2; copyIndex++ {
@@ -841,8 +882,13 @@ func (battle *NHSKBattleService) deal() {
 			}
 		}
 	}
-	for seat, player := range battle.bySeat {
-		start := seat * 26
+	battle.random.Shuffle(len(deck), func(i, j int) {
+		deck[i], deck[j] = deck[j], deck[i]
+	})
+	for offset := 0; offset < len(battle.bySeat); offset++ {
+		seat := (bankerSeat + offset) % len(battle.bySeat)
+		player := battle.bySeat[seat]
+		start := offset * 26
 		battle.hands[player] = append([]byte(nil), deck[start:start+26]...)
 	}
 }

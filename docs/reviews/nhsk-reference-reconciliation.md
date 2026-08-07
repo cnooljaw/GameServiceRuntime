@@ -763,6 +763,26 @@
 | RFC/决策 | RFC-0410、D-058、D-059、D-081 |
 | 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
 
+### 4.38 NHSK Battle 独立随机源、庄家轮转与普通洗牌发牌
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 为普通 NHSK 发牌接入 Battle 独占 PRNG：创建时从 `crypto/rand` 取得种子；每小局抽取一次庄家、洗牌一次标准 104 张牌组，并从庄家座位开始环形分发 |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`examples/nhsk/battle_test.go`；`docs/TODO.md` CARD-024/CARD-031；`examples/nhsk/README.md` |
+| 参考入口 | `nhsk/game/interface.go:ResetForNextGame`；`nhsk/game/flow_core.go:DoGameStart/DoDeal/dealCardsFromRules`；`nhsk/logic/logic.go:RandCardList/FullCardData`；`nhsk/macros/macros.go:FullCount/CardCount/MaxPlayerNum` |
+| Legacy MessageID | 本切片不新增 MessageID；原有 `GAME_START (0x7205)`、`NHSK_DEAL (0x7602)` 的输出边界保持不变，发牌事实仍由同一 Battle 产生 |
+| 输入与校验 | `StartSubgame` 仅在四座完整且非 Exited 时抽取 `0..3` 庄家；随机源返回越界值时稳定拒绝且不进入 Playing。标准牌组固定为两副四花色 `1..13`，总计 104 张，每座 26 张；不接受全局随机或时间降级 |
+| 权威状态变化 | `NHSKBattleService` 持有 `NHSKRandomSource`；`NewBattleService` 在未注入时用 `crypto/rand` 生成私有 `math/rand.Rand`，随机读取失败直接返回创建错误。`StartSubgame` 只调用一次 `Intn(4)`，`deal` 只调用一次 `Shuffle`，以 `(BankerSeat+offset)%4` 分配四份手牌；activeSeat 与庄家一致 |
+| Timer/Timeline | 无新增 Timer/Timeline；Clock 注入和时间判断仍按 CARD-024 后续切片处理 |
+| 输出目标与顺序 | 不改变既有 GameStart、私有 Deal、AskOutCard 输出顺序；本切片只改变 Deal 的牌序与首出座位，不把随机 seed 写入旧回放 XML 或客户端 payload |
+| 生命周期结果 | 随机源失败时 Battle 不创建；单局随机源由该 Battle 独占，下一小局重新抽取庄家并重新洗牌；不复制参考 `StartGame`/`DoGameStart` 连续两次 Reset 对随机源的额外消耗 |
+| 已一致 | 参考的标准 104 张牌、多副牌允许重复物理牌、每座 26 张、庄家一次抽取、从庄家环形发牌和普通洗牌路径已由源码/配置复核并锁定为测试；同一固定 seed 的庄家、完整四手牌和牌面多重集合可复现 |
+| 有意偏差 | 参考 `nhsk/logic/logic.go` 使用包级全局 `math/rand`，新实现改为 Battle 独占随机源，理由见 D-051/CARD-024；参考连续 Reset 造成二次随机庄家，新实现只在本小局初始化一次，理由见 D-058。新实现当前只接入普通洗牌，不提前搬入全局随机、Nacos 偏置或外部数据源 |
+| 发现遗漏 | 参考普通路径还会执行 `SwapSingleCard` 散牌调整；`IsNewbie` 路径会执行 `RandCardListByNewPlayer`；自定义牌堆可覆盖牌序。它们分别留在 CARD-037、CARD-036、CARD-022，Clock 注入留在 CARD-024，不能在本切片伪造 |
+| 结论 | Battle 独立随机、crypto/rand 创建失败、标准洗牌、单次庄家和环形发牌 **已一致/按 RFC 有意偏差实现**；散牌、新手、自定义牌堆与 Clock **发现遗漏/待后续切片** |
+| RFC/决策 | RFC-0410、RFC-0500、D-051、D-058；TODO CARD-022、CARD-024、CARD-036、CARD-037 |
+| 备注 | 参考目录只读未修改；`.codegraph/` 仅作分析元数据，未写入业务源码。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
