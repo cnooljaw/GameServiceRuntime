@@ -798,10 +798,31 @@
 | 生命周期结果 | Battle 初始化获得完整 Clock 依赖；生产默认 Clock 保持现有墙上时间行为，测试可推进 fake Clock 验证起点、500ms 边界和到期零值。回放开始/结束时间、诊断导出和其他未来时间事实仍未接入 |
 | 已一致 | 旧实现的出牌期限由 `MsFirstOutCard/MsOutCard` 启动 Timer、期限事件进入统一 Timer Handler；新实现仍由 Battle 设置唯一 deadline、通过 Runtime Timer 投递 Command，并保持既有输出/VerifyCode fencing。Clock 所有读取集中到 Battle owner，满足 D-051 的可复现时间 seam |
 | 有意偏差 | 参考直接调用 `time.Now()` 保存 `LastActionAt`，并由独立 timer manager 查询剩余；新实现不复制该全局/多 Timer 结构，改用 Battle-owned Clock + Runtime `After`，理由见 D-051 与 RFC-0410 Timeline 契约。生产 Clock 的默认 provider 仍返回系统时间，不增加新的外部时间服务 |
-| 发现遗漏 | 参考的首次出牌/普通出牌/机器人/AI 专用期限、Timer 响应矩阵和回放操作耗时仍未完整接入；本切片只使现有 15 秒示例期限可注入、可测试，不宣称完成 CARD-033 或回放时间字段 |
+| 发现遗漏 | 参考的首次出牌/普通出牌/机器人/AI 专用期限、Timer 响应矩阵和回放操作耗时仍未完整接入；本切片只使当前期限依赖可注入、可测试，不宣称完成 CARD-033 或回放时间字段 |
 | 结论 | Battle-owned Clock、期限起点、剩余毫秒和到期边界 **已按 RFC 实现**；完整配置化期限、专用 Timer、回放时间事实 **发现遗漏/待后续切片** |
 | RFC/决策 | RFC-0410、RFC-0320、RFC-0500、D-025、D-051、D-075、D-080；TODO CARD-024、CARD-033、CARD-048、CARD-053 |
 | 备注 | 参考目录只读未修改；`.codegraph/` 已同步且状态为 up to date。 |
+
+### 4.40 NHSK INIT_GAME 规则 suffix 归一化与期限配置
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 补齐旧 `INIT_GAME` 连续 `BaseRule/GameRule/MatchName/RoundUniCode` suffix 解码，并把可达 NHSK 规则投影为 Battle 初始化时冻结的 `NHSKConfig` |
+| GSR 文件/测试 | `examples/nhsk/internal/legacywire/control.go`、`control_test.go`、`examples/nhsk/rules.go`、`rules_test.go`、`commands.go`、`legacy_control_mapper.go`、`battle.go`；Legacy mapper 与 Battle 规则/期限回归 |
+| 参考入口 | `protocol/gamelogic/gm2gl.go:ReqGM2GLBodyInitGame.FormatFromTcp`；`protocol/gamelogic/tcpprotocol/gm2gl.go:BS_GM2GL_INIT_GAME`；`nhsk/game/interface.go:NewGame/SetGameRule`；`gamelogic/internal/game/game_config.go:applyBaseRuleValue` |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestSetGameRuleLoadsRobotThresholdsAndBiasedFlags`；旧默认 `MsFirstOutCard/MsOutCard=10000`、`MsOutCardRobot/MsAITimeout=0`、`SingleCountToSwap=4`；BaseRule index 1/6/22 |
+| Legacy MessageID | `0x8600 INIT_GAME`；本切片不新增消息，原有 `0x7603 ASK_OUT_CARD` 继续使用同一输出边界 |
+| 输入与校验 | 固定体为 144 字节；BaseRule/GameRule/MatchName/RoundUniCode suffix 必须连续、无尾部字节；历史未填三项 suffix 的本地 fixture 视为空值。坏边界拒绝整个 INIT。规则值按逗号和首个 `;` 归一化，坏值/缺失保留默认，多余字段忽略 |
+| 权威状态变化 | `InitializeBattle` 只在首次成功时冻结 `NHSKConfig`；Battle 后续期限和 GameInfo 读取该副本。Raw 规则不进入 Battle 状态，也不建立 GM-owned 配置字段 |
+| Timer/Timeline | 没有新增 Timer；已有 Runtime `After` 使用配置化首出/普通出牌期限，`NHSKClock` 继续提供 deadline 起点 |
+| 输出目标与顺序 | `ASK_OUT_CARD` 与 `GameInfo.OutCardSeconds` 继续原线序；期限默认从示例硬编码 15 秒改为参考默认 10 秒。Legacy INIT 当前提供旧规则字段，期限覆盖也可由 Cluster 直接传入 `NHSKConfig` |
+| 生命周期结果 | 直接 Cluster 初始化未提供 Rules 时使用 `DefaultNHSKConfig`；Legacy INIT 提供已归一化配置；重复相同 INIT no-op，冲突 INIT 仍按既有身份冲突拒绝 |
+| 已一致 | suffix 固定布局、GameRule 前两项/第四项解析、BaseRule index 1/6/22、旧默认值及 Battle 内冻结后再消费均与参考证据一致 |
+| 有意偏差 | 不把 `BiasedShuffling`、展示延迟、复盘开关、AI 地址和其他 GM-owned 索引带入 NHSKConfig；不保留原始规则全文，仅保留类型化配置，遵循 CARD-046/047 |
+| 发现遗漏 | `MinRobotOutCardCount/Ratio` 与 `SingleCountToSwap` 已归一化但尚未改变发牌/托管算法；首次/机器人/AI 多期限矩阵、回放规则快照和诊断摘要仍待 CARD-033/036/037/052 |
+| 结论 | `INIT_GAME` 规则 suffix 解码、默认归一化和可达期限消费 **已实现**；未消费规则与完整散牌/托管语义 **发现遗漏/后续切片** |
+| RFC/决策 | RFC-0410；TODO CARD-025、CARD-033、CARD-034、CARD-036、CARD-037、CARD-046、CARD-047 |
+| 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
 
 ## 5. 切片追加模板
 

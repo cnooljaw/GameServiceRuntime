@@ -87,6 +87,8 @@ var NHSKDescriptor = GameDescriptor{
 
 NHSK Host 以稳定 Service 名 `.nhsk-game-host` 发布。Cluster 调用者先解析该名字，再用 `ResolveBattle` 取得当前完整 Battle Ref；Host 不替调用者代理玩法 Command。
 
+`InitializeBattleRequest.Rules` 是可选的 `*NHSKConfig`。Legacy adapter 从旧 `INIT_GAME` 的 `BaseRule/GameRule` suffix 生成规则部分；旧 wire 没有本例当前消费的期限字段时，期限采用 `DefaultNHSKConfig`，直接 Cluster 调用可以显式覆盖。`NHSKConfig` 只包含 Battle 实际读取的出牌期限、托管 AI/超时托管、机器人等级、机器人出牌阈值和单牌换牌数量。Raw 规则字符串、比赛名称及其他 GM-owned 索引不进入 Battle 权威状态；未知、缺失或坏值在 adapter 归一化时沿用默认。
+
 `HostOperationID` 在当前 Host Service 实例内单调且不复用，0 无效。它只关联异步创建/停止结果，不代替 BattleID 或 ServiceRef。
 
 ### CommandID
@@ -584,11 +586,12 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
+- Legacy `INIT_GAME` 已按旧固定体的连续 suffix 结构解码 `BaseRule/GameRule/MatchName/RoundUniCode`；adapter 只把 NHSK 实际消费的规则投影为不可变 `NHSKConfig`，直接 Cluster 初始化使用同一类型配置或默认值。当前接入的期限字段保持旧默认 10 秒，BaseRule 的托管 AI、超时托管、机器人等级和 GameRule 的机器人出牌阈值/单牌换牌数量已可达；偏置洗牌等未消费字段仍丢弃。
 - `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
 - 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
 - Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，并按庄家座位环形分发；期限起点和剩余时间只读取该 Clock。新手换牌、散牌调整、自定义牌堆、回放时间事实和单扣/双扣仍未实现。
+- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，并按庄家座位环形分发；期限起点和剩余时间只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。新手换牌、散牌调整、自定义牌堆、完整机器人/AI 专用期限、回放时间事实和单扣/双扣仍未实现。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。

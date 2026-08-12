@@ -118,12 +118,12 @@ func TestNewBattleServiceFailsWhenRandomSeedUnavailable(t *testing.T) {
 func TestBattleUsesInjectedClockForDeadlineAndRemainingTime(t *testing.T) {
 	clock := &nhskTestClock{now: time.Unix(100, 500*int64(time.Millisecond))}
 	service, _ := newBattleForTest(t, 28, mathrand.New(mathrand.NewSource(3)), clock)
-	wantDeadline := clock.now.Add(15 * time.Second)
+	wantDeadline := clock.now.Add(DefaultNHSKConfig().MsFirstOutCard)
 	if !service.deadlineAt.Equal(wantDeadline) {
 		t.Fatalf("deadline = %v, want %v", service.deadlineAt, wantDeadline)
 	}
-	if got := service.remainingActionMilliseconds(); got != 15_000 {
-		t.Fatalf("remaining at start = %dms, want 15000ms", got)
+	if got := service.remainingActionMilliseconds(); got != 10_000 {
+		t.Fatalf("remaining at start = %dms, want 10000ms", got)
 	}
 	clock.now = wantDeadline.Add(-500 * time.Millisecond)
 	if got := service.remainingActionMilliseconds(); got != 500 {
@@ -135,8 +135,41 @@ func TestBattleUsesInjectedClockForDeadlineAndRemainingTime(t *testing.T) {
 	}
 }
 
+func TestBattleUsesRulesFrozenByInitialize(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(200, 0)}
+	service, err := NewBattleService(NHSKBattleConfig{ID: 29, Random: mathrand.New(mathrand.NewSource(3)), Clock: clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	rules := DefaultNHSKConfig()
+	rules.MsFirstOutCard = 2 * time.Second
+	rules.MsOutCard = 3 * time.Second
+	commands := []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 29, ProductID: NHSKDescriptor.GameID, MatchID: 1}, Rules: &rules}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	}
+	for _, command := range commands {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := clock.now.Add(2 * time.Second); !service.deadlineAt.Equal(want) {
+		t.Fatalf("deadline = %v, want %v", service.deadlineAt, want)
+	}
+	if got := service.gameInfoPayload().OutCardSeconds; got != 3 {
+		t.Fatalf("OutCardSeconds = %d, want 3", got)
+	}
+}
+
 func TestBattleRejectsOutOfTurnAndInvalidCardsWithoutMutation(t *testing.T) {
-	service, err := NewBattleService(NHSKBattleConfig{ID: 8})
+	service, err := NewBattleService(NHSKBattleConfig{ID: 8, Random: mathrand.New(mathrand.NewSource(3)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})
 	if err != nil {
 		t.Fatal(err)
 	}

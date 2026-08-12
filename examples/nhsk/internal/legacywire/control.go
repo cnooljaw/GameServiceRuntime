@@ -75,6 +75,9 @@ type LegacyControl struct {
 
 	MatchID          uint32
 	RoundID          uint32
+	BaseRule         string
+	GameRule         string
+	MatchName        string
 	RoundUniCode     string
 	MaxGameNum       uint32
 	MaxSubgameNum    uint32
@@ -189,6 +192,10 @@ func DecodeControl(data []byte) (LegacyControl, error) {
 		control.ScoreDenominator = int32(binary.LittleEndian.Uint32(data[112:116]))
 		control.MaxGameNum = binary.LittleEndian.Uint32(data[116:120])
 		control.MaxSubgameNum = binary.LittleEndian.Uint32(data[120:124])
+		control.BaseRule, control.GameRule, control.MatchName, err = decodeInitRuleSuffixes(data)
+		if err != nil {
+			return LegacyControl{}, err
+		}
 		control.RoundUniCode, err = suffixString(data, 136, 144)
 		if err != nil {
 			return LegacyControl{}, err
@@ -303,6 +310,49 @@ func DecodeControl(data []byte) (LegacyControl, error) {
 	default:
 		return LegacyControl{}, fmt.Errorf("%w: %#x", errUnsupportedControl, header.Type)
 	}
+}
+
+func decodeInitRuleSuffixes(data []byte) (baseRule, gameRule, matchName string, err error) {
+	// Older local fixtures predate this decoder and leave the three suffix
+	// indexes zeroed. Treat that representation as three absent values while
+	// still applying strict contiguous-boundary checks to real INIT frames.
+	if allZero(data[68:92]) {
+		return "", "", "", nil
+	}
+	baseOffset, baseSize, err := readSuffixIndex(data, 68, 144)
+	if err != nil {
+		return "", "", "", err
+	}
+	gameOffset, gameSize, err := readSuffixIndex(data, 76, 144)
+	if err != nil {
+		return "", "", "", err
+	}
+	matchOffset, matchSize, err := readSuffixIndex(data, 84, 144)
+	if err != nil {
+		return "", "", "", err
+	}
+	roundOffset, _, err := readSuffixIndex(data, 136, 144)
+	if err != nil {
+		return "", "", "", err
+	}
+	if baseOffset != 144 || uint64(baseOffset)+uint64(baseSize) != uint64(gameOffset) ||
+		uint64(gameOffset)+uint64(gameSize) != uint64(matchOffset) ||
+		uint64(matchOffset)+uint64(matchSize) != uint64(roundOffset) {
+		return "", "", "", fmt.Errorf("legacywire: INIT_GAME suffix boundary")
+	}
+	baseRule = string(trimZero(data[int(baseOffset):int(baseOffset+baseSize)]))
+	gameRule = string(trimZero(data[int(gameOffset):int(gameOffset+gameSize)]))
+	matchName = string(trimZero(data[int(matchOffset):int(matchOffset+matchSize)]))
+	return baseRule, gameRule, matchName, nil
+}
+
+func allZero(data []byte) bool {
+	for _, value := range data {
+		if value != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func suffixBytes(data []byte, indexOffset, fixed int) ([]byte, error) {

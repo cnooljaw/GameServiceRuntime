@@ -65,6 +65,26 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 	}
 }
 
+func TestMapLegacyInitProjectsRulesIntoBattleCommand(t *testing.T) {
+	rules := legacywire.LegacyControl{
+		Kind:      legacywire.ControlInitGame,
+		BattleID:  12,
+		ProductID: 7,
+		MatchID:   88,
+		RoundID:   9,
+		BaseRule:  "0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1",
+		GameRule:  "2,50,0,3",
+	}
+	route, err := MapLegacyControl(rules, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := route.Command.Payload.(InitializeBattleRequest)
+	if request.Rules == nil || !request.Rules.OfflineAutoUsesAI || request.Rules.TimeoutAutoMove || request.Rules.RobotLevel != 1 || request.Rules.SingleCountToSwap != 3 {
+		t.Fatalf("rules = %#v", request.Rules)
+	}
+}
+
 func TestMapLegacyControlRoundCommandKeepsOnlySupportedTransitions(t *testing.T) {
 	for _, test := range []struct {
 		value int32

@@ -160,6 +160,10 @@ type InitializeBattleRequest struct {
 	Fee              int32
 	ScoreBase        int32
 	ScoreDenominator int32
+	// Rules is normalized at the Legacy adapter boundary. A nil value uses
+	// DefaultNHSKConfig, which keeps direct Cluster callers independent from
+	// the old comma-separated rule strings.
+	Rules *NHSKConfig
 }
 
 // BattlePlayer is the normalized four-seat player record.

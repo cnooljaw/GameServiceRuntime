@@ -125,6 +125,32 @@ func TestDecodeControlRejectsMalformedSuffixAndHugePlayerCount(t *testing.T) {
 	}
 }
 
+func TestDecodeControlParsesInitRuleSuffixes(t *testing.T) {
+	const fixed = 144
+	baseRule := []byte("0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2")
+	gameRule := []byte("2,50,0,3")
+	matchName := []byte("room")
+	roundCode := []byte("round-1")
+	baseOffset := fixed
+	gameOffset := baseOffset + len(baseRule)
+	matchOffset := gameOffset + len(gameRule)
+	roundOffset := matchOffset + len(matchName)
+	frame := controlFrame(messageGM2GLInitGame, roundOffset+len(roundCode), func(data []byte) {
+		putGLHeader(data, 12345, 99)
+		putSuffixAt(data, 68, baseOffset, baseRule)
+		putSuffixAt(data, 76, gameOffset, gameRule)
+		putSuffixAt(data, 84, matchOffset, matchName)
+		putSuffixAt(data, 136, roundOffset, roundCode)
+	})
+	got, err := DecodeControl(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaseRule != string(baseRule) || got.GameRule != string(gameRule) || got.MatchName != string(matchName) || got.RoundUniCode != string(roundCode) {
+		t.Fatalf("init suffixes = %#v", got)
+	}
+}
+
 func TestDecodeControlParsesSettlementDetails(t *testing.T) {
 	const (
 		gainCount   = 2
@@ -207,6 +233,12 @@ func putSuffix(data []byte, index, fixed int, value []byte) {
 	put32(data, index, uint32(fixed))
 	put32(data, index+4, uint32(len(value)))
 	copy(data[fixed:], value)
+}
+
+func putSuffixAt(data []byte, index, offset int, value []byte) {
+	put32(data, index, uint32(offset))
+	put32(data, index+4, uint32(len(value)))
+	copy(data[offset:], value)
 }
 
 func playerBytes(userID uint32, seat uint8, nickname string) []byte {

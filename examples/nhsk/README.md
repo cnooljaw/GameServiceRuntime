@@ -9,7 +9,7 @@
 目前已完成的是一个可测试的最小纵向切片：
 
 - Legacy `0x7701 OUT_CARD`、`0x7702 CARD_ACTION`、`0x720A USER_STATE_CHANGE`、`0x7208 USER_RECONNECT`、`0x720D GAME_SCENE` 的固定字节解码、relay 身份核对和显式 MessageID→CommandID 映射。
-- NHSK `BattleService` 的初始化、四座玩家更新、准备/开始小局、Battle 独立随机源与 `NHSKClock`、单次庄家抽取、洗牌与庄家环形发牌、基础出牌/过牌、预览选牌、托管开关、离线/重连状态和 Snapshot。
+- NHSK `BattleService` 的初始化、四座玩家更新、准备/开始小局、Battle 独立随机源与 `NHSKClock`、Legacy `INIT_GAME` 规则归一化、单次庄家抽取、洗牌与庄家环形发牌、基础出牌/过牌、预览选牌、托管开关、离线/重连状态和 Snapshot。
 - `NHSKHostService` 的 BattleID 索引、异步创建操作、BattleRef 解析和精确停止；`BattleFactoryService` 负责 Runtime 创建/停止。
 - Legacy relay 和 Cluster 调用都归一化为同一套类型化 Command，并进入同一个 Battle Mailbox。
 - 类型化 `GameOutputBatch` 到 `GameOutputService` 的交付边界，Legacy encoder 仍在该边界之外。
@@ -20,7 +20,7 @@
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌结束一墩后，按 `OutCardInfo -> TurnEnd -> AskOutCard` 提交抓分归属，并在 GameScene 投影当前墩牌、上次出牌、累计抓分。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
-- 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
+- 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、`INIT_GAME` 连续规则 suffix 解码、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
 - 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
@@ -44,6 +44,7 @@ GOCACHE=/tmp/gsr-gocache go run ./examples/nhsk/cmd/gamelogic \
 ```text
 examples/nhsk/
 ├── commands.go                 # Host/Battle/玩法 CommandID 与公开 request/result
+├── rules.go                    # 旧 BaseRule/GameRule 的最小 NHSKConfig 投影
 ├── battle.go                   # NHSKBattleService：单桌 Mailbox、阶段、手牌、动作
 ├── host.go                     # NHSKHostService + BattleFactoryService
 ├── outputs.go                  # GameOutput、ClientGameOutput、GameOutputBatch、payload
@@ -63,7 +64,7 @@ examples/nhsk/
 │   ├── card_action_request.go  # 0x7702 51 字节输入
 │   ├── user_state_change.go    # 0x720A 32 字节输入
 │   ├── player_view.go          # 0x7208/0x720D 48 字节重连与场景请求
-│   ├── control.go               # GM→GL 生命周期/玩家/结算控制 codec
+│   ├── control.go               # GM→GL 生命周期/玩家/规则/结算控制 codec
 │   ├── control_egress.go        # NEW_GAME ACK 0x800086c0
 │   ├── game_over.go              # 最小 GL→GM GAME_OVER 0x8641
 │   ├── round_over.go             # GL→GM NOTICE_ROUND_OVER 0x864e
@@ -180,6 +181,10 @@ _, _ = runtime.Call(ctx, battleRef,
         Identity: nhsk.BattleIdentity{
             BattleID: 12345, ProductID: 82, MatchID: 88, RoundID: 1,
         },
+        Rules: func() *nhsk.NHSKConfig {
+            rules := nhsk.DefaultNHSKConfig()
+            return &rules
+        }(),
     },
 )
 _, _ = runtime.Call(ctx, battleRef,

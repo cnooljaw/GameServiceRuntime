@@ -123,6 +123,7 @@ type NHSKBattleService struct {
 	nextRound            UpdateRoundContextRequest
 	random               NHSKRandomSource
 	clock                NHSKClock
+	rules                NHSKConfig
 }
 
 // NewBattleService creates an NHSK Battle Service with no initialized business state.
@@ -151,6 +152,7 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
 		random: random,
 		clock:  clock,
+		rules:  DefaultNHSKConfig(),
 		phase:  NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
@@ -240,6 +242,9 @@ func (battle *NHSKBattleService) initialize(ctx gsr.CommandContext, payload any)
 	battle.matchID = request.Identity.MatchID
 	battle.productID = request.Identity.ProductID
 	battle.fee = request.Fee
+	if request.Rules != nil {
+		battle.rules = *request.Rules
+	}
 	battle.initialized = true
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
@@ -331,9 +336,10 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
 	battle.turnRevision++
-	battle.deadlineAt = battle.clock.Now().Add(15 * time.Second)
+	deadline := battle.rules.firstOutCardTimeout()
+	battle.deadlineAt = battle.clock.Now().Add(deadline)
 	if battle.service != nil {
-		if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+		if _, err := battle.service.After(deadline, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
 		}
 	}
@@ -767,7 +773,7 @@ func (battle *NHSKBattleService) gameInfoPayload() GameInfoPayload {
 			scores[seat] = battle.players[player].Score
 		}
 	}
-	return GameInfoPayload{OutCardSeconds: 15, ServiceFee: battle.fee, Scores: scores, GameNum: battle.gameNum}
+	return GameInfoPayload{OutCardSeconds: uint32(battle.rules.outCardTimeout() / time.Second), ServiceFee: battle.fee, Scores: scores, GameNum: battle.gameNum}
 }
 
 func (battle *NHSKBattleService) askOutCardPayload() AskOutCardPayload {
@@ -822,8 +828,9 @@ func (battle *NHSKBattleService) startTurn(ctx gsr.CommandContext) error {
 	battle.verifyCode++
 	battle.turnRevision++
 	if battle.service != nil {
-		battle.deadlineAt = battle.clock.Now().Add(15 * time.Second)
-		if _, err := battle.service.After(15*time.Second, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+		deadline := battle.rules.outCardTimeout()
+		battle.deadlineAt = battle.clock.Now().Add(deadline)
+		if _, err := battle.service.After(deadline, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
 		}
 	} else {
