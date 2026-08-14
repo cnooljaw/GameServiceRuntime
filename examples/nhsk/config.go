@@ -20,14 +20,15 @@ type processRole string
 const processRoleGameLogic processRole = "gamelogic"
 
 type appConfig struct {
-	Role            processRole    `json:"role"`
-	Node            nodeConfig     `json:"node"`
-	LegacyGM        legacyGMConfig `json:"legacy_gm"`
-	MySQL           mysqlConfig    `json:"mysql"`
-	Redis           redisConfig    `json:"redis"`
-	WeChat          weChatConfig   `json:"wechat"`
-	Logging         loggingConfig  `json:"logging"`
-	ShutdownTimeout configDuration `json:"shutdown_timeout"`
+	Role            processRole      `json:"role"`
+	Node            nodeConfig       `json:"node"`
+	LegacyGM        legacyGMConfig   `json:"legacy_gm"`
+	MySQL           mysqlConfig      `json:"mysql"`
+	Redis           redisConfig      `json:"redis"`
+	WeChat          weChatConfig     `json:"wechat"`
+	CustomDeck      customDeckConfig `json:"custom_deck"`
+	Logging         loggingConfig    `json:"logging"`
+	ShutdownTimeout configDuration   `json:"shutdown_timeout"`
 }
 
 type nodeConfig struct {
@@ -63,6 +64,16 @@ type weChatConfig struct {
 	Enabled   bool   `json:"enabled"`
 	AppID     string `json:"app_id"`
 	AppSecret string `json:"app_secret"`
+}
+
+type customDeckConfig struct {
+	Enabled         bool           `json:"enabled"`
+	FilePath        string         `json:"file"`
+	AllowAnyAccount bool           `json:"allow_any_account"`
+	AllowedAccounts []uint32       `json:"allowed_accounts"`
+	QueueSize       int            `json:"queue_size"`
+	Workers         int            `json:"workers"`
+	LoadTimeout     configDuration `json:"load_timeout"`
 }
 
 type loggingConfig struct {
@@ -303,6 +314,18 @@ func (config appConfig) validate() error {
 		if strings.TrimSpace(config.WeChat.AppSecret) == "" {
 			return configFieldError("wechat.app_secret", "is required when enabled")
 		}
+	}
+	if config.CustomDeck.Enabled && strings.TrimSpace(config.CustomDeck.FilePath) == "" {
+		return configFieldError("custom_deck.file", "is required when custom_deck.enabled is true")
+	}
+	if config.CustomDeck.QueueSize < 0 {
+		return configFieldError("custom_deck.queue_size", "must not be negative")
+	}
+	if config.CustomDeck.Workers < 0 {
+		return configFieldError("custom_deck.workers", "must not be negative")
+	}
+	if config.CustomDeck.LoadTimeout < 0 {
+		return configFieldError("custom_deck.load_timeout", "must not be negative")
 	}
 	return nil
 }

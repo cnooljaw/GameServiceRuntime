@@ -19,17 +19,31 @@ type GameLogicProcessConfig struct {
 	Workers          int
 	MaxActiveBattles uint32
 	Legacy           LegacyGMConnectionConfig
+	CustomDeck       CustomDeckProcessConfig
+}
+
+// CustomDeckProcessConfig configures the dependency-light local custom-deck
+// provider used by the independently deployed example process.
+type CustomDeckProcessConfig struct {
+	Enabled         bool
+	FilePath        string
+	AllowAnyAccount bool
+	AllowedAccounts []uint32
+	QueueSize       int
+	Workers         int
+	LoadTimeout     time.Duration
 }
 
 // GameLogicProcess owns the Runtime, Host, Factory and single Legacy connection.
 type GameLogicProcess struct {
-	runtime    *gsr.Runtime
-	hostRef    gsr.ServiceRef
-	factoryRef gsr.ServiceRef
-	connection *LegacyGMConnection
-	closeOnce  bool
-	outputMu   sync.Mutex
-	outputRef  gsr.ServiceRef
+	runtime          *gsr.Runtime
+	hostRef          gsr.ServiceRef
+	factoryRef       gsr.ServiceRef
+	connection       *LegacyGMConnection
+	customDeckRunner *CustomDeckRunner
+	closeOnce        bool
+	outputMu         sync.Mutex
+	outputRef        gsr.ServiceRef
 }
 
 // NewGameLogicProcess creates and composes a complete process owner.
@@ -38,23 +52,48 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		return nil, errors.New("nhsk: invalid GameLogic process config")
 	}
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: config.NodeID, Workers: config.Workers})
-	factory, err := NewBattleFactoryService(runtime, runtime)
+	var customDeckRunner *CustomDeckRunner
+	var err error
+	if config.CustomDeck.Enabled {
+		if config.CustomDeck.FilePath == "" {
+			_ = runtime.Close(context.Background())
+			return nil, errors.New("nhsk: custom deck file path is required when enabled")
+		}
+		customDeckRunner, err = NewCustomDeckRunner(runtime, LocalFileCustomDeckProvider{Path: config.CustomDeck.FilePath}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: config.CustomDeck.LoadTimeout})
+		if err != nil {
+			_ = runtime.Close(context.Background())
+			return nil, err
+		}
+	}
+	factory, err := NewBattleFactoryServiceWithCustomDeck(runtime, runtime, customDeckRunner)
 	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
 	factoryRef, err := runtime.CreateService(gsr.ServiceSpec{Name: ".nhsk-battle-factory", Service: factory})
 	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
 	host, err := NewNHSKHostService(NHSKHostConfig{MaxActiveBattles: config.MaxActiveBattles, FactoryRef: factoryRef})
 	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
 	hostRef, err := runtime.CreateService(gsr.ServiceSpec{Name: ".nhsk-game-host", Service: host})
 	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -92,14 +131,20 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 	}
 	connection, err = NewLegacyGMConnection(connectionConfig)
 	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, fmt.Errorf("nhsk: create Legacy connection: %w", err)
 	}
 	if err := connection.AttachRouting(runtime, hostRef); err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection}
+	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner}
 	return process, nil
 }
 
@@ -133,8 +178,14 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	if err := process.connection.Close(ctx); err != nil {
+		if process.customDeckRunner != nil {
+			_ = process.customDeckRunner.Close()
+		}
 		_ = process.runtime.Close(ctx)
 		return err
+	}
+	if process.customDeckRunner != nil {
+		_ = process.customDeckRunner.Close()
 	}
 	return process.runtime.Close(ctx)
 }
@@ -176,7 +227,7 @@ func LoadGameLogicProcessConfig(path string) (GameLogicProcessConfig, error) {
 		JitterRatio:       config.LegacyGM.Jitter,
 		StableResetAfter:  time.Duration(config.LegacyGM.StableReset),
 	}
-	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}}, nil
+	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout)}}, nil
 }
 
 var _ game.CommandRuntime = (*gsr.Runtime)(nil)

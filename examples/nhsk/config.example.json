@@ -30,6 +30,15 @@
     "app_id": "",
     "app_secret": ""
   },
+  "custom_deck": {
+    "enabled": false,
+    "file": "",
+    "allow_any_account": false,
+    "allowed_accounts": [],
+    "queue_size": 128,
+    "workers": 1,
+    "load_timeout": "5s"
+  },
   "logging": {
     "level": "info"
   },

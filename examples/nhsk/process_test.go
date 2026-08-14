@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +24,29 @@ func TestNewGameLogicProcessComposesHostFactoryAndConnection(t *testing.T) {
 	}
 	if process.HostRef().ID == 0 || process.Runtime() == nil {
 		t.Fatalf("process refs = host=%#v runtime=%v", process.HostRef(), process.Runtime())
+	}
+	if err := process.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNewGameLogicProcessWiresLocalCustomDeckRunner(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom-deck.txt")
+	if err := os.WriteFile(path, []byte("{\n"+sequentialCustomDeckLine()+"\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := GameLogicProcessConfig{
+		NodeID: "nhsk-process-custom", Workers: 1, MaxActiveBattles: 2,
+		CustomDeck: CustomDeckProcessConfig{Enabled: true, FilePath: path, AllowAnyAccount: true},
+		Legacy:     LegacyGMConnectionConfig{Address: "gm-test", DialTimeout: time.Second, OriginTimeout: time.Second, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond, BackoffMultiplier: 2, Jitter: .2, StableReset: time.Second, Dial: func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("not started") }},
+	}
+	process, err := NewGameLogicProcess(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if process.customDeckRunner == nil {
+		t.Fatal("custom deck runner was not composed")
 	}
 	if err := process.Close(context.Background()); err != nil {
 		t.Fatal(err)

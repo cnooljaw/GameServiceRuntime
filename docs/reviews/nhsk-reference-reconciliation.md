@@ -866,6 +866,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-051、D-063、D-064、D-072；TODO CARD-022、CARD-025、CARD-031、CARD-036。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读未修改，未写入业务源码。 |
 
+### 4.43 NHSK 每小局自定义牌堆 provider 与 Battle 冻结
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将旧 `MakecardConfig`/`loadCustomDeck` 的可达自定义牌堆能力移到 Battle 外部的本地文件 provider 与有界 runner；每个 `Preparing` 小局只提交一次，匹配结果后才允许 Start。 |
+| GSR 文件/测试 | `examples/nhsk/custom_deck.go`、`custom_deck_test.go`、`battle.go`、`host.go`、`process.go`、`config.go`、`config.example.json`；解析 grammar、授权、队列、超时、Late Result、庄家覆盖和自定义手牌 golden。 |
+| 参考入口 | `nhsk/game/config.go:loadCustomDeck`、`customDeckAllowedForRoom`、`applyCustomBanker`、`applyCustomHands`；`nhsk/game/flow_core.go:DoGameStart/DoDeal`；`nhsk/game/game_base_api.go:getCustomDeck`。 |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestParseCustomDeckLoadsDeckAndBanker`、`TestDoDealUsesCustomDeckAndBankerOffset`、`TestStartupRulesIgnoreCustomDeckWhenRoomHasNoAllowedAccount`、`TestStartupRulesIgnoreCustomDeckWhenDisabled`；旧生产配置启用 `custom_deck.enabled` 并提供账号白名单。 |
+| Legacy MessageID | 本切片不新增 MessageID；仍由现有 `0x7602 NHSK_DEAL` 使用最终手牌，庄家和牌序不进入新的 wire 字段。 |
+| 输入与校验 | `CustomDeckProvider` 只收到脱离 Battle 的 `GameID/ProductID/UserIDs` lookup；runner 先检查 enable 与账号白名单，未授权不读取文件。Parser 保留 `{}` 块、`@N` 庄家、十六进制 `uint8` token、重复/非标准牌值；完整 104 项才收录，不足块忽略，超过 104 项取前 104 项，庄家越界视为未指定，token/庄家语法错误使整次加载失败。 |
+| 权威状态变化 | Runner 深拷贝不可变 `CustomDeckCatalog`，通过私有 `applyCustomDeckResult` Command 携带目标 `ServiceRef`、BattleID、GameNum/SubgameNum 返回。Battle 只在仍为 `Preparing` 且身份全部匹配时接收；新小局清空旧 catalog。自定义牌堆命中时只覆盖庄家与按庄家环形切片的四手牌，绕过普通 `SingleCountToSwap` 和 `IsNewbie` 调整。 |
+| Timer/Timeline | Runner 使用有界 worker pool 与每项 `LoadTimeout` context；Battle 不创建 I/O goroutine。队列满、超时、读取/解析错误、空值或无有效块均清除等待并回退普通发牌，不隔离 Battle；迟到/错局/错 Ref 结果稳定丢弃。`StartSubgame` 在等待期间以稳定业务拒绝回复。 |
+| 输出目标与顺序 | 不新增客户端或 GM 消息；现有 `GAME_START -> GAME_STARTED -> GameInfo -> Deal -> AskOutCard` 线序不变，Deal/回放未来都应引用 Battle 冻结的同一最终手牌。 |
+| 生命周期结果 | `GameLogicProcessConfig.CustomDeck` 可启用本地文件 provider，`CustomDeckRunner` 由进程组合根拥有并在 Runtime 前关闭；默认配置关闭，不改变未配置进程。下一小局重新读取文件快照，运行中不观察原地变更。 |
+| 已一致 | 旧 parser 的宽松 card grammar、有效块门槛、banker offset、账号白名单“任一玩家命中即可”、自定义优先于普通/新手发牌和无可用数据时普通路径均已覆盖。参考原目录保持只读。 |
+| 有意偏差 | 不复制旧 `loadStartupRules` 在同一 Battle 内的 Nacos/配置刷新和同步文件读取；按 D-046/RFC-0500，provider/解析/I/O 迁出 Battle，变成每小局一次有界异步快照；尚未实现生产 Redis adapter，但 key 优先级仍由 D-046 保留。 |
+| 发现遗漏 | Redis adapter（`game:makecard:<ProductID>` 优先、空值回退 `<GameID>`）、脱敏日志/指标、完整 Legacy Deal/回放 golden 和多文件/多源选择仍待后续切片；本切片不宣称生产切换范围全部完成。 |
+| 结论 | 本地 provider、旧 grammar、白名单、异步 runner、timeout/fallback、Battle 身份 fencing 与自定义发牌 **已按 RFC 实现**；Redis adapter、完整 wire/Replay 复核 **发现遗漏/后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-046、D-063、D-064、D-072；TODO CARD-022、CARD-023、CARD-031、CARD-036。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；CodeGraph 已同步且状态 up to date；未修改参考业务目录。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

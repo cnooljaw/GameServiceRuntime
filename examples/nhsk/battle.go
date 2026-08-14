@@ -14,7 +14,10 @@ import (
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
-const nhskBattleTimerCommand gsr.CommandID = 0x0410f003
+const (
+	nhskBattleTimerCommand       gsr.CommandID = 0x0410f003
+	applyCustomDeckResultCommand gsr.CommandID = 0x0410f005
+)
 
 const (
 	settlementFlagSeal  int32 = 0x00000100
@@ -82,6 +85,9 @@ type NHSKBattleConfig struct {
 	// Clock optionally injects the Battle-owned wall clock. When nil,
 	// NewBattleService uses the process system clock.
 	Clock NHSKClock
+	// CustomDeckRequester submits one asynchronous load for each prepared
+	// subgame. It is owned by the composition root, never by Battle logic.
+	CustomDeckRequester CustomDeckRequester
 }
 
 // NHSKBattleService owns one Battle's state and serializes all game mutations in its Mailbox.
@@ -127,6 +133,9 @@ type NHSKBattleService struct {
 	random               NHSKRandomSource
 	clock                NHSKClock
 	rules                NHSKConfig
+	customDeckRequester  CustomDeckRequester
+	customDeckPending    bool
+	customDeckCatalog    CustomDeckCatalog
 }
 
 // NewBattleService creates an NHSK Battle Service with no initialized business state.
@@ -153,11 +162,12 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	return &NHSKBattleService{
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
-		isNewbie: config.IsNewbie,
-		random:   random,
-		clock:    clock,
-		rules:    DefaultNHSKConfig(),
-		phase:    NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
+		isNewbie:            config.IsNewbie,
+		random:              random,
+		clock:               clock,
+		customDeckRequester: config.CustomDeckRequester,
+		rules:               DefaultNHSKConfig(),
+		phase:               NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
 		lastPlayCounts: [4]int8{-1, -1, -1, -1},
@@ -220,6 +230,8 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.snapshotReply(ctx)
 	case nhskBattleTimerCommand:
 		return battle.timer(ctx, command.Payload)
+	case applyCustomDeckResultCommand:
+		return battle.applyCustomDeckResult(ctx, command.Payload)
 	default:
 		return gsr.ErrUnknownCommand
 	}
@@ -319,6 +331,24 @@ func (battle *NHSKBattleService) prepare(ctx gsr.CommandContext, payload any) er
 	}
 	battle.gameNum, battle.subgameNum = request.GameNum, request.SubgameNum
 	battle.phase = NHSKBattlePreparing
+	battle.customDeckPending = false
+	battle.customDeckCatalog = CustomDeckCatalog{}
+	if battle.customDeckRequester != nil && battle.service != nil {
+		userIDs := make([]uint32, 0, len(battle.bySeat))
+		for _, playerID := range battle.bySeat {
+			if player := battle.players[playerID]; player.Player != "" {
+				userIDs = append(userIDs, player.UserID)
+			}
+		}
+		loadRequest := CustomDeckLoadRequest{
+			Target: battle.service.Self(), BattleID: battle.id,
+			GameNum: request.GameNum, SubgameNum: request.SubgameNum,
+			Lookup: CustomDeckLookup{GameID: NHSKDescriptor.GameID, ProductID: battle.productID, UserIDs: userIDs},
+		}
+		if err := battle.customDeckRequester.SubmitCustomDeck(loadRequest); err == nil {
+			battle.customDeckPending = true
+		}
+	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 
@@ -331,11 +361,18 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	if battle.phase != NHSKBattlePreparing || !battle.hasFourPlayers() {
 		return battle.reject(ctx, errBattleStateConflict)
 	}
+	if battle.customDeckPending {
+		return battle.reject(ctx, errCustomDeckPending)
+	}
 	bankerSeat := battle.random.Intn(len(battle.bySeat))
 	if bankerSeat < 0 || bankerSeat >= len(battle.bySeat) {
 		return battle.reject(ctx, errBattleRandomFailure)
 	}
-	battle.deal(bankerSeat)
+	customDeck := battle.customDeckForSubgame()
+	if customDeck != nil && customDeck.BankerSeat >= 0 {
+		bankerSeat = customDeck.BankerSeat
+	}
+	battle.deal(bankerSeat, customDeck)
 	battle.phase = NHSKBattlePlaying
 	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
@@ -365,6 +402,39 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 		return err
 	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) applyCustomDeckResult(_ gsr.CommandContext, payload any) error {
+	result, ok := payload.(customDeckLoadResult)
+	if !ok {
+		return gsr.ErrInvalidClusterEnvelope
+	}
+	if !battle.customDeckPending || result.Target != battle.serviceRef() || result.BattleID != battle.id || result.GameNum != battle.gameNum || result.SubgameNum != battle.subgameNum || battle.phase != NHSKBattlePreparing {
+		return nil
+	}
+	battle.customDeckPending = false
+	if result.Available && result.Catalog.valid() {
+		battle.customDeckCatalog = result.Catalog.clone()
+	} else {
+		battle.customDeckCatalog = CustomDeckCatalog{}
+	}
+	return nil
+}
+
+func (battle *NHSKBattleService) serviceRef() gsr.ServiceRef {
+	if battle.service == nil {
+		return gsr.ServiceRef{}
+	}
+	return battle.service.Self()
+}
+
+func (battle *NHSKBattleService) customDeckForSubgame() *CustomDeck {
+	if !battle.customDeckCatalog.valid() {
+		return nil
+	}
+	index := int(battle.subgameNum-1) % len(battle.customDeckCatalog.Decks)
+	deck := battle.customDeckCatalog.Decks[index]
+	return &deck
 }
 
 func (battle *NHSKBattleService) updateRoundContext(ctx gsr.CommandContext, payload any) error {
@@ -900,8 +970,12 @@ func (battle *NHSKBattleService) roundStatPlayers() []game.PlayerID {
 	return players
 }
 
-func (battle *NHSKBattleService) deal(bankerSeat int) {
+func (battle *NHSKBattleService) deal(bankerSeat int, custom *CustomDeck) {
 	battle.hands = make(map[game.PlayerID][]byte, 4)
+	if custom != nil && len(custom.Cards) == customDeckCardCount {
+		battle.dealDeck(bankerSeat, custom.Cards)
+		return
+	}
 	deck := make([]byte, 0, 104)
 	for copyIndex := 0; copyIndex < 2; copyIndex++ {
 		for suit := 0; suit < 4; suit++ {
@@ -927,6 +1001,10 @@ func (battle *NHSKBattleService) deal(bankerSeat int) {
 	} else {
 		swapSingleCards(deck, len(battle.bySeat), 26, battle.rules.SingleCountToSwap)
 	}
+	battle.dealDeck(bankerSeat, deck)
+}
+
+func (battle *NHSKBattleService) dealDeck(bankerSeat int, deck []byte) {
 	for offset := 0; offset < len(battle.bySeat); offset++ {
 		seat := (bankerSeat + offset) % len(battle.bySeat)
 		player := battle.bySeat[seat]

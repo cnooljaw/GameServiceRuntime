@@ -17,6 +17,7 @@
 - Battle 已按参考分离 Reconnect 与 Scene 的副作用；恢复线序为 `GameInfo -> GameScene -> 当前 AskOutCard`，场景只暴露请求者可见的手牌。
 - Battle 已按固定对家组处理出完牌：单个玩家出完后继续小局、向该玩家展示对家手牌并推进下一 Ask；同一对家组都出完才进入 AwaitingSettlement，并向未退出玩家展示剩余手牌。
 - Battle 当前牌规层已按参考覆盖单牌、对子、三张、三带二和 4～8 张炸弹；A/2 使用旧逻辑值，炸弹优先且同型炸弹按长度比较；普通发牌使用两副完整 1..K 牌，先由 Battle 随机源抽庄家并 Fisher-Yates 洗牌，再按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，最后按庄家环形分给四座，双副中的相同物理牌可同时出。`NEW_GAME.IsNewbie` 会优先选择座位顺序中的首个非 `Automated` 玩家执行旧 `RandCardListByNewPlayer` 的三张/四张重试；四座都是自动玩家时跳过该调整。生产随机源只由 `crypto/rand` 种子创建，测试显式注入固定 seed；普通阈值小于等于 0 时保留纯洗牌路径。
+- 自定义牌堆已由 Battle 外部的本地文件 `CustomDeckProvider` 和有界 `CustomDeckRunner` 接入：每个 `PrepareSubgame` 只提交一次，按 BattleRef、GameNum、SubgameNum fencing；未授权不读取文件，读取失败、超时、空值或队列满回退普通发牌。可用 catalog 优先覆盖庄家和四手牌，并绕过新手/散牌调整；旧 `{}`、`@N`、十六进制 `uint8` grammar、104 张块门槛与多牌堆轮选保持不变。生产 Redis adapter 尚未接入。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌结束一墩后，按 `OutCardInfo -> TurnEnd -> AskOutCard` 提交抓分归属，并在 GameScene 投影当前墩牌、上次出牌、累计抓分。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
@@ -46,6 +47,7 @@ examples/nhsk/
 ├── commands.go                 # Host/Battle/玩法 CommandID 与公开 request/result
 ├── rules.go                    # 旧 BaseRule/GameRule 的最小 NHSKConfig 投影
 ├── battle.go                   # NHSKBattleService：单桌 Mailbox、阶段、手牌、动作
+├── custom_deck.go              # 本地牌堆 parser、provider 与有界 runner
 ├── host.go                     # NHSKHostService + BattleFactoryService
 ├── outputs.go                  # GameOutput、ClientGameOutput、GameOutputBatch、payload
 ├── output_service.go           # 当代连接的输出 Service 与 sink 边界
@@ -206,6 +208,18 @@ AwaitingInit -> Preparing -> Playing -> Finished
 
 所有阶段、玩家、座位、手牌、当前行动人、VerifyCode 和 Revision 都只在 Battle Mailbox Handler 中改变。Battle 不持有另一个 Service 指针，不直接创建 goroutine，不在 Handler 中 Stop 自己。
 
+自定义牌堆会在 `Preparing` 阶段形成一条额外的异步边界：
+
+```text
+PrepareSubgame
+  -> Battle 提交 CustomDeckLoadRequest
+  -> CustomDeckRunner（白名单/文件读取/解析/超时）
+  -> applyCustomDeckResult（BattleRef + GameNum + SubgameNum）
+  -> StartSubgame
+```
+
+在结果到达前调用 `StartSubgame` 会得到稳定的“自定义牌堆仍在加载”业务拒绝；结果不可用时清除等待并直接走普通洗牌。结果到达后，Battle 只保存该小局的深拷贝 catalog，运行中的小局不会再次读取文件，也不会被外部文件原地修改影响。
+
 ### 3. Cluster 的 Send/Call
 
 需要结果时使用 `Call`：
@@ -219,6 +233,24 @@ value, err := runtime.Call(ctx, battleRef,
 )
 result := value.(nhsk.ActionResult)
 ```
+
+如果进程配置启用了本地牌堆，Cluster 调用方不需要携带牌堆内容或白名单：
+
+```json
+{
+  "custom_deck": {
+    "enabled": true,
+    "file": "/srv/nhsk/custom-deck.txt",
+    "allow_any_account": false,
+    "allowed_accounts": [1001, 1002],
+    "queue_size": 128,
+    "workers": 1,
+    "load_timeout": "5s"
+  }
+}
+```
+
+Battle 只提交当前四座 UserID，授权和数据源仍属于 runner；Cluster API 不读取文件、Redis key 或白名单，也没有第二套发牌逻辑。
 
 不需要同步结果时使用 `Send`：
 
@@ -316,7 +348,7 @@ Cluster/Agent 适配器则只消费 `UserID` 和类型化 payload，用自己的
 以下能力不能从当前切片推断为已完成：
 
 1. Legacy GM 出站 ROUND_STAT 的结算时序、带玩家数据的完整 GAME_OVER/客户端 GameResult，以及综合结算后的完整回放收敛；当前已实现 ROUND_STAT 空投影 codec/egress、ClientReady 目标资格模型、Reconnect/Scene 恢复、对家出完牌门禁与 SHOW_CARDS、入站控制 codec、NEW_GAME ACK、0x8650 两段 suffix 类型化解码、交易矩阵与 Flag 门禁、失败 Dissolve 收敛、最小 GAME_STARTED/GAME_OVER 和强制结束 NOTICE。
-2. 完整 104 张牌的自定义牌堆调整、名次、单扣/双扣和完整结算；当前已完成 Battle 独立随机、庄家轮转、标准洗牌、散牌调整与新手牌调整、Battle-owned Clock、最小牌型识别/比较、真实双副牌集合和当前墩抓分/TurnEnd。
+2. 生产 Redis 自定义牌堆 adapter、完整 Legacy Deal/回放复核，以及名次、单扣/双扣和完整结算；当前已完成本地文件自定义牌堆、Battle 独立随机、庄家轮转、标准洗牌、散牌调整与新手牌调整、Battle-owned Clock、最小牌型识别/比较、真实双副牌集合和当前墩抓分/TurnEnd。
 3. 外部 AI、完整托管超时策略、回放 writer 和 GAME_OVER 完整线序。
 4. Quarantined Battle、诊断导出 receipt、人工释放和节点 Degraded 的完整实现。
 5. Gateway、Login、Auth、Agent、微信 provider、`account + shared token` 开发认证进程，以及 MySQL/Redis 真实连接集成测试。
