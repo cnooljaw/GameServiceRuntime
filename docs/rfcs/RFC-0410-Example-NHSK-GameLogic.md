@@ -591,12 +591,12 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
 - 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
 - Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，并按庄家座位环形分发；期限起点和剩余时间只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。新手换牌、自定义牌堆、完整机器人/AI 专用期限、回放时间事实和单扣/双扣仍未实现；`SingleCountToSwap<=0` 明确关闭普通路径调整。
+- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，普通路径按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，新手路径按旧 `RandCardListByNewPlayer` 对首个非自动玩家执行三张/四张重试，并按庄家座位环形分发；期限起点和剩余时间只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。自定义牌堆、完整机器人/AI 专用期限、回放时间事实和单扣/双扣仍未实现；`SingleCountToSwap<=0` 明确关闭普通路径调整，新手路径不消费该普通阈值。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/客户端 GameResult、回放收敛、104 张牌的新手/自定义调整、回放时间事实、名次与单扣双扣、完整综合结算、完整结果/托管责任输出、AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。当前墩抓分与 `TurnEnd` 已接入，但不代表最终计分或综合结算完成。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/客户端 GameResult、回放收敛、104 张牌的自定义调整、回放时间事实、名次与单扣双扣、完整综合结算、完整结果/托管责任输出、AI、Quarantine/诊断以及 MySQL/Redis/Auth/Gateway/Agent 后续进程。当前墩抓分与 `TurnEnd` 已接入，但不代表最终计分或综合结算完成。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

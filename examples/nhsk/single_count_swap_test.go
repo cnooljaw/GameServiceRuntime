@@ -1,8 +1,10 @@
 package nhsk
 
 import (
+	mathrand "math/rand"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestSwapSingleCardsMatchesLegacySeatOrder(t *testing.T) {
@@ -43,6 +45,48 @@ func TestSwapSingleCardsDisabledForNonPositiveThreshold(t *testing.T) {
 	}
 }
 
+func TestAdjustNewbieCardsMatchesLegacyFallback(t *testing.T) {
+	cards := []byte{0x03, 0x18, 0x26, 0x33, 0x04, 0x14, 0x28, 0x33, 0x02, 0x16, 0x21, 0x34, 0x02, 0x18, 0x25, 0x33, 0x07, 0x18, 0x26, 0x32}
+	want := []byte{0x14, 0x32, 0x26, 0x33, 0x04, 0x21, 0x28, 0x33, 0x03, 0x16, 0x02, 0x34, 0x02, 0x18, 0x25, 0x33, 0x07, 0x18, 0x26, 0x18}
+	adjustNewbieCards(cards, 4, 5, 0)
+	if !reflect.DeepEqual(cards, want) {
+		t.Fatalf("newbie adjustment = %x, want %x", cards, want)
+	}
+}
+
+func TestBattleNewbieUsesFirstNonAutomatedSeat(t *testing.T) {
+	automated := [4]bool{true, false, false, true}
+	battle, _ := newBattleForTestWithOptions(t, 101, mathrand.New(mathrand.NewSource(1)), &nhskTestClock{now: time.Unix(1, 0)}, nil, true, automated)
+	wantDeck := standardNHSKDeck()
+	wantRandom := mathrand.New(mathrand.NewSource(1))
+	wantBanker := wantRandom.Intn(4)
+	wantRandom.Shuffle(len(wantDeck), func(i, j int) { wantDeck[i], wantDeck[j] = wantDeck[j], wantDeck[i] })
+	adjustNewbieCards(wantDeck, 4, 26, 1)
+	for offset, seat := range []int{0, 1, 2, 3} {
+		player := battle.bySeat[seat]
+		start := ((seat - wantBanker + 4) % 4) * 26
+		want := wantDeck[start : start+26]
+		if !reflect.DeepEqual(battle.hands[player], want) {
+			t.Fatalf("newbie seat=%d cards=%x, want %x", offset, battle.hands[player], want)
+		}
+	}
+}
+
+func TestBattleAllAutomatedNewbieSkipsAdjustment(t *testing.T) {
+	battle, _ := newBattleForTestWithOptions(t, 102, mathrand.New(mathrand.NewSource(1)), &nhskTestClock{now: time.Unix(1, 0)}, nil, true, [4]bool{true, true, true, true})
+	wantDeck := standardNHSKDeck()
+	wantRandom := mathrand.New(mathrand.NewSource(1))
+	wantBanker := wantRandom.Intn(4)
+	wantRandom.Shuffle(len(wantDeck), func(i, j int) { wantDeck[i], wantDeck[j] = wantDeck[j], wantDeck[i] })
+	for seat := range battle.bySeat {
+		player := battle.bySeat[seat]
+		start := ((seat - wantBanker + 4) % 4) * 26
+		if !reflect.DeepEqual(battle.hands[player], wantDeck[start:start+26]) {
+			t.Fatalf("all-automated newbie seat=%d cards=%x, want %x", seat, battle.hands[player], wantDeck[start:start+26])
+		}
+	}
+}
+
 func TestBattleSingleCountGolden(t *testing.T) {
 	battle := newPlayingBattleWithSeed(t, 100, 1)
 	want := [][]byte{
@@ -75,4 +119,16 @@ func TestBattleSingleCountGolden(t *testing.T) {
 
 func countSingleCards(cards []byte) int {
 	return len(singleCards(cards))
+}
+
+func standardNHSKDeck() []byte {
+	deck := make([]byte, 0, 104)
+	for copyIndex := 0; copyIndex < 2; copyIndex++ {
+		for suit := 0; suit < 4; suit++ {
+			for value := 1; value <= 13; value++ {
+				deck = append(deck, byte(suit<<4|value))
+			}
+		}
+	}
+	return deck
 }

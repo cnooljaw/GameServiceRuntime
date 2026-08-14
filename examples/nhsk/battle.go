@@ -68,10 +68,12 @@ const (
 
 // NHSKBattleConfig configures one Battle Service before it is created by a factory.
 type NHSKBattleConfig struct {
-	ID                   game.BattleID
-	OutputRef            gsr.ServiceRef
-	MatchID              uint32
-	ProductID            uint32
+	ID        game.BattleID
+	OutputRef gsr.ServiceRef
+	MatchID   uint32
+	ProductID uint32
+	// IsNewbie selects the legacy new-player deal adjustment for this Battle.
+	IsNewbie             bool
 	ConnectionGeneration ConnectionGeneration
 	OutputReporter       ConnectionFailureReporter
 	// Random optionally injects the Battle-owned random source. When nil,
@@ -90,6 +92,7 @@ type NHSKBattleService struct {
 	productID            uint32
 	connectionGeneration ConnectionGeneration
 	reporter             ConnectionFailureReporter
+	isNewbie             bool
 	service              gsr.ServiceContext
 	phase                NHSKBattlePhase
 	identity             BattleIdentity
@@ -150,10 +153,11 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	return &NHSKBattleService{
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
-		random: random,
-		clock:  clock,
-		rules:  DefaultNHSKConfig(),
-		phase:  NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
+		isNewbie: config.IsNewbie,
+		random:   random,
+		clock:    clock,
+		rules:    DefaultNHSKConfig(),
+		phase:    NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
 		lastPlayCounts: [4]int8{-1, -1, -1, -1},
@@ -909,12 +913,45 @@ func (battle *NHSKBattleService) deal(bankerSeat int) {
 	battle.random.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
-	swapSingleCards(deck, len(battle.bySeat), 26, battle.rules.SingleCountToSwap)
+	if battle.isNewbie {
+		newPlayerSeat := -1
+		for seat, player := range battle.bySeat {
+			if player != "" && !battle.players[player].Automated {
+				newPlayerSeat = seat
+				break
+			}
+		}
+		if newPlayerSeat >= 0 {
+			adjustNewbieCards(deck, len(battle.bySeat), 26, newPlayerSeat)
+		}
+	} else {
+		swapSingleCards(deck, len(battle.bySeat), 26, battle.rules.SingleCountToSwap)
+	}
 	for offset := 0; offset < len(battle.bySeat); offset++ {
 		seat := (bankerSeat + offset) % len(battle.bySeat)
 		player := battle.bySeat[seat]
 		start := offset * 26
 		battle.hands[player] = append([]byte(nil), deck[start:start+26]...)
+	}
+}
+
+// adjustNewbieCards applies the legacy new-player retry: first reduce single
+// cards to three, then retry with four if the selected seat became worse after
+// the whole four-seat exchange. The helper intentionally allows exchanges to
+// affect all seats, matching the old Logic.RandCardListByNewPlayer behavior.
+func adjustNewbieCards(cards []byte, playerNum, handCardCount, newPlayerSeat int) {
+	if playerNum <= 0 || handCardCount <= 0 || newPlayerSeat < 0 || newPlayerSeat >= playerNum {
+		return
+	}
+	start := newPlayerSeat * handCardCount
+	end := start + handCardCount
+	if end > len(cards) {
+		return
+	}
+	before := len(singleCards(cards[start:end]))
+	swapSingleCards(cards, playerNum, handCardCount, 3)
+	if after := len(singleCards(cards[start:end])); after > before {
+		swapSingleCards(cards, playerNum, handCardCount, 4)
 	}
 }
 

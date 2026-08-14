@@ -12,7 +12,7 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 	newGame, err := legacywire.DecodeControl(controlTestFrame(0x86c1, 44, func(data []byte) {
 		putControl32(data, 24, 12)
 		putControl32(data, 28, 7)
-		putControl32(data, 32, 0)
+		putControl32(data, 32, 1)
 		putControl32(data, 40, NHSKDescriptor.GameID)
 	}))
 	if err != nil {
@@ -26,7 +26,7 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 		t.Fatalf("new game route = %#v", route)
 	}
 	request, ok := route.Command.Payload.(CreateBattleRequest)
-	if !ok || request.BattleID != game.BattleID(12) || request.ConnectionGeneration != 4 {
+	if !ok || request.BattleID != game.BattleID(12) || !request.IsNewbie || request.ConnectionGeneration != 4 {
 		t.Fatalf("new game payload = %#v", route.Command.Payload)
 	}
 

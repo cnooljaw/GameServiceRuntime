@@ -845,6 +845,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-051、D-064、D-079；TODO CARD-025、CARD-031、CARD-036、CARD-037。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读未修改，未写入业务源码。 |
 
+### 4.42 NHSK NEW_GAME.IsNewbie 新手发牌调整
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将旧 `NEW_GAME.IsNewbie` 从 Host 创建请求传入 Battle，并在无自定义牌堆的普通牌组上复刻旧新手换牌路径。 |
+| GSR 文件/测试 | `examples/nhsk/commands.go`、`battle.go`、`host.go`、`battle_test.go`、`single_count_swap_test.go`；覆盖算法 fallback、首个非自动玩家和全自动玩家跳过。 |
+| 参考入口 | `nhsk/game/flow_core.go:dealCardsFromRules`；`nhsk/logic/logic.go:RandCardListByNewPlayer`；`nhsk/game/game_base_api.go:isNewbie/isRobot`；`gamelogic/app/handler/game.go:ReqNewGame`。 |
+| 参考测试/配置/录包 | `nhsk/logic/logic_test.go:TestRandCardListByNewPlayerImprovesTargetSingles`；旧 `TPLAYERINFO.IsAI` 与 GameAPI `IsRobot` 作为自动玩家来源；GM `NEW_GAME` 的 `IsNewbie` 进入 RoundInitConfig。 |
+| Legacy MessageID | 不新增 MessageID；保留 `NEW_GAME (0x86c1)` 的 `IsNewbie` 位，最终仍由 `0x7602 NHSK_DEAL` 输出最终手牌。 |
+| 输入与校验 | `CreateBattleRequest.IsNewbie` 是每个 Battle 的不可变创建事实；`UPDATE_PLAYER.IsAI` 归一化为 `BattlePlayer.Automated`。新手路径按 `SeatID 0..3` 找首个非自动且已入座玩家；四座全自动时不调整。自定义牌堆尚未实现，因此本切片不新增 provider 或外部配置。 |
+| 权威状态变化 | Factory 创建 `NHSKBattleService` 时冻结 `IsNewbie`；Battle 洗牌后在 Mailbox 内执行一次旧三张阈值调整，若目标座位的单牌数相对开局变多，再按四张阈值重试。算法可能交换四家牌，最终手牌仍由 Battle 唯一持有。 |
+| Timer/Timeline | 无新增 Timer/Timeline。 |
+| 输出目标与顺序 | 不改变 `GAME_START -> GAME_STARTED -> GameInfo -> Deal -> AskOutCard` 线序、目标或可见性；只改变普通牌组的最终牌序。新手标记不进入客户端、回放 XML 或通用 Runtime。 |
+| 生命周期结果 | `IsNewbie=true` 的每小局都在普通洗牌后执行该路径；`IsNewbie=false` 继续执行 `SingleCountToSwap` 普通散牌调整；全自动新手局保持纯洗牌。固定 seed 测试锁定按首个非自动座位选择的四手结果。 |
+| 已一致 | `NEW_GAME.IsNewbie` 可达入口、`IsAI`/自动玩家判定、首个非机器人选择、三张后四张重试、全局四座交换副作用和全自动跳过均与参考一致。 |
+| 有意偏差 | 参考新手路径经 `RandCardListByBiased` 与 Nacos/偏置配置耦合；新实现按 D-063 去掉无生产证据的动态偏置，只保留可达的新手换牌结果。自定义牌堆优先级待 provider 切片实现。 |
+| 发现遗漏 | 自定义牌堆装载/白名单/庄家覆盖、完整回放与最终结算仍待后续切片；本切片不把普通 `SingleCountToSwap` 同时应用到新手路径。 |
+| 结论 | 新手标记传递、首个非自动选择、旧三张/四张调整和全自动旁路 **已一致/按既有决策实现**；自定义牌堆优先级 **发现遗漏/后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-051、D-063、D-064、D-072；TODO CARD-022、CARD-025、CARD-031、CARD-036。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读未修改，未写入业务源码。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

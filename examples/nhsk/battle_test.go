@@ -746,8 +746,12 @@ func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource, c
 }
 
 func newBattleForTestWithRules(t *testing.T, id game.BattleID, random NHSKRandomSource, clock NHSKClock, rules *NHSKConfig) (*NHSKBattleService, *recordingBattleTestServiceContext) {
+	return newBattleForTestWithOptions(t, id, random, clock, rules, false, [4]bool{})
+}
+
+func newBattleForTestWithOptions(t *testing.T, id game.BattleID, random NHSKRandomSource, clock NHSKClock, rules *NHSKConfig, isNewbie bool, automated [4]bool) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
-	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: random, Clock: clock})
+	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, IsNewbie: isNewbie, ConnectionGeneration: 1, Random: random, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,9 +760,13 @@ func newBattleForTestWithRules(t *testing.T, id game.BattleID, random NHSKRandom
 		t.Fatal(err)
 	}
 	ctx := &battleTestCommandContext{}
+	players := make([]BattlePlayer, 4)
+	for seat := range players {
+		players[seat] = BattlePlayer{Player: game.PlayerID(string(rune('1' + seat))), UserID: uint32(seat + 1), SeatID: uint8(seat), Automated: automated[seat]}
+	}
 	commands := []gsr.Command{
 		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}, Rules: rules}},
-		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}},
 		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
 		{ID: StartSubgameCommand, Payload: struct{}{}},
 	}

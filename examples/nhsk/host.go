@@ -312,7 +312,7 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		if outputGeneration != request.Request.ConnectionGeneration {
 			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter})
+		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter})
 		if err == nil {
 			var ref gsr.ServiceRef
 			ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: battle})
