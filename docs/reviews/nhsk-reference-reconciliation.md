@@ -824,6 +824,27 @@
 | RFC/决策 | RFC-0410；TODO CARD-025、CARD-033、CARD-034、CARD-036、CARD-037、CARD-046、CARD-047 |
 | 备注 | 参考目录只读未修改；本切片只写入 GSR、测试和文档。 |
 
+### 4.41 NHSK 普通发牌 SingleCountToSwap 散牌调整
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将旧 GameRule 第四项 `SingleCountToSwap` 真正接入普通随机发牌；默认值为 4，非正值关闭。 |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`examples/nhsk/battle_test.go`、`examples/nhsk/single_count_swap_test.go`；旧算法交换顺序、关闭开关、固定 seed 四手牌 golden、总牌多重集合和每座 26 张回归。 |
+| 参考入口 | `nhsk/game/flow_core.go:dealCardsFromRules` 的普通路径；`nhsk/logic/logic.go:SwapSingleCard`、`GetAllSingleCards`、`valueCount`、`findCardIndex`。 |
+| 参考测试/配置/录包 | `nhsk/logic/logic_test.go:TestSwapSingleCardReducesExcessiveSingles`；`nhsk/game/interface.go` 默认 `SingleCountToSwap=4`，`SetGameRule` 第四项可覆盖。 |
+| Legacy MessageID | 不新增 MessageID；仍由 `0x7602 NHSK_DEAL` 输出同一批最终手牌。 |
+| 输入与校验 | `NHSKConfig.SingleCountToSwap` 已在 INIT/Cluster 边界归一化；普通 104 张洗牌牌组按 4 座×26 张处理。阈值 `<=0` 或牌组边界不足时不交换；交换只按牌面值，保留双副物理牌字节和总量。 |
+| 权威状态变化 | Battle 在 Mailbox 内洗牌后、庄家环形切片前对扁平牌组执行旧座位顺序算法；不新增全局随机、Nacos、外部 I/O 或 Runtime 状态。最终手牌仍只保存在 Battle，并供客户端 Deal/Scene 共用。 |
+| Timer/Timeline | 无新增 Timer/Timeline。 |
+| 输出目标与顺序 | 不改变 `GAME_START -> GAME_STARTED -> GameInfo -> Deal -> AskOutCard` 线序、目标或私有可见性；仅替换普通 Deal 的 104 张最终牌序。旧回放不新增 `SingleCountSwap` 字段。 |
+| 生命周期结果 | 每小局普通洗牌后执行一次调整；新手、自定义牌堆路径仍按既定优先级绕过本算法，尚未接入。固定 seed=1 锁定四座完整结果。 |
+| 已一致 | 普通路径默认阈值、按座位依次处理、寻找本座已有牌面值并与其他座位候选交换、后续座位可能再次影响前座、四座数量和 104 张双副牌多重集合均与参考一致。 |
+| 有意偏差 | 参考 helper 依赖旧 `Logic` 的包级全局随机，但该 helper 实际没有随机调用；新实现使用 Battle 内部牌面值 helper，保持顺序且不引入全局状态，符合 D-051。普通发牌已接入，但不提前实现新手/自定义分支。 |
+| 发现遗漏 | 新手 `RandCardListByNewPlayer`、自定义牌堆覆盖和完整回放/结算仍待 CARD-036/CARD-022 等切片；它们不能由本切片推断为已完成。 |
+| 结论 | 普通 `SwapSingleCard` 散牌调整 **已一致/按既有边界实现**；新手、自定义牌堆和最终结算 **发现遗漏/后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-051、D-064、D-079；TODO CARD-025、CARD-031、CARD-036、CARD-037。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读未修改，未写入业务源码。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

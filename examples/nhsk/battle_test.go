@@ -55,8 +55,10 @@ func TestBattleLifecycleAndClusterCallUseOneMailbox(t *testing.T) {
 }
 
 func TestBattleUsesInjectedRandomForRotatedShuffledDeal(t *testing.T) {
-	first := newPlayingBattleWithSeed(t, 25, 42)
-	second := newPlayingBattleWithSeed(t, 26, 42)
+	rules := DefaultNHSKConfig()
+	rules.SingleCountToSwap = 0
+	first, _ := newBattleForTestWithRules(t, 25, mathrand.New(mathrand.NewSource(42)), &nhskTestClock{now: time.Unix(1, 0)}, &rules)
+	second, _ := newBattleForTestWithRules(t, 26, mathrand.New(mathrand.NewSource(42)), &nhskTestClock{now: time.Unix(1, 0)}, &rules)
 
 	wantBanker := mathrand.New(mathrand.NewSource(42)).Intn(4)
 	if first.activeSeat != wantBanker {
@@ -740,6 +742,10 @@ func newPlayingBattleWithSeed(t *testing.T, id game.BattleID, seed int64) *NHSKB
 }
 
 func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource, clock NHSKClock) (*NHSKBattleService, *recordingBattleTestServiceContext) {
+	return newBattleForTestWithRules(t, id, random, clock, nil)
+}
+
+func newBattleForTestWithRules(t *testing.T, id game.BattleID, random NHSKRandomSource, clock NHSKClock, rules *NHSKConfig) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
 	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: random, Clock: clock})
 	if err != nil {
@@ -751,7 +757,7 @@ func newBattleForTest(t *testing.T, id game.BattleID, random NHSKRandomSource, c
 	}
 	ctx := &battleTestCommandContext{}
 	commands := []gsr.Command{
-		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}, Rules: rules}},
 		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
 		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
 		{ID: StartSubgameCommand, Payload: struct{}{}},

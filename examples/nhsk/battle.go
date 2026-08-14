@@ -909,6 +909,7 @@ func (battle *NHSKBattleService) deal(bankerSeat int) {
 	battle.random.Shuffle(len(deck), func(i, j int) {
 		deck[i], deck[j] = deck[j], deck[i]
 	})
+	swapSingleCards(deck, len(battle.bySeat), 26, battle.rules.SingleCountToSwap)
 	for offset := 0; offset < len(battle.bySeat); offset++ {
 		seat := (bankerSeat + offset) % len(battle.bySeat)
 		player := battle.bySeat[seat]
@@ -916,6 +917,107 @@ func (battle *NHSKBattleService) deal(bankerSeat int) {
 		battle.hands[player] = append([]byte(nil), deck[start:start+26]...)
 	}
 }
+
+// swapSingleCards applies the NHSK ordinary-deal adjustment used by the
+// legacy Logic.SwapSingleCard implementation. The deck is laid out in seat
+// order, and the operation deliberately walks seats and cards in their
+// original order so the resulting fixed-seed deal remains compatible.
+func swapSingleCards(cards []byte, playerNum, handCardCount, singleCountToSwap int) {
+	if playerNum <= 1 || handCardCount <= 0 || singleCountToSwap <= 0 {
+		return
+	}
+	for seat := 0; seat < playerNum; seat++ {
+		start := seat * handCardCount
+		end := start + handCardCount
+		if end > len(cards) {
+			return
+		}
+		for len(singleCards(cards[start:end])) > singleCountToSwap {
+			singles := singleCards(cards[start:end])
+			swapped := false
+			for _, single := range singles {
+				singleValue := cardValue(single)
+				for otherSeat := 0; otherSeat < playerNum && !swapped; otherSeat++ {
+					if otherSeat == seat {
+						continue
+					}
+					otherStart := otherSeat * handCardCount
+					otherEnd := otherStart + handCardCount
+					if otherEnd > len(cards) {
+						return
+					}
+					for index := otherStart; index < otherEnd; index++ {
+						candidate := cards[index]
+						candidateValue := cardValue(candidate)
+						if candidateValue == singleValue || !containsCardValue(cards[start:end], candidateValue) {
+							continue
+						}
+						singleIndex := findCardIndex(cards[start:end], single)
+						if singleIndex < 0 {
+							continue
+						}
+						cards[start+singleIndex], cards[index] = cards[index], cards[start+singleIndex]
+						swapped = true
+						break
+					}
+				}
+				if swapped {
+					break
+				}
+			}
+			if !swapped {
+				break
+			}
+		}
+	}
+}
+
+func singleCards(cards []byte) []byte {
+	counts := [16]int{}
+	first := [16]byte{}
+	for _, card := range cards {
+		value := cardValue(card)
+		if value >= byte(len(counts)) {
+			continue
+		}
+		if counts[value] == 0 {
+			first[value] = card
+		}
+		counts[value]++
+	}
+	singles := make([]byte, 0, 13)
+	for value := byte(1); value < 14; value++ {
+		if counts[value] == 1 {
+			singles = append(singles, first[value])
+		}
+	}
+	return singles
+}
+
+func containsCardValue(cards []byte, value byte) bool {
+	return valueCount(cards, value) > 0
+}
+
+func valueCount(cards []byte, value byte) int {
+	count := 0
+	for _, card := range cards {
+		if cardValue(card) == value {
+			count++
+		}
+	}
+	return count
+}
+
+func findCardIndex(cards []byte, card byte) int {
+	for index, candidate := range cards {
+		if candidate == card {
+			return index
+		}
+	}
+	return -1
+}
+
+func cardValue(card byte) byte { return card & 0x0f }
 
 func (battle *NHSKBattleService) advanceSeat() {
 	for step := 1; step <= 4; step++ {
