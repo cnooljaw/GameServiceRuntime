@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,12 +27,24 @@ type GameLogicProcessConfig struct {
 // provider used by the independently deployed example process.
 type CustomDeckProcessConfig struct {
 	Enabled         bool
+	Source          string
 	FilePath        string
 	AllowAnyAccount bool
 	AllowedAccounts []uint32
 	QueueSize       int
 	Workers         int
 	LoadTimeout     time.Duration
+	Redis           RedisCustomDeckConfig
+}
+
+// RedisCustomDeckConfig configures the standard-library Redis GET adapter.
+// The generic process Redis settings are mapped here at config-load time.
+type RedisCustomDeckConfig struct {
+	Address       string
+	Password      string
+	DB            int
+	DialTimeout   time.Duration
+	MaxValueBytes int64
 }
 
 // GameLogicProcess owns the Runtime, Host, Factory and single Legacy connection.
@@ -55,11 +68,12 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 	var customDeckRunner *CustomDeckRunner
 	var err error
 	if config.CustomDeck.Enabled {
-		if config.CustomDeck.FilePath == "" {
+		provider, providerErr := customDeckProviderFromConfig(config.CustomDeck)
+		if providerErr != nil {
 			_ = runtime.Close(context.Background())
-			return nil, errors.New("nhsk: custom deck file path is required when enabled")
+			return nil, providerErr
 		}
-		customDeckRunner, err = NewCustomDeckRunner(runtime, LocalFileCustomDeckProvider{Path: config.CustomDeck.FilePath}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: config.CustomDeck.LoadTimeout})
+		customDeckRunner, err = NewCustomDeckRunner(runtime, provider, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: config.CustomDeck.LoadTimeout})
 		if err != nil {
 			_ = runtime.Close(context.Background())
 			return nil, err
@@ -227,7 +241,27 @@ func LoadGameLogicProcessConfig(path string) (GameLogicProcessConfig, error) {
 		JitterRatio:       config.LegacyGM.Jitter,
 		StableResetAfter:  time.Duration(config.LegacyGM.StableReset),
 	}
-	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout)}}, nil
+	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}}, nil
+}
+
+func customDeckProviderFromConfig(config CustomDeckProcessConfig) (CustomDeckProvider, error) {
+	source := strings.ToLower(strings.TrimSpace(config.Source))
+	if source == "" || source == "file" {
+		if strings.TrimSpace(config.FilePath) == "" {
+			return nil, errors.New("nhsk: custom deck file path is required for file source")
+		}
+		return LocalFileCustomDeckProvider{Path: config.FilePath}, nil
+	}
+	if source == "redis" {
+		if strings.TrimSpace(config.Redis.Address) == "" {
+			return nil, errors.New("nhsk: Redis address is required for custom deck source")
+		}
+		if config.Redis.DB < 0 {
+			return nil, errors.New("nhsk: Redis DB must not be negative")
+		}
+		return RedisCustomDeckProvider{Getter: TCPRedisStringGetter{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: config.Redis.DialTimeout, MaxValueBytes: config.Redis.MaxValueBytes}}, nil
+	}
+	return nil, fmt.Errorf("nhsk: unsupported custom deck source %q", config.Source)
 }
 
 var _ game.CommandRuntime = (*gsr.Runtime)(nil)

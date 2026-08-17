@@ -887,6 +887,26 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-046、D-063、D-064、D-072；TODO CARD-022、CARD-023、CARD-031、CARD-036。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；CodeGraph 已同步且状态 up to date；未修改参考业务目录。 |
 
+### 4.44 NHSK 自定义牌堆 Redis adapter
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 为 CARD-022 增加 Redis `CustomDeckProvider`，复用已有 `CustomDeckRunner`，不让 Battle 或 Core Runtime 依赖 Redis 客户端。 |
+| GSR 文件/测试 | `examples/nhsk/custom_deck_redis.go`、`custom_deck_test.go`、`process.go`、`config.go`、`config.example.json`、`README.md`；覆盖 ProductID/GameID key 顺序、空值回退、非空坏数据、RESP bulk GET 和 source 选择。 |
+| 参考入口 | `nhsk/game/game_base_api.go:getCustomDeck`、`nhsk/game/config.go:loadStartupRules/loadCustomDeck`；路线图和 D-046 冻结的 Redis key 选择。 |
+| 参考配置/测试 | 旧生产配置启用 `custom_deck.enabled` 并有账号白名单；D-046 规定先读 `game:makecard:<ProductID>`，空值再读 `<GameID>`。旧目录没有 Redis wire client 实现可直接复用。 |
+| 输入与校验 | `RedisStringGetter` 只允许 `GET`；`RedisCustomDeckProvider` 先读取 ProductID，只有不存在或空字符串才读 GameID。非空字符串即使没有有效块也不换 key；解析错误直接让本次 provider 失败。 |
+| 权威状态变化 | Redis 返回的文本仍由 provider 解析为不可变 `CustomDeckCatalog`，再由原有 runner 通过结果 Command 交给 Battle；Redis 不写入任何 Battle 或 Host 状态。 |
+| Timer/Timeline | `TCPRedisStringGetter` 使用 context/连接 deadline、单次连接和最大响应大小；runner 原有 `LoadTimeout`、队列上限和关闭等待保持不变。网络/认证/RESP/超时失败统一走普通发牌 fallback，不隔离牌局。 |
+| 输出目标与顺序 | 不新增 MessageID 或客户端/GM 输出；最终 Deal 仍复用 Battle 的既有输出线序。 |
+| 生命周期结果 | `custom_deck.source=file` 保持默认本地文件；`source=redis` 复用顶层 Redis 地址、密码和 DB 配置，组合根创建 `TCPRedisStringGetter`，关闭时由 runner 统一停止。Redis 未启用或地址/DB 无效时进程配置拒绝启动。 |
+| 已一致 | ProductID 优先、空值回退 GameID、宽松 grammar、外部读取、每小局单次装载与 Battle fencing 均与 D-046/RFC-0500 一致；Redis 适配器没有进入 Core 或 Battle。 |
+| 有意偏差 | 没有引入第三方 Redis 客户端或连接池；首版使用标准库 RESP2、每次 GET 一个有界连接。原因是示例强调少依赖，且 `RedisStringGetter` 保留了未来接入共享连接池的替换边界。 |
+| 发现遗漏 | 尚未与真实 Redis 服务做联调，未实现连接池、ACL 用户名认证、监控指标和生产连接复用；这些不改变 provider key/解析契约。完整 Legacy Deal/Replay 字节 golden 仍待后续。 |
+| 结论 | Redis key 选择、注入式 Provider 和标准库 RESP GET **已按 RFC 实现**；真实 Redis 运维联调与连接池 **发现遗漏/后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-046、D-073；TODO CARD-022。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读，CodeGraph 结果仅用于导航。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

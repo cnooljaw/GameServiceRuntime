@@ -68,6 +68,7 @@ type weChatConfig struct {
 
 type customDeckConfig struct {
 	Enabled         bool           `json:"enabled"`
+	Source          string         `json:"source"`
 	FilePath        string         `json:"file"`
 	AllowAnyAccount bool           `json:"allow_any_account"`
 	AllowedAccounts []uint32       `json:"allowed_accounts"`
@@ -315,8 +316,15 @@ func (config appConfig) validate() error {
 			return configFieldError("wechat.app_secret", "is required when enabled")
 		}
 	}
-	if config.CustomDeck.Enabled && strings.TrimSpace(config.CustomDeck.FilePath) == "" {
-		return configFieldError("custom_deck.file", "is required when custom_deck.enabled is true")
+	customDeckSource := strings.ToLower(strings.TrimSpace(config.CustomDeck.Source))
+	if customDeckSource != "" && customDeckSource != "file" && customDeckSource != "redis" {
+		return configFieldError("custom_deck.source", "must be file or redis")
+	}
+	if config.CustomDeck.Enabled && (customDeckSource == "" || customDeckSource == "file") && strings.TrimSpace(config.CustomDeck.FilePath) == "" {
+		return configFieldError("custom_deck.file", "is required for file source")
+	}
+	if config.CustomDeck.Enabled && customDeckSource == "redis" && !config.Redis.Enabled {
+		return configFieldError("redis.enabled", "must be true for custom_deck.source redis")
 	}
 	if config.CustomDeck.QueueSize < 0 {
 		return configFieldError("custom_deck.queue_size", "must not be negative")

@@ -32,6 +32,7 @@
   },
   "custom_deck": {
     "enabled": false,
+    "source": "file",
     "file": "",
     "allow_any_account": false,
     "allowed_accounts": [],

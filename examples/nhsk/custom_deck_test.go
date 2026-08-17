@@ -1,10 +1,16 @@
 package nhsk
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"math/rand"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +75,109 @@ func TestLocalFileCustomDeckProviderLoadsSnapshot(t *testing.T) {
 	if err != nil || len(catalog.Decks) != 1 || catalog.Decks[0].BankerSeat != 1 {
 		t.Fatalf("catalog = %#v, err=%v", catalog, err)
 	}
+}
+
+func TestRedisCustomDeckProviderUsesProductKeyBeforeGameKey(t *testing.T) {
+	getter := &recordingRedisStringGetter{values: map[string]redisStringValue{
+		"game:makecard:100": {value: "{\n@2\n" + sequentialCustomDeckLine() + "\n}\n", found: true},
+		"game:makecard:82":  {value: "{\n@1\n" + sequentialCustomDeckLine() + "\n}\n", found: true},
+	}}
+	provider := RedisCustomDeckProvider{Getter: getter}
+	catalog, err := provider.Load(context.Background(), CustomDeckLookup{GameID: 82, ProductID: 100})
+	if err != nil || len(catalog.Decks) != 1 || catalog.Decks[0].BankerSeat != 2 {
+		t.Fatalf("catalog = %#v, err=%v", catalog, err)
+	}
+	if len(getter.keys) != 1 || getter.keys[0] != "game:makecard:100" {
+		t.Fatalf("redis keys = %#v", getter.keys)
+	}
+}
+
+func TestRedisCustomDeckProviderFallsBackToGameKeyOnEmptyProductValue(t *testing.T) {
+	getter := &recordingRedisStringGetter{values: map[string]redisStringValue{
+		"game:makecard:100": {value: "", found: true},
+		"game:makecard:82":  {value: "{\n@1\n" + sequentialCustomDeckLine() + "\n}\n", found: true},
+	}}
+	provider := RedisCustomDeckProvider{Getter: getter}
+	catalog, err := provider.Load(context.Background(), CustomDeckLookup{GameID: 82, ProductID: 100})
+	if err != nil || len(catalog.Decks) != 1 || catalog.Decks[0].BankerSeat != 1 {
+		t.Fatalf("catalog = %#v, err=%v", catalog, err)
+	}
+	if len(getter.keys) != 2 || getter.keys[1] != "game:makecard:82" {
+		t.Fatalf("redis keys = %#v", getter.keys)
+	}
+}
+
+func TestRedisCustomDeckProviderDoesNotHideProductParseError(t *testing.T) {
+	getter := &recordingRedisStringGetter{values: map[string]redisStringValue{
+		"game:makecard:100": {value: "{\nnot-a-card\n}\n", found: true},
+		"game:makecard:82":  {value: "{\n@1\n" + sequentialCustomDeckLine() + "\n}\n", found: true},
+	}}
+	provider := RedisCustomDeckProvider{Getter: getter}
+	if _, err := provider.Load(context.Background(), CustomDeckLookup{GameID: 82, ProductID: 100}); err == nil {
+		t.Fatal("product parse error should fail the load")
+	}
+	if len(getter.keys) != 1 {
+		t.Fatalf("redis keys after parse error = %#v", getter.keys)
+	}
+}
+
+func TestTCPRedisStringGetterReadsRESPBulkValue(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	serverErr := make(chan error, 1)
+	go func() {
+		reader := bufio.NewReader(server)
+		command, readErr := readRESPTestCommand(reader)
+		if readErr != nil {
+			serverErr <- readErr
+			return
+		}
+		if len(command) != 2 || strings.ToUpper(command[0]) != "GET" || command[1] != "game:makecard:100" {
+			serverErr <- fmt.Errorf("command = %#v", command)
+			return
+		}
+		value := sequentialCustomDeckLine()
+		_, writeErr := fmt.Fprintf(server, "$%d\r\n%s\r\n", len(value), value)
+		serverErr <- writeErr
+	}()
+
+	getter := TCPRedisStringGetter{Address: "redis-test", Dial: func(context.Context, string) (net.Conn, error) { return client, nil }}
+	value, found, err := getter.Get(context.Background(), "game:makecard:100")
+	if err != nil || !found || value != sequentialCustomDeckLine() {
+		t.Fatalf("value=%q found=%v err=%v", value, found, err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readRESPTestCommand(reader *bufio.Reader) ([]string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(line[1:]))
+	if err != nil || !strings.HasPrefix(line, "*") {
+		return nil, fmt.Errorf("array line = %q", line)
+	}
+	command := make([]string, 0, count)
+	for index := 0; index < count; index++ {
+		lengthLine, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		length, err := strconv.Atoi(strings.TrimSpace(lengthLine[1:]))
+		if err != nil || !strings.HasPrefix(lengthLine, "$") {
+			return nil, fmt.Errorf("bulk line = %q", lengthLine)
+		}
+		value := make([]byte, length+2)
+		if _, err := io.ReadFull(reader, value); err != nil {
+			return nil, err
+		}
+		command = append(command, string(value[:length]))
+	}
+	return command, nil
 }
 
 func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
@@ -201,6 +310,23 @@ type recordingCustomDeckRequester struct {
 type countingCustomDeckProvider struct {
 	loads   int
 	catalog CustomDeckCatalog
+}
+
+type redisStringValue struct {
+	value string
+	found bool
+	err   error
+}
+
+type recordingRedisStringGetter struct {
+	values map[string]redisStringValue
+	keys   []string
+}
+
+func (getter *recordingRedisStringGetter) Get(_ context.Context, key string) (string, bool, error) {
+	getter.keys = append(getter.keys, key)
+	value := getter.values[key]
+	return value.value, value.found, value.err
 }
 
 type blockingCustomDeckProvider struct{}

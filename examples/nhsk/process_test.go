@@ -53,6 +53,30 @@ func TestNewGameLogicProcessWiresLocalCustomDeckRunner(t *testing.T) {
 	}
 }
 
+func TestCustomDeckProviderFromConfigSelectsRedisAdapter(t *testing.T) {
+	provider, err := customDeckProviderFromConfig(CustomDeckProcessConfig{Source: "redis", Redis: RedisCustomDeckConfig{Address: "redis-test", DB: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	redisProvider, ok := provider.(RedisCustomDeckProvider)
+	if !ok {
+		t.Fatalf("provider = %T, want RedisCustomDeckProvider", provider)
+	}
+	getter, ok := redisProvider.Getter.(TCPRedisStringGetter)
+	if !ok || getter.Address != "redis-test" || getter.DB != 2 {
+		t.Fatalf("getter = %#v", redisProvider.Getter)
+	}
+}
+
+func TestCustomDeckProviderFromConfigRejectsInvalidRedisConfig(t *testing.T) {
+	if _, err := customDeckProviderFromConfig(CustomDeckProcessConfig{Source: "redis", Redis: RedisCustomDeckConfig{Address: "redis-test", DB: -1}}); err == nil {
+		t.Fatal("negative Redis DB should fail")
+	}
+	if _, err := customDeckProviderFromConfig(CustomDeckProcessConfig{Source: "file"}); err == nil {
+		t.Fatal("empty file path should fail")
+	}
+}
+
 func TestGameLogicProcessRoutesNewGameAckAndStopsConnectionGeneration(t *testing.T) {
 	serverReady := make(chan net.Conn, 1)
 	config := GameLogicProcessConfig{
