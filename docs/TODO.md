@@ -87,7 +87,7 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | CARD-036 | 进行中 | 新手发牌兼容切片 | 已保留 `NEW_GAME.IsNewbie` 并由 Host 传入 Battle；无可用自定义牌堆时，Battle 在普通确定性洗牌后按座位顺序选择首个非 `Automated` 玩家，执行旧 `RandCardListByNewPlayer` 的三张/四张重试，全自动玩家跳过；固定 seed 测试锁定四手牌结果。自定义牌堆可用时优先并绕过新手调整。未引入 Nacos、每座偏牌配置或通用偏洗牌。 |
 | CARD-037 | 已确认待实现 | 普通发牌散牌调整 | GameRule 第四项归一化为默认 4 的 SingleCountToSwap，<=0 关闭；仅普通随机发牌执行。固定 seed 锁定旧 SwapSingleCard 的顺序和四家结果，并校验总牌集合与每座数量；不把算法下沉到 Runtime 或通用模板。 |
 | CARD-038 | 已确认待实现 | 托管结算认定与负分修正 | 按动作 Response 来源统计真人 AutoCount，所有合法出牌/过牌统计 MoveCount；保留 GameRule 前两项的 -1 禁用、单项/双项判断和反直觉乘法公式。成功结算按旧规则在单个托管失败队员间重分配负分，并统一输出 PlayerIsAuto。 |
-| CARD-039 | 已确认待实现 | DRESS 回放元数据 | Legacy/Cluster UpdatePlayerDress Send 通过 Battle Mailbox 覆盖已有玩家的不透明装扮字符串；空值允许，相同值 no-op，无 Call/Reply、客户端输出或 gameplay Revision。START 按顺序冻结最新值到当前小局回放。 |
+| CARD-039 | 已完成 | DRESS 回放元数据 | Legacy/Cluster UpdatePlayerDress Send 通过 Battle Mailbox 覆盖已有玩家的不透明装扮字符串；空值允许，无 Call/Reply、客户端输出或 gameplay Revision。START 按顺序冻结四座最新值到当前小局，START 后更新只影响下一局。 |
 | CARD-040 | 已确认待实现 | 道具成功事实回放 | 将 GM 转发的 BROADCAST_USE_PROP 映射为 RecordPropUse Send；校验发送者身份后仅在当前小局原样追加旧 Prop Move。保留 TargetIDs 顺序和重复值，不实现库存/权限、玩法效果、Reply、客户端输出或 Revision，并删除未调用空 seam。 |
 | CARD-041 | 已确认待实现 | GAME_MSG 内层 allowlist | 仅解码离线、重连、场景、道具广播，以及 0x7402 中 OUT_CARD、CARD_ACTION、USER_STATE_CHANGE；未知 ID 丢弃告警。正常输出统一走 0x8644。不得实现未工作的 0x7200 输入、0x8655 输出、投票或骰子分支。 |
 | CARD-042 | 已确认放弃 | PLAYER_LIMIT 与空玩家信息入口 | 不实现错误嵌套且旧 GL 实际忽略的 PLAYER_LIMIT，也不迁移无调用点的 OnMsgUpdatePlayerInfo。旧 GM 输入按未知 allowlist ID 丢弃告警；未来限制能力由 GM 重新定义。 |
@@ -102,7 +102,7 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | CARD-047 | 已确认待实现 | INIT 单一来源归一化 | 完整解码旧 INIT，但只保存 BattleIdentity、进度上限、Fee/ScoreBase/Denominator 和回放独有 Metadata。ReplayBuilder 复用同一身份/计分快照，不复制对应值。未消费 MatchKey 字段与 CreateTime 解码后丢弃；INIT 只核对 BattleID/ProductID/MatchID 一次，后续冗余身份仅在 Legacy adapter 核对。 |
 | CARD-048 | 已确认待实现 | 单次冻结小局开始时间 | StartSubgame 只读一次 Battle Clock；同一 SubgameStartedAt 生成 Unix StartTimestamp、旧式 UniCode、UTC+8 ReplayName 日期/时间和 FuPan 日期/小时目录。RoundUniCode 原样使用 INIT；不增加碰撞或相互一致性校验。 |
 | CARD-049 | 已确认放弃 | NEW_GAME IsNewNacos | codec 为旧 wire/golden 解码该位，但不传入 Host/Battle/Cluster/诊断。旧 GL 实际未把它写入 Round，Nacos 绑定也是空方法，不补造功能。 |
-| CARD-050 | 已确认待实现 | START_NEW_GAME 回放上下文 | UpdateRoundContext Send 只覆盖 pending SecRoundTotal/SecRoundUsed/RoomInfo，不改阶段或 Revision。StartSubgame 冻结给当前 ReplayDocument；之后更新只影响下一局。首次默认 0/0/空，不按 Clock 推算 Used。 |
+| CARD-050 | 已完成 | START_NEW_GAME 回放上下文 | UpdateRoundContext Send 只覆盖 pending SecRoundTotal/SecRoundUsed/RoomInfo，不改阶段或 Revision。StartSubgame 冻结当前上下文；之后更新只影响下一局。首次默认 0/0/空，不按 Clock 推算 Used。 |
 | CARD-051 | 已完成 | 以 GameDescriptor 选择 NHSK 玩法 | 组合根固定 GameID=82/GameName=宁海双扣；Legacy NEW_GAME 只接受 82，其他值在 adapter 边界拒绝并 ACK Res=0。Cluster 通过 NHSK Host 完成玩法选择，不传 GameID。BattleIdentity 不含 GameID；后续 ReplayBuilder 与 AIProvider 复用同一 descriptor。 |
 | CARD-052 | 已确认待实现 | 隔离回放规则与文本兼容投影 | ReplayRuleSnapshot 只从 BaseRule 投影 TimeOutOver/VoiceMode/RandomSeatRoundStart/GameNumToRandomSeat，TimeoutAutoMove 复用玩法配置；按 SecRoundTotal 输出旧 GameNum/GameTime 分支，不恢复对应业务。禁止新增旧 XML 未输出的 BiasedShuffling/SingleCountSwap。Players 与 Dress 按座位稳定输出；昵称有效 UTF-8 原样，否则以隔离的 x/text GBK decoder 转码。 |
 | CARD-053 | 已确认待实现 | 冻结回放终局与统计树 | 结算提交时由 Battle Clock 单次生成 SubgameEndedAt；根 GameOver 与 Chair0..3 保留当前成功路径全部属性，Moves 不生成虚构 GameOver。Summary 保留座位动作/托管/耗时/牌型/本局统计及总计，CardDetail 保留炸弹；不恢复跨局战绩模块。旧 runner fixture 不作为输出契约。 |

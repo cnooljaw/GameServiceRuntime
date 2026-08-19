@@ -928,6 +928,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-078；TODO CARD-051。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读。 |
 
+### 4.46 NHSK START_NEW_GAME RoundContext 与 DRESS 元数据冻结
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 保留旧 `START_NEW_GAME` 的下一小局回放上下文和 `DRESS` 元数据，区分 pending 值与 START 时冻结的当前小局快照。 |
+| GSR 文件/测试 | `examples/nhsk/commands.go`、`battle.go`、`battle_test.go`；覆盖 START 前写入、START 后更新只影响 pending、DRESS 空值可覆盖和 Mailbox revision 不变。 |
+| 参考入口 | `gamelogic/internal/game/game.go:onMsgStartNewGame/replayAttributeInitialize`、`gamelogic/internal/game/game.go:onMsgDress`、`nhsk/game/game.go` 的玩家/回放初始化路径。 |
+| 参考测试/配置 | GM `START_NEW_GAME` 发送 `SecRoundTotal/SecRoundUsed/RoomInfo`；旧 `DRESS` 在每小局 START 前更新玩家回放元数据；无证据表明它们驱动客户端玩法。 |
+| Legacy MessageID | `0x860d START_NEW_GAME`、`0x8610 DRESS`；不新增 MessageID，均继续映射为 Send。 |
+| 输入与校验 | RoundContext 允许覆盖 pending `0/0/空` 值，不按 Clock 推算 Used；DRESS 只接受已存在玩家，字符串不解析，空值允许覆盖。未知玩家按既有 Legacy 静默拒绝边界处理。 |
+| 权威状态变化 | Battle 持有 `nextRound`、START 时复制为 `currentRound`，并按 SeatID 冻结四座 `startedDresses`；START 后更新不改当前快照。两类更新均不递增 gameplay Revision、不启动 Timer、不产生 Output。 |
+| Timer/Timeline | 无新增 Timer/Timeline；metadata Command 只在 Mailbox 内更新。 |
+| 输出目标与顺序 | 不产生客户端或 GM 输出；现有 `UPDATE_GAME -> START` 线序不变，未来 ReplayBuilder 读取冻结快照。 |
+| 生命周期结果 | 首次未收到 RoundContext 使用零值；DRESS 和 RoundContext 可在准备前重复覆盖，START 后新值等待下一小局。 |
+| 已一致 | 旧字段 owner、pending/当前小局分离、空 Dress 覆盖和无玩法副作用已实现并有测试。 |
+| 有意偏差 | 旧容器把元数据暂存于较大的 Round/Replay 对象；新实现只在 Battle 保留最小 pending/current 字段，待 ReplayDocument 切片再序列化，不复制旧容器。 |
+| 发现遗漏 | ReplayBuilder、XML 序列化、玩家昵称/CltID/Dress 的最终落盘和完整回放 golden 仍待 CARD-052～058。 |
+| 结论 | RoundContext 与 Dress 的 Mailbox 保留和 START 冻结 **已按 RFC 实现**；回放落盘消费 **发现遗漏/后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077；TODO CARD-039、CARD-050、CARD-052～058。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

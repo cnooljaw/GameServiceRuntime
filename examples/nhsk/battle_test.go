@@ -715,6 +715,51 @@ func TestBattleRoundStatTargetsRequireReadyAndNonExitedPlayers(t *testing.T) {
 	}
 }
 
+func TestBattleFreezesRoundContextAndDressAtStart(t *testing.T) {
+	service, err := NewBattleService(NHSKBattleConfig{ID: 16, MatchID: 1, ProductID: NHSKDescriptor.GameID, Random: mathrand.New(mathrand.NewSource(3)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Init(&recordingBattleTestServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	commands := []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 16, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{
+			{Player: "1", UserID: 1, SeatID: 0, Dress: "initial"},
+			{Player: "2", UserID: 2, SeatID: 1},
+			{Player: "3", UserID: 3, SeatID: 2},
+			{Player: "4", UserID: 4, SeatID: 3},
+		}}},
+		{ID: UpdateRoundContextCommand, Payload: UpdateRoundContextRequest{SecRoundTotal: 300, SecRoundUsed: 12, RoomInfo: "before"}},
+		{ID: UpdatePlayerDressCommand, Payload: UpdatePlayerDressRequest{Player: "1", Dress: "before"}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	}
+	for _, command := range commands {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if service.currentRound != (UpdateRoundContextRequest{SecRoundTotal: 300, SecRoundUsed: 12, RoomInfo: "before"}) || service.startedDresses[0] != "before" {
+		t.Fatalf("start snapshots = round=%#v dresses=%q", service.currentRound, service.startedDresses)
+	}
+	revision := service.revision
+	if err := service.Handle(ctx, gsr.Command{ID: UpdateRoundContextCommand, Payload: UpdateRoundContextRequest{SecRoundTotal: 600, SecRoundUsed: 20, RoomInfo: "after"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: UpdatePlayerDressCommand, Payload: UpdatePlayerDressRequest{Player: "1", Dress: "after"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: UpdatePlayerDressCommand, Payload: UpdatePlayerDressRequest{Player: "1", Dress: ""}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.currentRound.RoomInfo != "before" || service.startedDresses[0] != "before" || service.nextRound.RoomInfo != "after" || service.players["1"].Dress != "" || service.revision != revision {
+		t.Fatalf("post-start metadata = current=%#v next=%#v startedDress=%q playerDress=%q revision=%d want=%d", service.currentRound, service.nextRound, service.startedDresses[0], service.players["1"].Dress, service.revision, revision)
+	}
+}
+
 func newPlayingBattleForRestore(t *testing.T, id game.BattleID) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	t.Helper()
 	service, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})

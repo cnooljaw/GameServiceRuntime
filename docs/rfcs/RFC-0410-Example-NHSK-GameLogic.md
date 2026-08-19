@@ -241,6 +241,8 @@ NEW_GAME 成功只建立 AwaitingInit 的 Service。`InitializeBattle` 一次性
 
 `UpdatePlayers` 按批次原子 upsert。零 UserID、越界座位、批内重复用户或冲突座位使整批拒绝。UserID、SeatID、Score、Exp、AI、PlayerState、NickName 和 CltID 保存；CltID 只在小局开始时冻结为回放 Platform。CntID、Flag、PlayerFlag、ScoreChangeReason、ScoreChange 和 ForceExit 解码后丢弃。
 
+`UpdatePlayerDress` 是独立的 Send Command。它只覆盖已有玩家的下一小局不透明 Dress 字符串，允许空值清除，不解析 JSON，不产生客户端输出或 gameplay Revision。`StartSubgame` 按 Mailbox 顺序把当时四座 Dress 冻结到当前小局；START 后再次更新只影响下一小局。
+
 `ExitPlayer` 只标记 Exited，不删除身份和座位。后续 `UpdatePlayers` 可以重新激活。StartSubgame 前必须恰有四个非零 UserID，完整占用 SeatID 0..3 且全部非 Exited。本小局开始后到完成前，UserID↔SeatID 关系冻结；局中换人、换座或占用冻结座位使整批拒绝，其他玩家字段仍可更新。
 
 ### 小局阶段
@@ -251,6 +253,8 @@ AwaitingInit -> Preparing -> Playing -> AwaitingSettlement
 ```
 
 `PrepareSubgame` 消费 UPDATE_GAME 的 GameNum/SubGameNum；`StartSubgame` 是唯一进入 Playing 的 Command。`UpdateRoundContext` 只更新下一小局的 SecRoundTotal、SecRoundUsed 和 RoomInfo，不改阶段。Legacy CONTINUE 是包内私有 no-op，不对 Cluster 导出。
+
+`UpdateRoundContext` 的 pending 值可以在任意仍存活阶段被覆盖；相同内容不产生额外状态变化。`StartSubgame` 冻结当时值为当前小局回放上下文，START 后到达的更新不能改写当前快照；未收到时保持 `0/0/""`。
 
 `ProvideCustomDeck` 是自定义牌堆的外部推送 API：
 
@@ -604,6 +608,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
 - `GameDescriptor` 已成为 Legacy 玩法选择边界：NHSK 组合根固定 `GameID=82`，其他 `NEW_GAME.GameID` 在进入 Host 前拒绝并编码失败 ACK；Cluster 直接使用 NHSK Host，不重复携带 GameID。
+- `UpdateRoundContext` 与 `UpdatePlayerDress` 已在 Battle Mailbox 内保留 pending 元数据；START 时冻结当前 RoundContext 和四座 Dress，START 后更新只影响下一局，不产生客户端输出或 gameplay Revision。
 - Legacy `INIT_GAME` 已按旧固定体的连续 suffix 结构解码 `BaseRule/GameRule/MatchName/RoundUniCode`；adapter 只把 NHSK 实际消费的规则投影为不可变 `NHSKConfig`，直接 Cluster 初始化使用同一类型配置或默认值。当前接入的期限字段保持旧默认 10 秒，BaseRule 的托管 AI、超时托管、机器人等级和 GameRule 的机器人出牌阈值/单牌换牌数量已可达；偏置洗牌等未消费字段仍丢弃。
 - `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。

@@ -126,6 +126,8 @@ type NHSKBattleService struct {
 	ranks                [4]uint8
 	settlementFailed     bool
 	nextRound            UpdateRoundContextRequest
+	currentRound         UpdateRoundContextRequest
+	startedDresses       [4]string
 	random               NHSKRandomSource
 	clock                NHSKClock
 	rules                NHSKConfig
@@ -291,6 +293,7 @@ func (battle *NHSKBattleService) updatePlayers(ctx gsr.CommandContext, payload a
 		settlementFlags := candidate[player.Player]
 		player.IsBreak = settlementFlags.IsBreak
 		player.IsSeal = settlementFlags.IsSeal
+		player.Dress = settlementFlags.Dress
 		candidate[player.Player] = player
 		if _, exists := candidateReady[player.Player]; !exists {
 			// Legacy GameLogic marks a newly admitted player client-ready before
@@ -347,6 +350,12 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	}
 	battle.deal(bankerSeat, customDeck)
 	battle.phase = NHSKBattlePlaying
+	battle.currentRound = battle.nextRound
+	for seat, player := range battle.bySeat {
+		if player != "" {
+			battle.startedDresses[seat] = battle.players[player].Dress
+		}
+	}
 	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
 	battle.turnRevision++
@@ -423,6 +432,9 @@ func (battle *NHSKBattleService) updateDress(ctx gsr.CommandContext, payload any
 	if !ok || request.Player == "" || battle.players[request.Player].Player == "" {
 		return battle.reject(ctx, errBattleInvalidRequest)
 	}
+	player := battle.players[request.Player]
+	player.Dress = request.Dress
+	battle.players[request.Player] = player
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
 

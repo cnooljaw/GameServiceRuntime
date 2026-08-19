@@ -23,6 +23,7 @@
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、`INIT_GAME` 连续规则 suffix 解码、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
 - `GameDescriptor` 固定本组合根为 `GameID=82/宁海双扣`；Legacy `NEW_GAME` 收到其他玩法 ID 时在 adapter 边界直接失败 ACK，不创建 Battle，Cluster 调用者从 NHSK Host 进入时不再重复传 GameID。
+- `START_NEW_GAME` 的 RoundContext 与 `DRESS` 已在 Battle Mailbox 中保留：`START` 冻结当前小局的 `SecRoundTotal/SecRoundUsed/RoomInfo` 和四座 Dress，之后收到的更新只作用于下一局，不产生客户端输出。
 - 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。

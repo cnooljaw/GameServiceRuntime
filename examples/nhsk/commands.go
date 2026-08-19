@@ -170,11 +170,13 @@ type InitializeBattleRequest struct {
 
 // BattlePlayer is the normalized four-seat player record.
 type BattlePlayer struct {
-	Player    game.PlayerID
-	UserID    uint32
-	SeatID    uint8
-	Score     int32
-	Nickname  string
+	Player   game.PlayerID
+	UserID   uint32
+	SeatID   uint8
+	Score    int32
+	Nickname string
+	// Dress is opaque replay metadata for the player's next subgame.
+	Dress     string
 	Automated bool
 	Exited    bool
 	IsBreak   bool
