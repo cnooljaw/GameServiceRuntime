@@ -175,6 +175,8 @@ type BattlePlayer struct {
 	SeatID   uint8
 	Score    int32
 	Nickname string
+	// ClientID is the legacy CltID projection used only as replay Platform.
+	ClientID uint32
 	// Dress is opaque replay metadata for the player's next subgame.
 	Dress     string
 	Automated bool

@@ -949,6 +949,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077；TODO CARD-039、CARD-050、CARD-052～058。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读。 |
 
+### 4.47 NHSK ReplayDocument 起始内存快照
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将旧回放在小局开始时实际需要的四座玩家、最终手牌、庄家、RoundContext 和起始时间冻结为 GSR-owned 的不可变内存 `ReplayDocument`；本切片不写 XML 或磁盘。 |
+| GSR 文件/测试 | `examples/nhsk/replay_document.go`、`battle.go`、`commands.go`、`legacy_control_mapper.go`；`replay_document_test.go` 覆盖输入深拷贝、返回快照深拷贝、四座/26 张校验、Start 时钟与 Battle 后续变更隔离；`legacy_control_mapper_test.go` 覆盖旧 `ClientID` 进入 `BattlePlayer`。 |
+| 参考入口 | `nhsk/replay/replay.go:RecordGameStart/RecordDealDetail/RecordCurrentPoint/RecordOutCard/RecordCatchPoint/RecordTurnEnd`、`nhsk/game/flow_core.go:DoGameStart/DoDeal`、`nhsk/game/second_batch.go:storeGameRecords`、`gamelogic/internal/game/game.go:replayAttributeInitialize`。旧 `RecordGameStart` 在参考线上是兼容空入口，Deal 在发牌后按座位记录。 |
+| 参考测试/配置 | 旧回放对象由 `gamecore/replay.XMLNode` 逐步构树；`DoDeal` 记录实际最终手牌，终局再追加 GameOver/Summary/CardDetail。旧代码的 map/runner 结构不作为新文档字段顺序契约。 |
+| Legacy MessageID | 本切片不新增 MessageID；`GAME_STARTED` 仍复用既有冻结 ReplayName，`NHSK_DEAL` 仍由现有 Output 发送。 |
+| 输入与校验 | Start 快照要求 BattleID/Identity、ProductID/MatchID、GameNum/SubgameNum、起始时间、ReplayName、四个唯一 User/Player、SeatID 0..3 和四份 26 张最终手牌；`ClientID` 只保存为 replay Platform，CntID 仍丢弃。ReplayUID、规范名称/目录和文本编码不在本切片计算。 |
+| 权威状态变化 | `StartSubgame` 在 Mailbox 内用同一次 `NHSKClock` 读取同时设置首个期限和 `ReplayStartSnapshot.StartedAt`；快照复制当前 RoundContext、started Dress、玩家资料和 `deal` 后的手牌。`ReplayDocument` 构造和 `StartSnapshot` 返回都深拷贝，Battle 后续改手牌/玩家/上下文不能回写。CltID 现在由 Legacy `LegacyPlayer.ClientID` 归一化到 `BattlePlayer.ClientID`。 |
+| Timer/Timeline | 不新增 Timer；首个行动 Timer 仍按同一 `startedAt` 计算，回放对象不直接运行回调。 |
+| 输出目标与顺序 | 不改变既有 `GAME_START -> GAME_STARTED -> GameInfo/Deal/Ask` 线序；本切片没有 Replay 输出、GameResult 或 GAME_OVER。 |
+| 生命周期结果 | 每次 StartSubgame 替换当前 `ReplayDocument`，不维护 replayNames 历史列表；Battle 停止不做磁盘 I/O。 |
+| 已一致 | 旧 Deal 使用最终发牌结果、DRESS/玩家开局资料与 RoundContext 在 Start 时冻结、回放不应引用可变 Battle 指针、ClientID/Platform 与 CntID 分离均已体现在新边界；参考目录未修改。 |
+| 有意偏差 | 参考直接把节点写入 `gamecore/replay`，新实现先冻结独立值对象，后续由 ReplayBuilder/纯内存 serializer 构树；这是为了遵守 GSR Service/adapter/runner 边界。 |
+| 发现遗漏 | 规范 `NHSK_M<ProductID>R<RoundID>_<YYYYMMDD>_<HHMMSS>_<Seat0UserID>.xml`、ReplayUID、UTC+8 目录、GBK/UTF-8 helper、Moves/Summary/CardDetail、终局时间、XML 和 writer 尚未实现；当前 `replayName()` 仍是兼容占位名，不能宣称满足完整文件契约。 |
+| 结论 | 起始快照的字段 owner、时间单读、最终手牌复用前置条件和深拷贝边界已建立；完整回放文档/序列化/落盘 **发现遗漏，留待 CARD-052～059**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077；TODO CARD-052～059。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读，未修改业务源文件。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

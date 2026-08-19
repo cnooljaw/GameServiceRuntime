@@ -51,7 +51,7 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 		t.Fatalf("init route = %#v", route)
 	}
 
-	players := legacywire.LegacyControl{Kind: legacywire.ControlUpdatePlayers, BattleID: 12, Players: []legacywire.LegacyPlayer{{UserID: 101, SeatID: 0, Nickname: "a"}}}
+	players := legacywire.LegacyControl{Kind: legacywire.ControlUpdatePlayers, BattleID: 12, Players: []legacywire.LegacyPlayer{{UserID: 101, ClientID: 55, SeatID: 0, Nickname: "a"}}}
 	route, err = MapLegacyControl(players, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 		t.Fatalf("players command = %#v", route.Command)
 	}
 	playerRequest, ok := route.Command.Payload.(UpdatePlayersRequest)
-	if !ok || len(playerRequest.Players) != 1 || playerRequest.Players[0].Player != game.PlayerID("101") {
+	if !ok || len(playerRequest.Players) != 1 || playerRequest.Players[0].Player != game.PlayerID("101") || playerRequest.Players[0].ClientID != 55 {
 		t.Fatalf("players payload = %#v", route.Command.Payload)
 	}
 }

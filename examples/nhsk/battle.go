@@ -128,6 +128,7 @@ type NHSKBattleService struct {
 	nextRound            UpdateRoundContextRequest
 	currentRound         UpdateRoundContextRequest
 	startedDresses       [4]string
+	replayDocument       ReplayDocument
 	random               NHSKRandomSource
 	clock                NHSKClock
 	rules                NHSKConfig
@@ -360,7 +361,8 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.verifyCode = 1
 	battle.turnRevision++
 	deadline := battle.rules.firstOutCardTimeout()
-	battle.deadlineAt = battle.clock.Now().Add(deadline)
+	startedAt := battle.clock.Now()
+	battle.deadlineAt = startedAt.Add(deadline)
 	if battle.service != nil {
 		if _, err := battle.service.After(deadline, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
@@ -376,14 +378,43 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 		player.IsSeal = false
 		battle.players[playerID] = player
 	}
+	replayStart := battle.buildReplayStartSnapshot(startedAt)
+	battle.replayDocument = NewReplayDocument(replayStart)
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameStart, Payload: GameStartPayload{}}); err != nil {
 		return err
 	}
-	if err := battle.emit(ctx, GameStartedOutput{ReplayName: battle.replayName()}); err != nil {
+	if err := battle.emit(ctx, GameStartedOutput{ReplayName: replayStart.ReplayName}); err != nil {
 		return err
 	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) buildReplayStartSnapshot(startedAt time.Time) ReplayStartSnapshot {
+	var snapshot ReplayStartSnapshot
+	snapshot.BattleID = battle.id
+	snapshot.Identity = battle.identity
+	snapshot.GameNum = battle.gameNum
+	snapshot.SubgameNum = battle.subgameNum
+	snapshot.StartedAt = startedAt
+	snapshot.ReplayName = battle.replayName()
+	snapshot.RoundContext = battle.currentRound
+	snapshot.BankerSeat = uint8(battle.activeSeat)
+	for seat, playerID := range battle.bySeat {
+		player := battle.players[playerID]
+		snapshot.Players[seat] = ReplayPlayerSnapshot{
+			SeatID:    player.SeatID,
+			Player:    player.Player,
+			UserID:    player.UserID,
+			Nickname:  player.Nickname,
+			InitScore: player.Score,
+			Platform:  player.ClientID,
+			Dress:     battle.startedDresses[seat],
+			Automated: player.Automated,
+		}
+		snapshot.Hands[seat] = append([]byte(nil), battle.hands[playerID]...)
+	}
+	return snapshot
 }
 
 func (battle *NHSKBattleService) provideCustomDeck(ctx gsr.CommandContext, payload any) error {

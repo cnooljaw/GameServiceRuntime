@@ -609,6 +609,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
 - `GameDescriptor` 已成为 Legacy 玩法选择边界：NHSK 组合根固定 `GameID=82`，其他 `NEW_GAME.GameID` 在进入 Host 前拒绝并编码失败 ACK；Cluster 直接使用 NHSK Host，不重复携带 GameID。
 - `UpdateRoundContext` 与 `UpdatePlayerDress` 已在 Battle Mailbox 内保留 pending 元数据；START 时冻结当前 RoundContext 和四座 Dress，START 后更新只影响下一局，不产生客户端输出或 gameplay Revision。
+- `StartSubgame` 现在以同一次 `NHSKClock` 读取同时设置首个行动期限和内存 `ReplayDocument` 的 `ReplayStartSnapshot`；快照深拷贝 BattleIdentity、RoundContext、四座 User/Seat/NickName/InitScore/CltID(Platform)/Dress/Automated 与最终 26 张手牌。当前只完成起始内存模型，ReplayUID、规范文件名/目录、Moves/Summary/CardDetail、XML 和 writer 仍待后续切片。
 - Legacy `INIT_GAME` 已按旧固定体的连续 suffix 结构解码 `BaseRule/GameRule/MatchName/RoundUniCode`；adapter 只把 NHSK 实际消费的规则投影为不可变 `NHSKConfig`，直接 Cluster 初始化使用同一类型配置或默认值。当前接入的期限字段保持旧默认 10 秒，BaseRule 的托管 AI、超时托管、机器人等级和 GameRule 的机器人出牌阈值/单牌换牌数量已可达；偏置洗牌等未消费字段仍丢弃。
 - `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
