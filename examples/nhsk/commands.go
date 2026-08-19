@@ -32,6 +32,8 @@ const (
 	UpdatePlayerDressCommand gsr.CommandID = 0x04100207
 	// ForceFinishSubgameCommand requests an exceptional local subgame finish.
 	ForceFinishSubgameCommand gsr.CommandID = 0x04100208
+	// ProvideCustomDeckCommand supplies an already-compatible custom deck for a prepared subgame.
+	ProvideCustomDeckCommand gsr.CommandID = 0x04100209
 	// PlayCardsCommand submits one player play or pass to an NHSK Battle.
 	PlayCardsCommand gsr.CommandID = 0x04100301
 	// PreviewCardSelectionCommand publishes one non-authoritative player selection.
@@ -184,6 +186,15 @@ type UpdatePlayersRequest struct{ Players []BattlePlayer }
 
 // PrepareSubgameRequest selects the next game/subgame number.
 type PrepareSubgameRequest struct{ GameNum, SubgameNum uint16 }
+
+// ProvideCustomDeckRequest supplies an immutable custom-deck catalog for one prepared subgame.
+// Data-source lookup and legacy-format conversion happen outside the Battle API.
+type ProvideCustomDeckRequest struct {
+	BattleID   game.BattleID
+	GameNum    uint16
+	SubgameNum uint16
+	Catalog    CustomDeckCatalog
+}
 
 // UpdateRoundContextRequest updates replay metadata for the next subgame.
 type UpdateRoundContextRequest struct {

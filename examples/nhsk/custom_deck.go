@@ -23,7 +23,6 @@ const (
 )
 
 var (
-	errCustomDeckPending        = errors.New("nhsk: custom deck is still loading")
 	errCustomDeckQueueFull      = errors.New("nhsk: custom deck queue full")
 	errInvalidCustomDeckRequest = errors.New("nhsk: invalid custom deck request")
 )
@@ -36,9 +35,9 @@ type CustomDeck struct {
 	BankerSeat int
 }
 
-// CustomDeckCatalog is the parsed snapshot used by one subgame. The runner
-// deep-copies it before sending the result to Battle, so a provider may reuse
-// its own buffers after Load returns.
+// CustomDeckCatalog is the canonical snapshot supplied to one subgame. The
+// external compatibility bridge deep-copies it before sending the API
+// Command, so a provider may reuse its own buffers after Load returns.
 type CustomDeckCatalog struct {
 	Decks []CustomDeck
 }
@@ -177,28 +176,14 @@ func (catalog CustomDeckCatalog) valid() bool {
 	return true
 }
 
-// CustomDeckLoadRequest is the per-subgame request submitted by Battle.
+// CustomDeckLoadRequest is the per-subgame request submitted by an outer
+// compatibility bridge.
 type CustomDeckLoadRequest struct {
 	Target     gsr.ServiceRef
 	BattleID   game.BattleID
 	GameNum    uint16
 	SubgameNum uint16
 	Lookup     CustomDeckLookup
-}
-
-// CustomDeckRequester is the narrow Battle dependency for asynchronous loads.
-type CustomDeckRequester interface {
-	SubmitCustomDeck(CustomDeckLoadRequest) error
-}
-
-type customDeckLoadResult struct {
-	Target     gsr.ServiceRef
-	BattleID   game.BattleID
-	GameNum    uint16
-	SubgameNum uint16
-	Catalog    CustomDeckCatalog
-	Available  bool
-	Error      string
 }
 
 // CustomDeckRunnerConfig controls the external runner's authorization and
@@ -212,9 +197,9 @@ type CustomDeckRunnerConfig struct {
 	LoadTimeout     time.Duration
 }
 
-// CustomDeckRunner owns the only goroutines used by custom-deck I/O. Workers
-// never mutate Battle state; they send a fenced result Command back to the
-// target ServiceRef.
+// CustomDeckRunner owns the only goroutines used by legacy custom-deck I/O.
+// Workers never mutate Battle state; they send the public ProvideCustomDeck
+// Command to the target ServiceRef after external conversion succeeds.
 type CustomDeckRunner struct {
 	runtime   game.CommandRuntime
 	provider  CustomDeckProvider
@@ -250,15 +235,16 @@ func NewCustomDeckRunner(runtime game.CommandRuntime, provider CustomDeckProvide
 	return runner, nil
 }
 
-// SubmitCustomDeck submits one non-blocking subgame load. Queue saturation is
-// deliberately returned to Battle as a normal fallback condition.
+// SubmitCustomDeck submits one non-blocking legacy compatibility load. Queue
+// saturation is returned to the bridge; the Battle falls back to ordinary
+// dealing when no provision arrives.
 func (runner *CustomDeckRunner) SubmitCustomDeck(request CustomDeckLoadRequest) error {
 	if runner == nil || request.Target.ID == 0 || request.BattleID == 0 || request.GameNum == 0 || request.SubgameNum == 0 {
 		return errInvalidCustomDeckRequest
 	}
 	request.Lookup.UserIDs = append([]uint32(nil), request.Lookup.UserIDs...)
 	if !runner.config.Enabled || !runner.authorized(request.Lookup.UserIDs) {
-		return runner.sendResult(customDeckLoadResult{Target: request.Target, BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum})
+		return nil
 	}
 	select {
 	case <-runner.ctx.Done():
@@ -268,6 +254,33 @@ func (runner *CustomDeckRunner) SubmitCustomDeck(request CustomDeckLoadRequest) 
 	default:
 		return errCustomDeckQueueFull
 	}
+}
+
+// LoadAndProvide performs one bounded Legacy compatibility load and sends the
+// public ProvideCustomDeck Command before returning. It is used only by the
+// ordered Legacy UPDATE_GAME hook so an immediately following START cannot
+// overtake the old Redis bridge; direct Cluster callers should provide the
+// catalog themselves.
+func (runner *CustomDeckRunner) LoadAndProvide(ctx context.Context, request CustomDeckLoadRequest) error {
+	if runner == nil || request.Target.ID == 0 || request.BattleID == 0 || request.GameNum == 0 || request.SubgameNum == 0 {
+		return errInvalidCustomDeckRequest
+	}
+	if !runner.config.Enabled || !runner.authorized(request.Lookup.UserIDs) {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	loadCtx, cancel := context.WithTimeout(ctx, runner.config.LoadTimeout)
+	catalog, err := runner.provider.Load(loadCtx, request.Lookup)
+	cancel()
+	if err != nil {
+		return err
+	}
+	if !catalog.valid() {
+		return nil
+	}
+	return runner.sendResult(request, catalog)
 }
 
 // Close cancels queued provider work and waits for every worker to return.
@@ -315,19 +328,21 @@ func (runner *CustomDeckRunner) worker() {
 			if runner.ctx.Err() != nil {
 				return
 			}
-			result := customDeckLoadResult{Target: request.Target, BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, Catalog: catalog.clone(), Available: err == nil && catalog.valid()}
-			if err != nil {
-				result.Error = err.Error()
+			if err != nil || !catalog.valid() {
+				continue
 			}
-			if runner.sendResult(result) != nil {
+			if runner.sendResult(request, catalog) != nil {
 				return
 			}
 		}
 	}
 }
 
-func (runner *CustomDeckRunner) sendResult(result customDeckLoadResult) error {
-	return runner.runtime.Send(result.Target, applyCustomDeckResultCommand, result)
+func (runner *CustomDeckRunner) sendResult(request CustomDeckLoadRequest, catalog CustomDeckCatalog) error {
+	return runner.runtime.Send(request.Target, ProvideCustomDeckCommand, ProvideCustomDeckRequest{
+		BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum,
+		Catalog: catalog.clone(),
+	})
 }
 
 func contextError(ctx context.Context) error {

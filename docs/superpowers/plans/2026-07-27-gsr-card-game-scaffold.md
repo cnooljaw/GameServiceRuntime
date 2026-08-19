@@ -356,7 +356,7 @@ internal/legacywire
 - 不把整桌状态暴露为可被外部任意调用的共享 `Game` 对象。
 - 不使用直接 goroutine 驱动牌局流程；所有权威状态变化经 BattleService Mailbox Command。
 - 不把框架日志、AI HTTP、配置中心或战绩回调直接塞进 Battle Handler。
-- 自定义牌堆使用 `CustomDeckProvider`：示例默认本地文件，生产 Redis adapter 兼容旧 `game:makecard:<ProductID>` 优先、空值回退 `<GameID>`。每个小局开始时只由有界 `CustomDeckRunner` 异步装载一次；Battle 在 `Preparing` 接受与当前小局匹配的不可变 catalog，下一小局重新装载。保留旧调试 grammar，不把牌值收紧为标准两副牌集合：任意 `uint8` 十六进制值均可，允许重复和非标准编码；不足 104 项忽略，超过 104 项截取，越界庄家视为未指定。失败、超时、队列满或空值回退普通洗牌，不隔离 Battle；迟到结果忽略。
+- 自定义牌堆使用公开 `ProvideCustomDeck`：外部先把本地文件、Redis 或其他来源转换为 canonical catalog，再向 `Preparing` 的 Battle 推送并按小局身份 fencing。Legacy bridge 可用有界 `CustomDeckRunner` 兼容旧 `game:makecard:<ProductID>` 优先、空值回退 `<GameID>`，但 Battle 不主动读取数据源。保留旧调试 grammar，不把牌值收紧为标准两副牌集合：任意 `uint8` 十六进制值均可，允许重复和非标准编码；不足 104 项忽略，超过 104 项截取，越界庄家视为未指定。失败、超时、队列满或空值不推送，回退普通洗牌，不隔离 Battle；迟到结果拒绝。
 - 回放保留旧 XML、`NHSK_M<ProductID>R<RoundID>_<YYYYMMDD>_<HHMMSS>_<Seat0UserID>.xml` 名称与 `FuPan/<YYYYMMDD>/<HH>` 目录。Battle 只记录回放事实并在小局结束冻结不可变文档；有界 `ReplayWriterRunner` 在 Battle 外执行 `MkdirAll/Create/Write/Close`，Battle 在 `FinalizingReplay` 等待成功、失败或超时后继续结算。首版不增加原子改名、`fsync`、自动重试或回放上传；失败仍使用既定 replay name，只告警/计量，不隔离。
 
 旧容器能力在 GSR 中按责任重新归位：
@@ -647,7 +647,7 @@ Composition Root
 - [ ] 定义协议无关的入站/出站消息类型；固定数组先映射为独立 slice/value，再进入 Command bridge。
 - [ ] 从参考实现与真实样本生成 Legacy golden bytes，覆盖 Header、固定字段、隐藏手牌、`GAME_RESULT` suffix、`GAME_SCENE` 双 suffix 和畸形长度。
 - [ ] 建立 NHSK 能力兼容矩阵，逐项记录功能、参考入口、调用方、测试、目标部署启用事实、录制消息证据、Legacy MessageID、实现状态和裁决；AI、回放、约局、投票、道具、偏洗牌、自定义牌堆及每条结算路径不得按目录名直接纳入。确认旧系统未使用的能力标记“放弃”并不实现任何预留代码；发现真实可观察缺陷则默认兼容或先取得有意偏差确认。
-- [ ] 为自定义牌堆先写 provider/runner 契约测试：本地文件成功加载；ProductID 优先、GameID 回退；白名单房间生效；非白名单房间由 provider/runner 直接返回无 catalog 且不读取数据源；每个小局只装载一次且下一小局重新装载；Battle 在 `Preparing` 只接受当前小局结果且不持有 enable/白名单；`0x01..0x68` 连续字节、重复和非标准编码保持可用；不足 104 项忽略，超过 104 项取前 104 项，越界庄家视为未指定；token/庄家解析错误、读取错误、超时、队列满或空值都回退普通洗牌且不隔离 Battle；迟到结果忽略。
+- [x] 为自定义牌堆完成 provider/runner 与公开 API 契约测试：本地文件成功加载；ProductID 优先、GameID 回退；白名单房间生效；非白名单房间由 provider/runner 直接返回无 catalog 且不读取数据源；外围 bridge 将每小局数据转换为 `ProvideCustomDeck`，Battle 在 `Preparing` 只接受当前小局结果且不持有 enable/白名单；`0x01..0x68` 连续字节、重复和非标准编码保持可用；不足 104 项忽略，超过 104 项取前 104 项，越界庄家视为未指定；token/庄家解析错误、读取错误、超时、队列满或空值都回退普通洗牌且不隔离 Battle；迟到结果忽略。
 - [ ] 为回放先写 golden 与 runner 契约测试：固定 Clock 下名称和 `FuPan/<date>/<hour>` 路径与参考一致；XML 覆盖规则、发牌、动作、道具留痕和结算；综合结算响应先提交客户端 GameResult，再进入 `FinalizingReplay`；`MkdirAll/Create/Write/Close` 成功、失败或超时收敛后才发送 GM GameOver。逐项失败和队列满仍携带既定 replay name、只告警/计量且不隔离；旧 BattleRef、旧小局结果或重复结果不能再次通知 GM；不存在原子改名、`fsync`、自动重试或回放上传调用。
 - [ ] 实现小端 Legacy codec；严格验证总长度、suffix 范围、玩家数、牌数和尾部多余字节。
 - [ ] 按参考实现冻结映射：`0x7701 -> Send(NHSKOutCard)`、`0x7702 -> Send(NHSKCardAction)`；`0x7402`、`0x8605`、`0x8644` 只作为 envelope，不定义业务 Command 或同步 `Reply`。

@@ -182,7 +182,7 @@ func readRESPTestCommand(reader *bufio.Reader) ([]string, error) {
 
 func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 	provider := &countingCustomDeckProvider{catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 0}}}}
-	runtime := &customDeckRecordingRuntime{sent: make(chan customDeckLoadResult, 2)}
+	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
 	runner, err := NewCustomDeckRunner(runtime, provider, CustomDeckRunnerConfig{Enabled: true, AllowedAccounts: []uint32{2}, QueueSize: 1, Workers: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -194,11 +194,8 @@ func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 	}
 	select {
 	case result := <-runtime.sent:
-		if result.Available {
-			t.Fatalf("unauthorized result = %#v", result)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("unauthorized result not sent")
+		t.Fatalf("unauthorized provision = %#v", result)
+	case <-time.After(20 * time.Millisecond):
 	}
 	if provider.loads != 0 {
 		t.Fatalf("provider loads = %d, want 0", provider.loads)
@@ -209,11 +206,11 @@ func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 	}
 	select {
 	case result := <-runtime.sent:
-		if !result.Available || len(result.Catalog.Decks) != 1 {
-			t.Fatalf("authorized result = %#v", result)
+		if result.BattleID != 403 || len(result.Catalog.Decks) != 1 {
+			t.Fatalf("authorized provision = %#v", result)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("authorized result not sent")
+		t.Fatal("authorized provision not sent")
 	}
 	if provider.loads != 1 {
 		t.Fatalf("provider loads = %d, want 1", provider.loads)
@@ -221,7 +218,7 @@ func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 }
 
 func TestCustomDeckRunnerTimeoutFallsBackWithoutBlockingBattle(t *testing.T) {
-	runtime := &customDeckRecordingRuntime{sent: make(chan customDeckLoadResult, 1)}
+	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
 	runner, err := NewCustomDeckRunner(runtime, blockingCustomDeckProvider{}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: true, LoadTimeout: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -232,21 +229,35 @@ func TestCustomDeckRunnerTimeoutFallsBackWithoutBlockingBattle(t *testing.T) {
 	}
 	select {
 	case result := <-runtime.sent:
-		if result.Available {
-			t.Fatalf("timeout result = %#v", result)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout result not sent")
+		t.Fatalf("timeout provision = %#v", result)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
-func TestBattleWaitsForMatchingCustomDeckBeforeStart(t *testing.T) {
-	requester := &recordingCustomDeckRequester{}
-	battle, err := NewBattleService(NHSKBattleConfig{
-		ID: 401, MatchID: 1, ProductID: NHSKDescriptor.GameID,
-		Random: rand.New(rand.NewSource(7)), Clock: &nhskTestClock{now: time.Unix(1, 0)},
-		CustomDeckRequester: requester,
-	})
+func TestCustomDeckRunnerLoadAndProvideUsesPublicCommand(t *testing.T) {
+	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
+	runner, err := NewCustomDeckRunner(runtime, &countingCustomDeckProvider{catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 1}}}}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close() })
+	request := CustomDeckLoadRequest{Target: gsr.ServiceRef{Node: "test", ID: 1}, BattleID: 405, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{UserIDs: []uint32{1}}}
+	if err := runner.LoadAndProvide(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case provision := <-runtime.sent:
+		if provision.BattleID != request.BattleID || provision.GameNum != request.GameNum || provision.SubgameNum != request.SubgameNum || len(provision.Catalog.Decks) != 1 {
+			t.Fatalf("provision = %#v", provision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("public provision not sent")
+	}
+}
+
+func TestBattleAcceptsExternalCustomDeckProvision(t *testing.T) {
+	const battleID game.BattleID = 403
+	battle, err := NewBattleService(NHSKBattleConfig{ID: battleID, MatchID: 1, ProductID: NHSKDescriptor.GameID, Random: rand.New(rand.NewSource(8)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +267,7 @@ func TestBattleWaitsForMatchingCustomDeckBeforeStart(t *testing.T) {
 	ctx := &battleTestCommandContext{}
 	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
 	for _, command := range []gsr.Command{
-		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 401, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: battleID, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
 		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}},
 		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
 	} {
@@ -264,47 +275,69 @@ func TestBattleWaitsForMatchingCustomDeckBeforeStart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(requester.requests) != 1 || requester.requests[0].GameNum != 1 || requester.requests[0].SubgameNum != 1 {
-		t.Fatalf("custom deck requests = %#v", requester.requests)
-	}
-	if err := battle.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
-		t.Fatal(err)
-	}
-	if result := ctx.reply.(CommandResult); result.Accepted || result.Rejection != errCustomDeckPending.Error() {
-		t.Fatalf("pending start reply = %#v", result)
-	}
-	requester.requests[0].Target = ctx.Self()
-	if err := battle.Handle(ctx, gsr.Command{ID: applyCustomDeckResultCommand, Payload: customDeckLoadResult{
-		Target: ctx.Self(), BattleID: 401, GameNum: 1, SubgameNum: 1,
-		Available: true, Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 2}}},
+	cards := sequentialCustomDeckBytes()
+	if err := battle.Handle(ctx, gsr.Command{ID: ProvideCustomDeckCommand, Payload: ProvideCustomDeckRequest{
+		BattleID: battleID, GameNum: 1, SubgameNum: 1,
+		Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: cards, BankerSeat: 2}}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	if result := ctx.reply.(CommandResult); !result.Accepted {
+		t.Fatalf("provide result = %#v", result)
+	}
+	cards[0] = 0xff
 	if err := battle.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
 		t.Fatal(err)
 	}
 	if battle.activeSeat != 2 || battle.hands[battle.bySeat[2]][0] != 0x01 || battle.hands[battle.bySeat[3]][0] != 0x1b {
-		t.Fatalf("custom deal banker=%d hands=%#v", battle.activeSeat, battle.hands)
+		t.Fatalf("external custom deal banker=%d hands=%#v", battle.activeSeat, battle.hands)
 	}
-}
-
-func TestBattleIgnoresLateCustomDeckResultAfterStart(t *testing.T) {
-	requester := &recordingCustomDeckRequester{}
-	battle, _ := newBattleWithCustomRequester(t, 402, requester)
-	ctx := &battleTestCommandContext{}
-	if err := battle.Handle(ctx, gsr.Command{ID: applyCustomDeckResultCommand, Payload: customDeckLoadResult{
-		Target: ctx.Self(), BattleID: 402, GameNum: 1, SubgameNum: 1,
-		Available: true, Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 3}}},
+	if err := battle.Handle(ctx, gsr.Command{ID: ProvideCustomDeckCommand, Payload: ProvideCustomDeckRequest{
+		BattleID: battleID, GameNum: 1, SubgameNum: 1,
+		Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 3}}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if battle.activeSeat == 3 && battle.hands[battle.bySeat[3]][0] == 0x01 {
-		t.Fatal("late custom deck result changed an already running subgame")
+	if result := ctx.reply.(CommandResult); result.Accepted {
+		t.Fatalf("late provision result = %#v", result)
+	}
+	if battle.activeSeat != 2 || battle.hands[battle.bySeat[2]][0] != 0x01 {
+		t.Fatal("late provision changed the running subgame")
 	}
 }
 
-type recordingCustomDeckRequester struct {
-	requests []CustomDeckLoadRequest
+func TestBattleRejectsMismatchedExternalCustomDeckProvision(t *testing.T) {
+	const battleID game.BattleID = 404
+	battle, err := NewBattleService(NHSKBattleConfig{ID: battleID, MatchID: 1, ProductID: NHSKDescriptor.GameID, Random: rand.New(rand.NewSource(8)), Clock: &nhskTestClock{now: time.Unix(1, 0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := battle.Init(&recordingBattleTestServiceContext{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
+	for _, command := range []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: battleID, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+	} {
+		if err := battle.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := battle.Handle(ctx, gsr.Command{ID: ProvideCustomDeckCommand, Payload: ProvideCustomDeckRequest{
+		BattleID: battleID + 1, GameNum: 1, SubgameNum: 1,
+		Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 2}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(CommandResult); result.Accepted || result.Rejection == "" {
+		t.Fatalf("mismatched provision result = %#v", result)
+	}
+	if battle.customDeckCatalog.valid() {
+		t.Fatal("mismatched provision changed the catalog")
+	}
 }
 
 type countingCustomDeckProvider struct {
@@ -342,55 +375,19 @@ func (provider *countingCustomDeckProvider) Load(context.Context, CustomDeckLook
 }
 
 type customDeckRecordingRuntime struct {
-	sent chan customDeckLoadResult
+	sent chan ProvideCustomDeckRequest
 }
 
 func (runtime *customDeckRecordingRuntime) Send(_ gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if command != applyCustomDeckResultCommand {
+	if command != ProvideCustomDeckCommand {
 		return errInvalidCustomDeckRequest
 	}
-	runtime.sent <- payload.(customDeckLoadResult)
+	runtime.sent <- payload.(ProvideCustomDeckRequest)
 	return nil
 }
 
 func (*customDeckRecordingRuntime) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
 	return nil, errInvalidCustomDeckRequest
-}
-
-func (requester *recordingCustomDeckRequester) SubmitCustomDeck(request CustomDeckLoadRequest) error {
-	requester.requests = append(requester.requests, request)
-	return nil
-}
-
-func newBattleWithCustomRequester(t *testing.T, id game.BattleID, requester CustomDeckRequester) (*NHSKBattleService, *recordingCustomDeckRequester) {
-	t.Helper()
-	battle, err := NewBattleService(NHSKBattleConfig{ID: id, MatchID: 1, ProductID: NHSKDescriptor.GameID, Random: rand.New(rand.NewSource(8)), Clock: &nhskTestClock{now: time.Unix(1, 0)}, CustomDeckRequester: requester})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := battle.Init(&recordingBattleTestServiceContext{}); err != nil {
-		t.Fatal(err)
-	}
-	ctx := &battleTestCommandContext{}
-	players := []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}
-	for _, command := range []gsr.Command{
-		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: id, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
-		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: players}},
-		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
-	} {
-		if err := battle.Handle(ctx, command); err != nil {
-			t.Fatal(err)
-		}
-	}
-	requesterRecord, _ := requester.(*recordingCustomDeckRequester)
-	// A missing catalog is a legitimate provider result and must fall back to ordinary dealing.
-	if err := battle.Handle(ctx, gsr.Command{ID: applyCustomDeckResultCommand, Payload: customDeckLoadResult{Target: ctx.Self(), BattleID: id, GameNum: 1, SubgameNum: 1}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := battle.Handle(ctx, gsr.Command{ID: StartSubgameCommand, Payload: struct{}{}}); err != nil {
-		t.Fatal(err)
-	}
-	return battle, requesterRecord
 }
 
 func sequentialCustomDeckLine() string { return customDeckValues(104) }

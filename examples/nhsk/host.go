@@ -257,18 +257,17 @@ type BattleStopper interface {
 
 // BattleFactoryService is a bounded lifecycle runner used by NHSKHostService.
 type BattleFactoryService struct {
-	creator             game.ServiceCreator
-	stopper             BattleStopper
-	customDeckRequester CustomDeckRequester
-	service             gsr.ServiceContext
-	stopQueue           chan stopBattleInternal
-	stopDone            chan struct{}
-	stopCancel          context.CancelFunc
-	stopWG              sync.WaitGroup
-	battles             map[game.BattleID]factoryBattle
-	outputRef           gsr.ServiceRef
-	outputGeneration    ConnectionGeneration
-	outputReporter      ConnectionFailureReporter
+	creator          game.ServiceCreator
+	stopper          BattleStopper
+	service          gsr.ServiceContext
+	stopQueue        chan stopBattleInternal
+	stopDone         chan struct{}
+	stopCancel       context.CancelFunc
+	stopWG           sync.WaitGroup
+	battles          map[game.BattleID]factoryBattle
+	outputRef        gsr.ServiceRef
+	outputGeneration ConnectionGeneration
+	outputReporter   ConnectionFailureReporter
 }
 
 type factoryBattle struct {
@@ -279,16 +278,10 @@ type factoryBattle struct {
 
 // NewBattleFactoryService creates a lifecycle runner backed by the Runtime composition root.
 func NewBattleFactoryService(creator game.ServiceCreator, stopper BattleStopper) (*BattleFactoryService, error) {
-	return NewBattleFactoryServiceWithCustomDeck(creator, stopper, nil)
-}
-
-// NewBattleFactoryServiceWithCustomDeck creates a factory with an optional
-// external custom-deck requester injected at the composition boundary.
-func NewBattleFactoryServiceWithCustomDeck(creator game.ServiceCreator, stopper BattleStopper, requester CustomDeckRequester) (*BattleFactoryService, error) {
 	if creator == nil || stopper == nil {
 		return nil, errInvalidHostConfig
 	}
-	return &BattleFactoryService{creator: creator, stopper: stopper, customDeckRequester: requester}, nil
+	return &BattleFactoryService{creator: creator, stopper: stopper}, nil
 }
 
 // Init captures the factory capability.
@@ -319,7 +312,7 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		if outputGeneration != request.Request.ConnectionGeneration {
 			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, CustomDeckRequester: factory.customDeckRequester})
+		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter})
 		if err == nil {
 			var ref gsr.ServiceRef
 			ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: battle})

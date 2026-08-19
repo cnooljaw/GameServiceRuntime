@@ -85,7 +85,7 @@
 | 三套旧结算 ACK | GL 有 handler；当前 GM 无发送点 | 新代码中不存在 handler/codec | 放弃 | D-044 | 以后有需求重新新增 |
 | 回放生成 | 配置 `replay_enabled=1`，但旧 BaseGame 开关判断被注释；GameOver 始终同步保存 | XML、规则/发牌/动作/结果、名称、目录、简单写入失败收敛 | 待实现 | D-044、D-047、D-086 | 删除假开关；外部有界 writer，无原子发布、fsync、重试或上传 |
 | 回放上传 | 取决于 BaseRule index 24，仓库无目标规则样本 | 当前不出现上传 adapter | 放弃 | D-044 | 有真实规则数据再新增 |
-| 自定义牌堆 | 生产 `custom_deck.enabled=1` 和白名单；旧 `GetCustomDeck/MakecardConfig` 每小局相邻重复读取，测试接受任意 `uint8` | ProductID 优先、GameID 回退、白名单、每小局一次快照、宽松调试 grammar、庄家和发牌 | 待实现 | D-044、D-046 | 示例本地文件，生产 Redis adapter；失败回退普通洗牌 |
+| 自定义牌堆 | 生产 `custom_deck.enabled=1` 和白名单；旧 `GetCustomDeck/MakecardConfig` 每小局相邻重复读取，测试接受任意 `uint8` | ProductID 优先、GameID 回退、白名单、每小局一次快照、宽松调试 grammar、庄家和发牌 | 已实现/有意偏差 | D-044、D-046 | 外围文件/Redis bridge 转换后调用 `ProvideCustomDeck`；Battle 不主动读取，失败回退普通洗牌 |
 | 固定六张牌 TestMode | NHSK `DoDeal/applyTestModeHands` | 所有目标配置关闭、无外部入口且不能形成完整牌局 | 放弃 | D-072 | 测试使用固定 seed 或注入 CustomDeckProvider，不留生产后门 |
 | Config owner 与死字段 | NHSK `Config/loadConfig` 及全字段读取点 | 三个字段只加载未读取；外围 I/O 配置与玩法字段混装 | 有意偏差 | D-073 | NHSKConfig 只留真实玩法消费值，provider/runner 各自拥有 adapter 配置 |
 | INIT 字段 owner | protocol `ReqGM2GLBodyInitGame`、GL `Round.InitGame`、BaseGame `replayAttributeInitialize` | 完整 wire、旧 Round 实际读取子集、客户端 Fee 和回放基础属性 | 待实现 | D-074 | CreateTime/未消费 MatchKey 只解码；回放复用单一身份与计分快照 |
@@ -870,20 +870,20 @@
 
 | 字段 | 内容 |
 |---|---|
-| 切片 | 将旧 `MakecardConfig`/`loadCustomDeck` 的可达自定义牌堆能力移到 Battle 外部的本地文件 provider 与有界 runner；每个 `Preparing` 小局只提交一次，匹配结果后才允许 Start。 |
+| 切片 | 将旧 `MakecardConfig`/`loadCustomDeck` 的可达自定义牌堆能力收敛为 Battle 的外部 `ProvideCustomDeck` 参数入口；本地文件、Redis 和旧文本兼容只属于外围 bridge。 |
 | GSR 文件/测试 | `examples/nhsk/custom_deck.go`、`custom_deck_test.go`、`battle.go`、`host.go`、`process.go`、`config.go`、`config.example.json`；解析 grammar、授权、队列、超时、Late Result、庄家覆盖和自定义手牌 golden。 |
 | 参考入口 | `nhsk/game/config.go:loadCustomDeck`、`customDeckAllowedForRoom`、`applyCustomBanker`、`applyCustomHands`；`nhsk/game/flow_core.go:DoGameStart/DoDeal`；`nhsk/game/game_base_api.go:getCustomDeck`。 |
 | 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestParseCustomDeckLoadsDeckAndBanker`、`TestDoDealUsesCustomDeckAndBankerOffset`、`TestStartupRulesIgnoreCustomDeckWhenRoomHasNoAllowedAccount`、`TestStartupRulesIgnoreCustomDeckWhenDisabled`；旧生产配置启用 `custom_deck.enabled` 并提供账号白名单。 |
 | Legacy MessageID | 本切片不新增 MessageID；仍由现有 `0x7602 NHSK_DEAL` 使用最终手牌，庄家和牌序不进入新的 wire 字段。 |
 | 输入与校验 | `CustomDeckProvider` 只收到脱离 Battle 的 `GameID/ProductID/UserIDs` lookup；runner 先检查 enable 与账号白名单，未授权不读取文件。Parser 保留 `{}` 块、`@N` 庄家、十六进制 `uint8` token、重复/非标准牌值；完整 104 项才收录，不足块忽略，超过 104 项取前 104 项，庄家越界视为未指定，token/庄家语法错误使整次加载失败。 |
-| 权威状态变化 | Runner 深拷贝不可变 `CustomDeckCatalog`，通过私有 `applyCustomDeckResult` Command 携带目标 `ServiceRef`、BattleID、GameNum/SubgameNum 返回。Battle 只在仍为 `Preparing` 且身份全部匹配时接收；新小局清空旧 catalog。自定义牌堆命中时只覆盖庄家与按庄家环形切片的四手牌，绕过普通 `SingleCountToSwap` 和 `IsNewbie` 调整。 |
-| Timer/Timeline | Runner 使用有界 worker pool 与每项 `LoadTimeout` context；Battle 不创建 I/O goroutine。队列满、超时、读取/解析错误、空值或无有效块均清除等待并回退普通发牌，不隔离 Battle；迟到/错局/错 Ref 结果稳定丢弃。`StartSubgame` 在等待期间以稳定业务拒绝回复。 |
+| 权威状态变化 | 外部 bridge 或 Cluster caller 深拷贝 canonical `CustomDeckCatalog`，通过公开 `ProvideCustomDeck` Command 携带 BattleID、GameNum/SubgameNum 提供。Battle 只在仍为 `Preparing` 且身份全部匹配时接收；新小局清空旧 catalog。自定义牌堆命中时只覆盖庄家与按庄家环形切片的四手牌，绕过普通 `SingleCountToSwap` 和 `IsNewbie` 调整。 |
+| Timer/Timeline | Legacy bridge 的 runner 使用有界 worker pool 与每项 `LoadTimeout` context；Battle 不创建 I/O goroutine。队列满、超时、读取/解析错误、空值或无有效块均不发送 provision，Battle 直接回退普通发牌，不隔离 Battle；错局、错 Ref 或已开始后的 `ProvideCustomDeck` 稳定拒绝且不改状态。 |
 | 输出目标与顺序 | 不新增客户端或 GM 消息；现有 `GAME_START -> GAME_STARTED -> GameInfo -> Deal -> AskOutCard` 线序不变，Deal/回放未来都应引用 Battle 冻结的同一最终手牌。 |
-| 生命周期结果 | `GameLogicProcessConfig.CustomDeck` 可启用本地文件 provider，`CustomDeckRunner` 由进程组合根拥有并在 Runtime 前关闭；默认配置关闭，不改变未配置进程。下一小局重新读取文件快照，运行中不观察原地变更。 |
+| 生命周期结果 | `GameLogicProcessConfig.CustomDeck` 可启用外围 Legacy bridge，`CustomDeckRunner` 由进程组合根拥有并在 Runtime 前关闭；默认配置关闭，不改变未配置进程。直接 Cluster 调用不需要启用任何数据源。 |
 | 已一致 | 旧 parser 的宽松 card grammar、有效块门槛、banker offset、账号白名单“任一玩家命中即可”、自定义优先于普通/新手发牌和无可用数据时普通路径均已覆盖。参考原目录保持只读。 |
-| 有意偏差 | 不复制旧 `loadStartupRules` 在同一 Battle 内的 Nacos/配置刷新和同步文件读取；按 D-046/RFC-0500，provider/解析/I/O 迁出 Battle，变成每小局一次有界异步快照；尚未实现生产 Redis adapter，但 key 优先级仍由 D-046 保留。 |
-| 发现遗漏 | Redis adapter（`game:makecard:<ProductID>` 优先、空值回退 `<GameID>`）、脱敏日志/指标、完整 Legacy Deal/回放 golden 和多文件/多源选择仍待后续切片；本切片不宣称生产切换范围全部完成。 |
-| 结论 | 本地 provider、旧 grammar、白名单、异步 runner、timeout/fallback、Battle 身份 fencing 与自定义发牌 **已按 RFC 实现**；Redis adapter、完整 wire/Replay 复核 **发现遗漏/后续切片**。 |
+| 有意偏差 | 不复制旧 `loadStartupRules` 在同一 Battle 内的 Nacos/配置刷新和同步文件读取；按 D-046/RFC-0500，provider/解析/I/O 迁出 Battle，兼容 bridge 只把结果转换后推送到公开 API。 |
+| 发现遗漏 | 真实 Redis 运维联调、脱敏日志/指标、完整 Legacy Deal/回放 golden 和多源选择仍待后续切片；本切片不宣称生产切换范围全部完成。 |
+| 结论 | `ProvideCustomDeck` 外部参数 API、Battle fencing、旧 grammar、文件/Redis bridge、失败普通发牌 fallback 与自定义发牌 **已按 RFC 实现**；真实 Redis 联调、完整 wire/Replay 复核 **发现遗漏/后续切片**。 |
 | RFC/决策 | RFC-0410、RFC-0500、D-046、D-063、D-064、D-072；TODO CARD-022、CARD-023、CARD-031、CARD-036。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；CodeGraph 已同步且状态 up to date；未修改参考业务目录。 |
 
@@ -891,19 +891,19 @@
 
 | 字段 | 内容 |
 |---|---|
-| 切片 | 为 CARD-022 增加 Redis `CustomDeckProvider`，复用已有 `CustomDeckRunner`，不让 Battle 或 Core Runtime 依赖 Redis 客户端。 |
+| 切片 | 为 CARD-022 增加外围 Redis `CustomDeckProvider`/Legacy bridge，转换后调用公开 `ProvideCustomDeck`，不让 Battle 或 Core Runtime 依赖 Redis 客户端。 |
 | GSR 文件/测试 | `examples/nhsk/custom_deck_redis.go`、`custom_deck_test.go`、`process.go`、`config.go`、`config.example.json`、`README.md`；覆盖 ProductID/GameID key 顺序、空值回退、非空坏数据、RESP bulk GET 和 source 选择。 |
 | 参考入口 | `nhsk/game/game_base_api.go:getCustomDeck`、`nhsk/game/config.go:loadStartupRules/loadCustomDeck`；路线图和 D-046 冻结的 Redis key 选择。 |
 | 参考配置/测试 | 旧生产配置启用 `custom_deck.enabled` 并有账号白名单；D-046 规定先读 `game:makecard:<ProductID>`，空值再读 `<GameID>`。旧目录没有 Redis wire client 实现可直接复用。 |
 | 输入与校验 | `RedisStringGetter` 只允许 `GET`；`RedisCustomDeckProvider` 先读取 ProductID，只有不存在或空字符串才读 GameID。非空字符串即使没有有效块也不换 key；解析错误直接让本次 provider 失败。 |
-| 权威状态变化 | Redis 返回的文本仍由 provider 解析为不可变 `CustomDeckCatalog`，再由原有 runner 通过结果 Command 交给 Battle；Redis 不写入任何 Battle 或 Host 状态。 |
+| 权威状态变化 | Redis 返回的文本由外围 provider 解析为不可变 `CustomDeckCatalog`，runner 通过公开 `ProvideCustomDeck` Command 交给 Battle；Redis 不写入任何 Battle 或 Host 状态，Battle 不反向读取 Redis。 |
 | Timer/Timeline | `TCPRedisStringGetter` 使用 context/连接 deadline、单次连接和最大响应大小；runner 原有 `LoadTimeout`、队列上限和关闭等待保持不变。网络/认证/RESP/超时失败统一走普通发牌 fallback，不隔离牌局。 |
 | 输出目标与顺序 | 不新增 MessageID 或客户端/GM 输出；最终 Deal 仍复用 Battle 的既有输出线序。 |
-| 生命周期结果 | `custom_deck.source=file` 保持默认本地文件；`source=redis` 复用顶层 Redis 地址、密码和 DB 配置，组合根创建 `TCPRedisStringGetter`，关闭时由 runner 统一停止。Redis 未启用或地址/DB 无效时进程配置拒绝启动。 |
-| 已一致 | ProductID 优先、空值回退 GameID、宽松 grammar、外部读取、每小局单次装载与 Battle fencing 均与 D-046/RFC-0500 一致；Redis 适配器没有进入 Core 或 Battle。 |
+| 生命周期结果 | `custom_deck.source=file` 和 `source=redis` 只配置 Legacy bridge；组合根创建 `TCPRedisStringGetter`，关闭时由 runner 统一停止。Redis 未启用或地址/DB 无效时进程配置拒绝启动；直接 Cluster `ProvideCustomDeck` 不依赖 Redis。 |
+| 已一致 | ProductID 优先、空值回退 GameID、宽松 grammar、外围读取、通过公开 API 推送与 Battle fencing 均与 D-046/RFC-0500 一致；Redis 适配器没有进入 Core 或 Battle。 |
 | 有意偏差 | 没有引入第三方 Redis 客户端或连接池；首版使用标准库 RESP2、每次 GET 一个有界连接。原因是示例强调少依赖，且 `RedisStringGetter` 保留了未来接入共享连接池的替换边界。 |
 | 发现遗漏 | 尚未与真实 Redis 服务做联调，未实现连接池、ACL 用户名认证、监控指标和生产连接复用；这些不改变 provider key/解析契约。完整 Legacy Deal/Replay 字节 golden 仍待后续。 |
-| 结论 | Redis key 选择、注入式 Provider 和标准库 RESP GET **已按 RFC 实现**；真实 Redis 运维联调与连接池 **发现遗漏/后续切片**。 |
+| 结论 | Redis key 选择、外围 Provider/Bridge、标准库 RESP GET 和 `ProvideCustomDeck` 推送 **已按 RFC 实现**；真实 Redis 运维联调与连接池 **发现遗漏/后续切片**。 |
 | RFC/决策 | RFC-0410、RFC-0500、D-046、D-073；TODO CARD-022。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读，CodeGraph 结果仅用于导航。 |
 

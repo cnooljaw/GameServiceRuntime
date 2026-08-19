@@ -110,6 +110,7 @@ CommandID 不复用 Legacy MessageID。已导出常量是 Cluster Service 的公
 | `0x04100206` | `ExitPlayer` | Battle | Send/Call | `CommandResult` |
 | `0x04100207` | `UpdatePlayerDress` | Battle | Send | 无 |
 | `0x04100208` | `ForceFinishSubgame` | Battle | Send/Call | `CommandResult` |
+| `0x04100209` | `ProvideCustomDeck` | Battle | Send/Call | `CommandResult` |
 | `0x04100301` | `PlayCards` | Battle | Send/Call | `ActionResult` |
 | `0x04100302` | `PreviewCardSelection` | Battle | Send/Call | `ActionResult` |
 | `0x04100303` | `SetPlayerAutoState` | Battle | Send/Call | `CommandResult` |
@@ -160,7 +161,6 @@ type SetPlayerAutoStateRequest struct {
 | `0x0410f002` | `applyBattleStopped` | Host lifecycle runner result |
 | `0x0410f003` | `timelineFired` | Battle Timeline |
 | `0x0410f004` | `applyAIResult` | AI runner result |
-| `0x0410f005` | `applyCustomDeckResult` | CustomDeck runner result |
 | `0x0410f006` | `applyReplayResult` | Replay writer result |
 | `0x0410f007` | `applyDeleteBarrier` | Host/Battle stop barrier |
 | `0x0410f008` | `legacyContinue` | Legacy no-op ordering compatibility |
@@ -249,6 +249,21 @@ AwaitingInit -> Preparing -> Playing -> AwaitingSettlement
 ```
 
 `PrepareSubgame` 消费 UPDATE_GAME 的 GameNum/SubGameNum；`StartSubgame` 是唯一进入 Playing 的 Command。`UpdateRoundContext` 只更新下一小局的 SecRoundTotal、SecRoundUsed 和 RoomInfo，不改阶段。Legacy CONTINUE 是包内私有 no-op，不对 Cluster 导出。
+
+`ProvideCustomDeck` 是自定义牌堆的外部推送 API：
+
+```go
+type ProvideCustomDeckRequest struct {
+    BattleID   game.BattleID
+    GameNum    uint16
+    SubgameNum uint16
+    Catalog    CustomDeckCatalog
+}
+```
+
+调用方先解析 Battle Ref，在 `PrepareSubgame` 之后、`StartSubgame` 之前以 `Send` 或 `Call` 提供已经转换完成的 `CustomDeckCatalog`。Battle 只接受匹配的 BattleID、当前小局号和 `Preparing` 阶段，随后深拷贝并固定该小局快照；迟到、错局、非法或已开始后的提供不改变状态。没有提供可用 catalog 时按普通发牌路径处理。
+
+该 API 不包含 Redis key、ProductID/GameID 回退、旧文本 grammar、文件路径、enable 或账号白名单。旧系统兼容由外围 bridge 完成：bridge 读取并解析旧 `MakecardConfig` 后调用同一 `ProvideCustomDeck`；直接 Cluster 调用者直接提供 canonical catalog。Battle 不主动读取任何牌堆数据源。
 
 StartSubgame 只读一次 Battle Clock，冻结 SubgameStartedAt、ReplayName、ReplayUID、回放目录和四座 `ReplayPlayerSnapshot`。ReplayName 只属于当前小局，下一局替换；不保存历史列表。
 
@@ -555,7 +570,7 @@ Call 超时只表示未及时收到 Reply，不取消已进 Mailbox 的 Command�
 
 Battle 业务状态只能在其 Mailbox Handler 中修改。Stop 和 Close 只执行 Runtime 串行清理，不补做结算。Battle、Host 和 adapter Service 不直接创建 goroutine。TCP I/O owner 和固定上限 runner 可按 RFC 约束使用 goroutine，但必须拥有取消/Close 入口并等待真实返回。
 
-Timeline、AI、CustomDeck 和 Replay 结果都必须携带完整 BattleRef、小局身份与各自 Revision。迟到、重复、旧 Ref、旧小局或旧连接代际结果不得修改当前状态。Snapshot、Targets、手牌和 ReplayDocument 对外返回深拷贝或不可变值。
+Timeline、AI 和 Replay 结果都必须携带完整 BattleRef、小局身份与各自 Revision。`ProvideCustomDeck` 请求携带 BattleID 和小局身份，并由 Battle 在 Mailbox 内执行当前阶段校验。迟到、重复、旧 Ref、旧小局或旧连接代际结果不得修改当前状态。Snapshot、Targets、手牌、CustomDeckCatalog 和 ReplayDocument 对外返回深拷贝或不可变值。
 
 ## 可观测性
 
@@ -582,7 +597,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `0x7701`、`0x7702`、`0x720A` 的固定字节解码、三层身份核对和显式 Command 映射。
 - `0x7208 USER_RECONNECT` 与 `0x720D GAME_SCENE` 的固定布局解码、显式 Command 映射和 Battle 恢复视图边界；Reconnect 与 Scene 保留不同的 Offline/托管副作用，场景按请求者视角隐藏手牌，并在请求者已出完时显示固定对家手牌。
 - Battle 已按固定对家组实现出完牌边界：单个玩家出完后继续 Playing、输出定向 `SHOW_CARDS` 并推进下一次 `ASK_OUT_CARD`；同组两座都出完才进入 AwaitingSettlement，输出全桌 `SHOW_CARDS`。
-- `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
+- `InitializeBattle`、`UpdatePlayers`、`PrepareSubgame`、`ProvideCustomDeck`、`StartSubgame`、`PlayCards`、`PreviewCardSelection`、`SetPlayerAutoState` 以及 `GetNHSKBattleSnapshot` 的最小可运行路径。
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
@@ -591,7 +606,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
 - 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
 - Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，普通路径按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，新手路径按旧 `RandCardListByNewPlayer` 对首个非自动玩家执行三张/四张重试，并按庄家座位环形分发；本地文件/Redis `CustomDeckProvider` 与 `CustomDeckRunner` 已在 `Preparing` 外部装载并按 BattleRef/小局身份冻结可用自定义牌堆，命中时覆盖庄家与手牌且绕过普通/新手调整；期限起点和剩余时间只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。完整机器人/AI 专用期限、回放时间事实和单扣/双扣仍未实现；`SingleCountToSwap<=0` 明确关闭普通路径调整，新手路径不消费该普通阈值。
+- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，普通路径按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，新手路径按旧 `RandCardListByNewPlayer` 对首个非自动玩家执行三张/四张重试，并按庄家座位环形分发；`ProvideCustomDeck` 接收由外围文件/Redis bridge 或 Cluster 调用者转换好的不可变 catalog，命中时覆盖庄家与手牌且绕过普通/新手调整；期限起点和剩余时间只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。完整机器人/AI 专用期限、回放时间事实和单扣/双扣仍未实现；`SingleCountToSwap<=0` 明确关闭普通路径调整，新手路径不消费该普通阈值。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。

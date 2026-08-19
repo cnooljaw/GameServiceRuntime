@@ -34,6 +34,10 @@ type LegacyGMConnectionConfig struct {
 	OnFrame           func(context.Context, ConnectionGeneration, legacywire.Frame) error
 	OnConnected       func(ConnectionGeneration) error
 	OnDisconnected    func(ConnectionGeneration)
+	// OnSubgamePrepared is an optional Legacy compatibility hook. It runs
+	// after UPDATE_GAME has entered the Battle Mailbox so an outer bridge can
+	// provide data through ProvideCustomDeckCommand.
+	OnSubgamePrepared func(context.Context, ConnectionGeneration, game.BattleID, uint16, uint16)
 }
 
 type legacyConnectionSession struct {
@@ -94,6 +98,9 @@ func (connection *LegacyGMConnection) AttachRouting(runtime game.CommandRuntime,
 				return decodeErr
 			}
 			routeErr := RouteLegacyControlSend(ctx, runtime, hostRef, frame.Bytes, generation)
+			if routeErr == nil && control.Kind == legacywire.ControlUpdateGame && connection.config.OnSubgamePrepared != nil {
+				connection.config.OnSubgamePrepared(ctx, generation, game.BattleID(control.BattleID), uint16(control.GameNum), uint16(control.SubgameNum))
+			}
 			if control.Kind == legacywire.ControlNewGame {
 				if ackErr := connection.SubmitFrame(legacywire.EncodeNewGameAck(control.BattleID, routeErr == nil)); ackErr != nil {
 					return ackErr

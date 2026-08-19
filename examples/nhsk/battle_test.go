@@ -38,6 +38,12 @@ func TestBattleLifecycleAndClusterCallUseOneMailbox(t *testing.T) {
 	if _, err := runtime.Call(context.Background(), ref, PrepareSubgameCommand, PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}); err != nil {
 		t.Fatal(err)
 	}
+	if value, err := runtime.Call(context.Background(), ref, ProvideCustomDeckCommand, ProvideCustomDeckRequest{
+		BattleID: 7, GameNum: 1, SubgameNum: 1,
+		Catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 0}}},
+	}); err != nil || !value.(CommandResult).Accepted {
+		t.Fatalf("provide custom deck = %#v, %v", value, err)
+	}
 	if _, err := runtime.Call(context.Background(), ref, StartSubgameCommand, struct{}{}); err != nil {
 		t.Fatal(err)
 	}

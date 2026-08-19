@@ -23,8 +23,10 @@ type GameLogicProcessConfig struct {
 	CustomDeck       CustomDeckProcessConfig
 }
 
-// CustomDeckProcessConfig configures the dependency-light local custom-deck
-// provider used by the independently deployed example process.
+// CustomDeckProcessConfig configures the optional Legacy compatibility bridge
+// used by the independently deployed example process. Direct Cluster callers
+// provide canonical catalogs through ProvideCustomDeckCommand and do not need
+// this bridge.
 type CustomDeckProcessConfig struct {
 	Enabled         bool
 	Source          string
@@ -79,7 +81,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 			return nil, err
 		}
 	}
-	factory, err := NewBattleFactoryServiceWithCustomDeck(runtime, runtime, customDeckRunner)
+	factory, err := NewBattleFactoryService(runtime, runtime)
 	if err != nil {
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
@@ -141,6 +143,11 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		process.outputMu.Unlock()
 		if ref.ID != 0 {
 			_ = runtime.Stop(context.Background(), ref)
+		}
+	}
+	connectionConfig.OnSubgamePrepared = func(ctx context.Context, _ ConnectionGeneration, battleID game.BattleID, gameNum, subgameNum uint16) {
+		if process != nil {
+			process.submitLegacyCustomDeck(ctx, battleID, gameNum, subgameNum)
 		}
 	}
 	connection, err = NewLegacyGMConnection(connectionConfig)
@@ -218,6 +225,41 @@ func (process *GameLogicProcess) Runtime() *gsr.Runtime {
 		return nil
 	}
 	return process.runtime
+}
+
+// submitLegacyCustomDeck translates the old Redis-backed lookup into the
+// public ProvideCustomDeck Command. It is an outer compatibility bridge; the
+// Battle itself never owns or invokes the provider.
+func (process *GameLogicProcess) submitLegacyCustomDeck(ctx context.Context, battleID game.BattleID, gameNum, subgameNum uint16) {
+	if process == nil || process.customDeckRunner == nil || process.runtime == nil || process.hostRef.ID == 0 {
+		return
+	}
+	value, err := process.runtime.Call(ctx, process.hostRef, ResolveBattleCommand, ResolveBattleRequest{BattleID: battleID})
+	if err != nil {
+		return
+	}
+	resolved, ok := value.(ResolveBattleResult)
+	if !ok || resolved.BattleID != battleID || resolved.Ref.ID == 0 {
+		return
+	}
+	snapshotValue, err := process.runtime.Call(ctx, resolved.Ref, GetNHSKBattleSnapshotCommand, nil)
+	if err != nil {
+		return
+	}
+	snapshot, ok := snapshotValue.(NHSKBattleSnapshot)
+	if !ok || snapshot.BattleID != battleID || snapshot.Identity.ProductID == 0 {
+		return
+	}
+	userIDs := make([]uint32, 0, len(snapshot.Players))
+	for _, player := range snapshot.Players {
+		if player.UserID != 0 {
+			userIDs = append(userIDs, player.UserID)
+		}
+	}
+	_ = process.customDeckRunner.LoadAndProvide(ctx, CustomDeckLoadRequest{
+		Target: resolved.Ref, BattleID: battleID, GameNum: gameNum, SubgameNum: subgameNum,
+		Lookup: CustomDeckLookup{GameID: NHSKDescriptor.GameID, ProductID: snapshot.Identity.ProductID, UserIDs: userIDs},
+	})
 }
 
 // LoadGameLogicProcessConfig loads the existing JSON config without exposing internal config structs.
