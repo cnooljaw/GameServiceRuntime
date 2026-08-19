@@ -42,7 +42,7 @@
 | Battle 创建与删除 | GM `RoundStart/CleanRound`、GL controller | `0x86C1`、ACK、`0x86C2`、GameInnerID | 待实现 | D-038、RFC-0410 | 隔离删除为有意偏差 |
 | NEW_GAME IsNewNacos | protocol formatter、GL `ReqNewGame/NewRound/BindNacosFile` | wire 位存在但未进入 Round，绑定为空 | 放弃 | D-076 | codec golden 保留；领域与 Cluster 不出现 |
 | START_NEW_GAME 回放上下文 | GM `PushStartNewGame`、GL `onMsgStartNewGame/replayAttributeInitialize` | Total/Used/RoomInfo 只供下一小局回放 | 待实现 | D-056、D-077 | pending context 在 StartSubgame 冻结；不计算 Used |
-| GameID 玩法选择 | NEW_GAME、旧 GL loader、NHSK settings/replay/RobotTran | 82 选择宁海双扣；不是每桌变化身份 | 待实现 | D-078 | GameDescriptor 单一来源；未来其他玩法另 Host/Factory |
+| GameID 玩法选择 | NEW_GAME、旧 GL loader、NHSK settings/replay/RobotTran | 82 选择宁海双扣；不是每桌变化身份 | 已一致/有意边界 | D-078 | `GameDescriptor` 单一来源；Legacy 其他 GameID 失败 ACK，未来其他玩法另 Host/Factory |
 | 初始化与玩家更新 | GM `Send2GLInitGame`、`UpdateGLPlayers` | 多 suffix、座位、规则、玩家数据 | 待实现 | RFC-0500 | 只覆盖当前发送字段 |
 | 玩法配置归一化 | NHSK `SetGameRule` | 前四项宽松解析、实际可达字段冻结 | 待实现 | D-044、D-052 | 偏置洗牌已放弃，不搬运历史空配置 |
 | 随机与时间 | NHSK 包级 `math/rand`、直接时间读取 | Battle 独立 seed/PRNG、注入 Clock | 有意偏差 | D-051 | 消除跨 Battle 随机干扰，保留可复现事实 |
@@ -906,6 +906,27 @@
 | 结论 | Redis key 选择、外围 Provider/Bridge、标准库 RESP GET 和 `ProvideCustomDeck` 推送 **已按 RFC 实现**；真实 Redis 运维联调与连接池 **发现遗漏/后续切片**。 |
 | RFC/决策 | RFC-0410、RFC-0500、D-046、D-073；TODO CARD-022。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读，CodeGraph 结果仅用于导航。 |
+
+### 4.45 NHSK GameDescriptor Legacy 玩法选择边界
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 在 Legacy `NEW_GAME` 进入 Host 前按固定 `GameDescriptor` 选择宁海双扣，拒绝其他玩法 ID，避免错误玩法创建进入 NHSK Battle。 |
+| GSR 文件/测试 | `examples/nhsk/legacy_control_mapper.go`、`legacy_control_mapper_test.go`、`commands.go`；覆盖 GameID=82 成功路由和其他 GameID 失败。 |
+| 参考入口 | `gamelogic/app/handler/game.go:ReqNewGame`、`gamelogic/app/global/global.go:GameIDToNameMap`、NHSK settings/replay/RobotTran 使用的 GameID。 |
+| 参考测试/配置 | `NHSKDescriptor={82,"宁海双扣"}`；旧 GameLogic 创建入口接收 GameID，GSR 组合根已选择具体 NHSK Host/Factory。 |
+| Legacy MessageID | `0x86c1 NEW_GAME`；不新增 MessageID，错误 GameID 仍通过既有失败 ACK `0x800086c0` 表达。 |
+| 输入与校验 | BattleID、ProductID、GameID 必须非零；GameID 必须等于 82。失败在 adapter 边界返回稳定 unsupported 错误，不创建 Host Operation 或 Battle。 |
+| 权威状态变化 | GameDescriptor 是组合根级常量，不写入 BattleIdentity；Battle 不重复保存或校验 GameID。 |
+| Timer/Timeline | 无新增 Timer/Timeline。 |
+| 输出目标与顺序 | 合法 NEW_GAME 继续等待 Host Operation 后发送成功 ACK；非法 GameID 直接发送失败 ACK，保持 TCP 代际，不产生 Battle 输出。 |
+| 生命周期结果 | 其他玩法不会占用 NHSK Host 容量或 BattleID；未来玩法由各自 Host/Factory 注册，不扩展本例的条件分支。 |
+| 已一致 | GameDescriptor 单一来源、NHSK 82 选择和失败 ACK 边界已实现并有测试。 |
+| 有意偏差 | 旧通用 GameLogic 可按多玩法 loader 创建 Round；本例是独立 NHSK 进程，因此在 adapter 入口拒绝其他玩法，而不是把未知 GameID 传入错误业务服。 |
+| 发现遗漏 | 多玩法注册表、跨玩法路由和其他游戏实现不属于本例切片。 |
+| 结论 | NHSK Legacy 玩法选择 **已按 RFC 实现**；其他玩法 **有意留给独立 Host/Factory**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-078；TODO CARD-051。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录保持只读。 |
 
 ## 5. 切片追加模板
 

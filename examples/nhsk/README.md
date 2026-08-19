@@ -22,6 +22,7 @@
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、`INIT_GAME` 连续规则 suffix 解码、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
+- `GameDescriptor` 固定本组合根为 `GameID=82/宁海双扣`；Legacy `NEW_GAME` 收到其他玩法 ID 时在 adapter 边界直接失败 ACK，不创建 Battle，Cluster 调用者从 NHSK Host 进入时不再重复传 GameID。
 - 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
@@ -133,7 +134,7 @@ GameLogic -> GameMaster
 | `0x720D` | `GAME_SCENE` | `RequestGameSceneCommand`；不清除 Offline，退出托管并恢复视图 |
 | `0x7601..0x7609`、`0x7611` | NHSK 客户端输出 | `GameOutput` 后由 Legacy egress 编码 |
 | `0x8605` | GM→GL relay envelope | 不是业务 Command，只做边界解码 |
-| `0x86c1` | GM→GL NEW_GAME | `BeginCreateBattle`，等待 Host Operation 后回 `0x800086c0` |
+| `0x86c1` | GM→GL NEW_GAME | 仅接受 `GameID=82`；映射 `BeginCreateBattle`，等待 Host Operation 后回 `0x800086c0`，其他玩法直接失败 ACK |
 | `0x8600` | GM→GL INIT_GAME | `InitializeBattleCommand` |
 | `0x8601` | GM→GL UPDATE_PLAYER | `UpdatePlayersCommand` |
 | `0x8602` | GM→GL COMMAND | `START -> StartSubgame`；`MATCH_STOP -> ForceFinishSubgame` |

@@ -60,6 +60,9 @@ func MapLegacyControl(control legacywire.LegacyControl, generation ConnectionGen
 		if control.BattleID == 0 || control.ProductID == 0 || control.GameID == 0 {
 			return LegacyControlRoute{}, fmt.Errorf("%w: NEW_GAME identity", errInvalidLegacyControl)
 		}
+		if control.GameID != NHSKDescriptor.GameID {
+			return LegacyControlRoute{}, fmt.Errorf("%w: unsupported game id %d", errUnsupportedLegacyControl, control.GameID)
+		}
 		return LegacyControlRoute{Kind: control.Kind, Target: LegacyControlTargetHost, BattleID: battleID, Command: gsr.Command{ID: BeginCreateBattleCommand, Payload: CreateBattleRequest{BattleID: battleID, IsNewbie: control.IsNewbie, ConnectionGeneration: generation}}}, nil
 	case legacywire.ControlDeleteGame:
 		return LegacyControlRoute{Kind: control.Kind, Target: LegacyControlTargetHost, BattleID: battleID, Command: gsr.Command{ID: RequestDeleteBattleCommand, Payload: RequestDeleteBattleRequest{BattleID: battleID}}}, nil

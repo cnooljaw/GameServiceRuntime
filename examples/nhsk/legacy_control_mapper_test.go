@@ -65,6 +65,18 @@ func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
 	}
 }
 
+func TestMapLegacyNewGameRejectsOtherGameDescriptor(t *testing.T) {
+	_, err := MapLegacyControl(legacywire.LegacyControl{
+		Kind:      legacywire.ControlNewGame,
+		BattleID:  12,
+		ProductID: 7,
+		GameID:    NHSKDescriptor.GameID + 1,
+	}, 1)
+	if err == nil {
+		t.Fatal("NEW_GAME for another game descriptor was accepted")
+	}
+}
+
 func TestMapLegacyInitProjectsRulesIntoBattleCommand(t *testing.T) {
 	rules := legacywire.LegacyControl{
 		Kind:      legacywire.ControlInitGame,

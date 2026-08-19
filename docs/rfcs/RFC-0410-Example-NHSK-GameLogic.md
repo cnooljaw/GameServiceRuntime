@@ -87,6 +87,8 @@ var NHSKDescriptor = GameDescriptor{
 
 NHSK Host 以稳定 Service 名 `.nhsk-game-host` 发布。Cluster 调用者先解析该名字，再用 `ResolveBattle` 取得当前完整 Battle Ref；Host 不替调用者代理玩法 Command。
 
+Legacy `NEW_GAME` 只有 `GameID=82` 才能进入本例的 Host；其他玩法 ID 在 Legacy adapter 边界拒绝并返回失败 ACK。Cluster 入口不携带 GameID，因为调用者已经选择了 NHSK Host/Factory。
+
 `InitializeBattleRequest.Rules` 是可选的 `*NHSKConfig`。Legacy adapter 从旧 `INIT_GAME` 的 `BaseRule/GameRule` suffix 生成规则部分；旧 wire 没有本例当前消费的期限字段时，期限采用 `DefaultNHSKConfig`，直接 Cluster 调用可以显式覆盖。`NHSKConfig` 只包含 Battle 实际读取的出牌期限、托管 AI/超时托管、机器人等级、机器人出牌阈值和单牌换牌数量。Raw 规则字符串、比赛名称及其他 GM-owned 索引不进入 Battle 权威状态；未知、缺失或坏值在 adapter 归一化时沿用默认。
 
 `HostOperationID` 在当前 Host Service 实例内单调且不复用，0 无效。它只关联异步创建/停止结果，不代替 BattleID 或 ServiceRef。
@@ -601,6 +603,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `.nhsk-game-host` 的创建操作、BattleRef 解析和 Factory 停止；Legacy relay 与 Cluster 直接调用同一 Battle Mailbox。
 - 单条主动 Legacy GM TCP 连接的双向 origin、ConnectionGeneration、bounded output queue、退避重连和 `cmd/gamelogic` 组合根。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定布局解码、显式 Host/Battle 映射；`NEW_GAME` 等待 Host Operation 完成后编码 `0x800086c0` 成功/失败 ACK，Battle 结算后可发最小 `GAME_STARTED/GAME_OVER`。
+- `GameDescriptor` 已成为 Legacy 玩法选择边界：NHSK 组合根固定 `GameID=82`，其他 `NEW_GAME.GameID` 在进入 Host 前拒绝并编码失败 ACK；Cluster 直接使用 NHSK Host，不重复携带 GameID。
 - Legacy `INIT_GAME` 已按旧固定体的连续 suffix 结构解码 `BaseRule/GameRule/MatchName/RoundUniCode`；adapter 只把 NHSK 实际消费的规则投影为不可变 `NHSKConfig`，直接 Cluster 初始化使用同一类型配置或默认值。当前接入的期限字段保持旧默认 10 秒，BaseRule 的托管 AI、超时托管、机器人等级和 GameRule 的机器人出牌阈值/单牌换牌数量已可达；偏置洗牌等未消费字段仍丢弃。
 - `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
