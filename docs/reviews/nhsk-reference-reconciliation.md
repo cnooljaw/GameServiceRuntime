@@ -1178,6 +1178,69 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-016、D-022、D-023、D-029、D-037、D-038；TODO CARD-016。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
 
+### 4.58 Legacy 连接派生路由与整包 golden
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 让单条 Legacy GM 连接在 NEW_GAME 完成时取得并缓存终态 BattleRef，后续控制/玩法帧直接投递该 Ref；补齐进程级 origin、NEW_GAME、ACK 完整字节 golden。 |
+| GSR 文件/测试 | `legacy_connection.go`、`legacy_control_mapper.go`、`legacy_connection_test.go`、`process_test.go`；测试证明 INIT 与 `0x8605` 不逐帧 Call Host、DEL_GAME 先失效缓存、删除后旧路由不可继续使用，并锁定三个完整帧。 |
+| 参考入口 | `gamelogic/app/handler/game.go:ReqNewGame/dispatchRoundMessage`、`gamelogic/internal/roundmanager/round_manager.go:FindPlayingRound/RemoveRound`、`nbgame_core` 的 `NewBSProtocol` origin 流程、GM `PushCreateNewGame/PushDelGame/PushGameMsg`。 |
+| 参考测试/配置/录包 | 参考 GL 通过本地 RoundManager 直接按 GameInnerID 查找，不在每个玩法帧发起远程查询；GL origin=107、GM origin=100；NEW_GAME 成功后 GM 才继续初始化。 |
+| Legacy MessageID | 完整 golden 覆盖 GL origin `0x0600`、GM→GL `0x86c1` 和 GL→GM `0x800086c0`；既有 codec golden 继续覆盖 INIT、UPDATE_PLAYER、`0x8605+0x7402`、`0x8644+0x7400`、`0x8650`、GAME_STARTED、ROUND_STAT、GAME_OVER、NOTICE 与 DEL_GAME。 |
+| 输入与校验 | terminal CreateBattleOperation 必须携带同 BattleID 的非零完整 Ref；只允许绑定当前 ConnectionGeneration。缓存缺失、断代或 DEL_GAME 后的帧稳定拒绝，不回退到 Host Resolve 或猜测 ServiceID。 |
+| 权威状态变化 | Host 仍是 BattleID→Ref 唯一权威；连接 map 只是当前代际的派生路由，不持有玩法状态。NEW_GAME 同号替换前与 DEL_GAME 投递前先删除旧派生值；连接断开时整个 session/map 一并丢弃。 |
+| Timer/Timeline | 不新增 Timer 或 goroutine；连接现有 reader 串行保持 NEW_GAME ACK 先于随后 INIT 的可路由条件。 |
+| 输出目标与顺序 | GL origin→GM origin→NEW_GAME→Host 创建完成并返回 Ref→缓存→成功 ACK；随后 INIT/玩法直投 Battle。DEL_GAME 为缓存失效→Host 删除请求。 |
+| 生命周期结果 | Quarantined/已关闭 Ref 即使尚有派生值也只能稳定投递失败，不可能命中新实例；新实例只会由后续成功 NEW_GAME 显式重绑。 |
+| 已一致 | GameInnerID 在一个连接存活期内直接定位当前 Round/Battle、成功 ACK 后继续初始化、删除后不再投递，均与参考可观察行为一致。 |
+| 有意偏差 | 参考保存 Round 指针；GSR 只缓存能力值 ServiceRef，并由 Host/Runtime 拒绝已停止实例。该差异遵守 Service 间不持有对象指针的边界。 |
+| 发现遗漏 | 未发现新的 wire 或业务遗漏；真实旧 GM 环境联调仍是部署前外部门禁，不由仓库内测试伪装完成。 |
+| 结论 | 派生路由与代表性连接整包 golden **已按 RFC 完成**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-036、D-037、D-050；TODO CARD-018、021、032。 |
+| 备注 | 已回查全部七个参考目录；参考业务代码未修改。 |
+
+### 4.59 100,000 次 Battle 生命周期 churn
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 用真实 NHSKBattleService 连续创建、停止 100,000 次，验证有限 BattleID 可复用而 Runtime ServiceRef 不复用，所有活动资源回到基线。 |
+| GSR 文件/测试 | `churn_test.go`；每次创建 AwaitingInit Battle、Runtime 注册并完整 Stop，编号循环 `1..10000`，最后检查 Services、Tasks、PendingCalls、Timers 与 goroutine。 |
+| 参考入口 | GM `gmconstants.RoundMaxInnner=10000`、`round_manager.go:AddRound/DelRound`；旧 GL `roundmanager.CreateNewRound/RemoveRound`。 |
+| 参考测试/配置/录包 | GM 用有限 GameInnerID 反向索引并在删除时移除；旧 GL 动态创建 Round、清理后放入 idleRounds。参考没有 Runtime Registry/Timer/PendingCall 检查。 |
+| Legacy MessageID | 无新增或改变。BattleID 仍直接等于 GameInnerID。 |
+| 输入与校验 | BattleID 循环复用且 0 无效；ServiceID 在当前 Runtime 内保持单调增长，首末 ServiceRef 不相等。 |
+| 权威状态变化 | 每轮只存在一个活动 Service；Stop 完成后 Registry 删除实例。测试不预建 10000 个空 Service，也不重置旧实例承载新局。 |
+| Timer/Timeline | AwaitingInit 不创建业务 Timer；结束后 Runtime Timers 必须为零。 |
+| 输出目标与顺序 | 无玩法输出；该测试只验证实例生命周期和资源收敛。 |
+| 生命周期结果 | 100,000 次后 Services、Tasks、PendingCalls、Timers 均为零，goroutine 回到允许测试调度抖动的基线范围。 |
+| 已一致 | 业务编号有限且结束后可复用与旧 GM 设计意图一致。 |
+| 有意偏差 | 不复制旧 GL idle Round 对象池；GSR 动态创建轻量 Service，并以实际收敛测试证明无需预分配或复用 ServiceRef。 |
+| 发现遗漏 | 未发现资源泄漏或编号/实例身份混淆。 |
+| 结论 | 100,000 次 churn 验收 **已完成**，不需要引入对象池。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-023；TODO CARD-012。 |
+| 备注 | 已回查 `gamelogic` 与 `gamemaster` 的创建、索引、删除和编号逻辑；其他参考目录没有改变该生命周期结论。 |
+
+### 4.60 自定义牌堆真实 Redis 兼容联调
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 以真实 `redis-server` 验证最外围兼容 bridge 的 RESP GET、旧 key 和牌堆 grammar；Redis 不进入 Battle 或成为示例必需依赖。 |
+| GSR 文件/测试 | `custom_deck_redis_integration_test.go`；测试寻找本机 redis-server，缺失时明确 skip，存在时启动仅监听 127.0.0.1 的临时实例、写入 `game:makecard:100` 并经生产 getter/provider 读取 104 张牌和庄家。 |
+| 参考入口 | `gamelogic/internal/game/game.go:BindNacosFile/LoadCustomDeck`、旧配置中的 Redis 自定义牌堆 key 与 NHSK 发牌入口；此前 4.41/4.43 已核对 parser 和优先级。 |
+| 参考测试/配置/录包 | 真实 Redis 3.0.5 联调通过；测试不要求 Redis 成为普通单元测试或示例启动的硬依赖。 |
+| Legacy MessageID | 无新增消息；外部值仍通过公开 `ProvideCustomDeck` 参数化 Command 进入 Battle，Redis key/兼容参数只属于外围 adapter。 |
+| 输入与校验 | product key `game:makecard:<ProductID>` 优先，空值才回退 GameID；解析错误不隐藏；catalog 进入 Battle 后继续按 BattleID/GameNum/SubgameNum fencing。 |
+| 权威状态变化 | Redis 只是旧系统数据中介，不是权威状态。Battle 只接受 canonical catalog，最终是否采用仍由其 Preparing 状态和发牌优先级决定。 |
+| Timer/Timeline | 外围 runner 继续使用有界超时；Redis 不创建 Battle Timer。 |
+| 输出目标与顺序 | 无直接客户端输出；数据流为 Redis compatibility adapter→参数化 catalog→ProvideCustomDeck Command→Battle Mailbox。 |
+| 生命周期结果 | 临时 Redis 由测试拥有并显式关闭；生产 runner 关闭仍等待固定 worker 返回。 |
+| 已一致 | 旧 key 与宽松牌堆内容可从真实 Redis 读取。 |
+| 有意偏差 | 新公开 API 接收参数化 catalog，Redis 被限制在可删除的最外围；这保持旧部署兼容，同时避免把错误的数据中介设计固化进玩法。 |
+| 发现遗漏 | 不实现通用 Redis 连接池、业务 schema 或权威状态；这些属于后续脚手架 CARD-005，不是 GameLogic 替换缺口。 |
+| 结论 | 自定义牌堆 Redis 兼容桥真实联调 **已完成**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-058；TODO CARD-022。 |
+| 备注 | 参考业务目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

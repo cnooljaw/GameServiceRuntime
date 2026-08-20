@@ -46,6 +46,7 @@ type legacyConnectionSession struct {
 	frames     chan []byte
 	outputs    chan GameOutputBatch
 	done       chan struct{}
+	routes     map[game.BattleID]gsr.ServiceRef
 }
 
 // LegacyGMConnection owns dial, origin handshake, frame read, output queue and reconnect lifecycle.
@@ -99,30 +100,111 @@ func (connection *LegacyGMConnection) AttachRouting(runtime game.CommandRuntime,
 	}
 	connection.runtime, connection.hostRef = runtime, hostRef
 	if connection.config.OnFrame == nil {
-		connection.config.OnFrame = func(ctx context.Context, generation ConnectionGeneration, frame legacywire.Frame) error {
-			if frame.Type == 0x8605 {
-				return RouteLegacyGameplaySend(ctx, runtime, hostRef, frame.Bytes)
-			}
-			control, decodeErr := legacywire.DecodeControl(frame.Bytes)
-			if decodeErr != nil {
-				return decodeErr
-			}
-			routeErr := RouteLegacyControlSend(ctx, runtime, hostRef, frame.Bytes, generation)
-			if routeErr == nil && control.Kind == legacywire.ControlUpdateGame && connection.config.OnSubgamePrepared != nil {
-				connection.config.OnSubgamePrepared(ctx, generation, game.BattleID(control.BattleID), uint16(control.GameNum), uint16(control.SubgameNum))
-			}
-			if control.Kind == legacywire.ControlNewGame {
-				if ackErr := connection.SubmitFrame(legacywire.EncodeNewGameAck(control.BattleID, routeErr == nil)); ackErr != nil {
-					return ackErr
-				}
-				// NEW_GAME rejection is a business response; keep the TCP
-				// generation alive so GM can continue other rounds.
-				return nil
-			}
-			return routeErr
-		}
+		connection.config.OnFrame = connection.routeFrame
 	}
 	return nil
+}
+
+func (connection *LegacyGMConnection) routeFrame(ctx context.Context, generation ConnectionGeneration, frame legacywire.Frame) error {
+	if frame.Type == 0x8605 {
+		command, err := mapLegacyInboundGameplayRelay(frame.Bytes)
+		if err != nil {
+			return err
+		}
+		ref, err := connection.cachedBattleRoute(generation, command.BattleID)
+		if err != nil {
+			return err
+		}
+		return connection.runtime.Send(ref, command.Command.ID, command.Command.Payload)
+	}
+	control, err := legacywire.DecodeControl(frame.Bytes)
+	if err != nil {
+		return err
+	}
+	route, err := MapLegacyControl(control, generation)
+	if err != nil {
+		return connection.replyNewGame(control, err)
+	}
+	if route.Target == 0 || route.Kind == legacywire.ControlUnsupported {
+		return nil
+	}
+	err = connection.sendControlRoute(ctx, generation, route)
+	if err == nil && control.Kind == legacywire.ControlUpdateGame && connection.config.OnSubgamePrepared != nil {
+		connection.config.OnSubgamePrepared(ctx, generation, game.BattleID(control.BattleID), uint16(control.GameNum), uint16(control.SubgameNum))
+	}
+	return connection.replyNewGame(control, err)
+}
+
+func (connection *LegacyGMConnection) sendControlRoute(ctx context.Context, generation ConnectionGeneration, route LegacyControlRoute) error {
+	switch route.Target {
+	case LegacyControlTargetHost:
+		connection.invalidateBattleRoute(generation, route.BattleID)
+		if route.Kind != legacywire.ControlNewGame {
+			return connection.runtime.Send(connection.hostRef, route.Command.ID, route.Command.Payload)
+		}
+		operation, err := completeLegacyCreate(ctx, connection.runtime, connection.hostRef, route)
+		if err != nil {
+			return err
+		}
+		return connection.bindBattleRoute(generation, route.BattleID, operation.Ref)
+	case LegacyControlTargetBattle:
+		ref, err := connection.cachedBattleRoute(generation, route.BattleID)
+		if err != nil {
+			return err
+		}
+		return connection.runtime.Send(ref, route.Command.ID, route.Command.Payload)
+	default:
+		return errInvalidLegacyControl
+	}
+}
+
+func (connection *LegacyGMConnection) replyNewGame(control legacywire.LegacyControl, routeErr error) error {
+	if control.Kind != legacywire.ControlNewGame {
+		return routeErr
+	}
+	if err := connection.SubmitFrame(legacywire.EncodeNewGameAck(control.BattleID, routeErr == nil)); err != nil {
+		return err
+	}
+	// NEW_GAME rejection is a business response; keep the TCP generation alive
+	// so GameMaster can continue managing other rounds on the connection.
+	return nil
+}
+
+func (connection *LegacyGMConnection) bindBattleRoute(generation ConnectionGeneration, battleID game.BattleID, ref gsr.ServiceRef) error {
+	if battleID == 0 || ref.Node == "" || ref.ID == 0 {
+		return errLegacyConnectionNotReady
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if connection.session == nil || connection.session.generation != generation {
+		return errLegacyConnectionNotReady
+	}
+	if connection.session.routes == nil {
+		connection.session.routes = make(map[game.BattleID]gsr.ServiceRef)
+	}
+	connection.session.routes[battleID] = ref
+	return nil
+}
+
+func (connection *LegacyGMConnection) cachedBattleRoute(generation ConnectionGeneration, battleID game.BattleID) (gsr.ServiceRef, error) {
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if connection.session == nil || connection.session.generation != generation {
+		return gsr.ServiceRef{}, errLegacyConnectionNotReady
+	}
+	ref, ok := connection.session.routes[battleID]
+	if !ok || ref.Node == "" || ref.ID == 0 {
+		return gsr.ServiceRef{}, errLegacyConnectionNotReady
+	}
+	return ref, nil
+}
+
+func (connection *LegacyGMConnection) invalidateBattleRoute(generation ConnectionGeneration, battleID game.BattleID) {
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if connection.session != nil && connection.session.generation == generation {
+		delete(connection.session.routes, battleID)
+	}
 }
 
 // Start begins the reconnect loop and returns immediately.
@@ -248,7 +330,7 @@ func (connection *LegacyGMConnection) run() {
 			dialErr = legacywire.PerformOriginHandshake(conn, connection.config.OriginTimeout)
 		}
 		if dialErr == nil {
-			session := &legacyConnectionSession{generation: generation, connection: conn, frames: make(chan []byte, connection.config.OutputQueue), outputs: make(chan GameOutputBatch, connection.config.OutputQueue), done: make(chan struct{})}
+			session := &legacyConnectionSession{generation: generation, connection: conn, frames: make(chan []byte, connection.config.OutputQueue), outputs: make(chan GameOutputBatch, connection.config.OutputQueue), done: make(chan struct{}), routes: make(map[game.BattleID]gsr.ServiceRef)}
 			connection.activate(session)
 			if connection.config.OnConnected != nil {
 				if readyErr := connection.config.OnConnected(generation); readyErr != nil {

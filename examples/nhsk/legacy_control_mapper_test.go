@@ -1,12 +1,14 @@
 package nhsk
 
 import (
+	"context"
 	"encoding/binary"
 	"strings"
 	"testing"
 
 	"github.com/lijiawang/GameServiceRuntime/examples/nhsk/internal/legacywire"
 	"github.com/lijiawang/GameServiceRuntime/game"
+	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
 
 func TestMapLegacyControlUsesHostThenBattleCommands(t *testing.T) {
@@ -75,6 +77,24 @@ func TestMapLegacyNewGameRejectsOtherGameDescriptor(t *testing.T) {
 	}, 1)
 	if err == nil {
 		t.Fatal("NEW_GAME for another game descriptor was accepted")
+	}
+}
+
+func TestCompleteLegacyCreateRejectsMismatchedTerminalOperation(t *testing.T) {
+	runtime := &connectionRoutingRuntime{
+		battleRef:         gsr.ServiceRef{Node: "nhsk", ID: 9},
+		operationBattleID: 99,
+	}
+	route := LegacyControlRoute{
+		Kind:     legacywire.ControlNewGame,
+		Target:   LegacyControlTargetHost,
+		BattleID: 12,
+		Command: gsr.Command{ID: BeginCreateBattleCommand, Payload: CreateBattleRequest{
+			BattleID: 12,
+		}},
+	}
+	if _, err := completeLegacyCreate(context.Background(), runtime, gsr.ServiceRef{Node: "nhsk", ID: 1}, route); err == nil {
+		t.Fatal("mismatched terminal create operation was accepted")
 	}
 }
 

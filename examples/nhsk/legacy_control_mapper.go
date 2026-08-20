@@ -212,41 +212,47 @@ func sendLegacyHostControl(ctx context.Context, runtime game.CommandRuntime, hos
 	if route.Kind != legacywire.ControlNewGame {
 		return runtime.Send(host, route.Command.ID, route.Command.Payload)
 	}
+	_, err := completeLegacyCreate(ctx, runtime, host, route)
+	return err
+}
+
+func completeLegacyCreate(ctx context.Context, runtime game.CommandRuntime, host gsr.ServiceRef, route LegacyControlRoute) (CreateBattleOperation, error) {
 	value, err := runtime.Call(ctx, host, route.Command.ID, route.Command.Payload)
 	if err != nil {
-		return err
+		return CreateBattleOperation{}, err
 	}
 	operation, ok := value.(CreateBattleOperation)
 	if !ok {
-		return fmt.Errorf("%w: NEW_GAME reply %T", errInvalidLegacyControl, value)
+		return CreateBattleOperation{}, fmt.Errorf("%w: NEW_GAME reply %T", errInvalidLegacyControl, value)
 	}
-	return waitLegacyCreate(ctx, runtime, host, operation)
+	operation, err = waitLegacyCreateResult(ctx, runtime, host, operation)
+	if err != nil {
+		return operation, err
+	}
+	if operation.BattleID != route.BattleID || operation.Ref.Node == "" || operation.Ref.ID == 0 {
+		return operation, fmt.Errorf("%w: invalid completed NEW_GAME operation", errInvalidLegacyControl)
+	}
+	return operation, nil
 }
 
 func callLegacyHostControl(ctx context.Context, runtime game.CommandRuntime, host gsr.ServiceRef, route LegacyControlRoute) (any, error) {
 	if route.Kind != legacywire.ControlNewGame {
 		return runtime.Call(ctx, host, route.Command.ID, route.Command.Payload)
 	}
-	value, err := runtime.Call(ctx, host, route.Command.ID, route.Command.Payload)
-	if err != nil {
-		return nil, err
-	}
-	operation, ok := value.(CreateBattleOperation)
-	if !ok {
-		return nil, fmt.Errorf("%w: NEW_GAME reply %T", errInvalidLegacyControl, value)
-	}
-	if err := waitLegacyCreate(ctx, runtime, host, operation); err != nil {
-		return nil, err
-	}
-	return operation, nil
+	return completeLegacyCreate(ctx, runtime, host, route)
 }
 
 func waitLegacyCreate(ctx context.Context, runtime game.CommandRuntime, host gsr.ServiceRef, operation CreateBattleOperation) error {
+	_, err := waitLegacyCreateResult(ctx, runtime, host, operation)
+	return err
+}
+
+func waitLegacyCreateResult(ctx context.Context, runtime game.CommandRuntime, host gsr.ServiceRef, operation CreateBattleOperation) (CreateBattleOperation, error) {
 	if operation.Phase == HostOperationFailed {
-		return errors.New(operation.Rejection)
+		return operation, errors.New(operation.Rejection)
 	}
 	if operation.Phase == HostOperationCompleted {
-		return nil
+		return operation, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -258,23 +264,24 @@ func waitLegacyCreate(ctx context.Context, runtime game.CommandRuntime, host gsr
 	for {
 		select {
 		case <-ctx.Done():
-			return context.Cause(ctx)
+			return operation, context.Cause(ctx)
 		case <-deadline.C:
-			return errLegacyCreateTimeout
+			return operation, errLegacyCreateTimeout
 		case <-ticker.C:
 			value, err := runtime.Call(ctx, host, GetCreateBattleOperationCommand, GetCreateBattleOperationRequest{OperationID: operation.OperationID})
 			if err != nil {
-				return err
+				return operation, err
 			}
 			current, ok := value.(CreateBattleOperation)
 			if !ok {
-				return fmt.Errorf("%w: operation reply %T", errInvalidLegacyControl, value)
+				return operation, fmt.Errorf("%w: operation reply %T", errInvalidLegacyControl, value)
 			}
+			operation = current
 			if current.Phase == HostOperationFailed {
-				return errors.New(current.Rejection)
+				return current, errors.New(current.Rejection)
 			}
 			if current.Phase == HostOperationCompleted {
-				return nil
+				return current, nil
 			}
 		}
 	}

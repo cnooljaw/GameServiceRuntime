@@ -353,7 +353,7 @@ LoginService -> Gateway Adapter -> ProtocolMapper -> PlayerService -> PlayerModu
 
 ## Phase 14：棋牌游戏生产脚手架与完整示例
 
-状态：NHSK GameLogic 契约已冻结、待实现（2026-08-01）。迁移顺序为先原位替换 GameLogic，再替换 GameMaster，最后替换 Agent。
+状态：NHSK GameLogic 契约已冻结且仓库内实现完成（2026-08-20）；真实旧 GM 联调为部署门禁。迁移顺序仍为先原位替换 GameLogic，再替换 GameMaster，最后替换 Agent。
 
 本阶段的 NHSK 公开 API、Legacy 范围、状态机、失败语义和验收以
 [`RFC-0410`](RFC-0410-Example-NHSK-GameLogic.md) 为唯一权威。以下条目是需求发现过程和
@@ -373,9 +373,9 @@ LoginService -> Gateway Adapter -> ProtocolMapper -> PlayerService -> PlayerModu
 - “完成最小可玩牌局”与“达到旧 GameLogic 切换条件”是两个里程碑。前者先覆盖标准四人完整流程并验证 Host、Battle、Timeline、输出和 Legacy bridge；后者只要求旧系统真实运行过、目标部署实际启用过、录包出现过或用户明确要求保留的能力进入兼容矩阵，并完成对应实现或明确的有意偏差验收。在达到后者前不得把示例描述为可无损替换。
 - AI、回放、约局、投票、道具、偏洗牌、自定义牌堆及各种结算路径必须逐项查证。测试、配置字段、协议常量、接口或完整实现只能证明代码存在，不能单独证明生产使用。确认原系统未使用的能力直接标记“放弃”，首版不写占位实现、adapter、provider 或预留接口；以后出现真实需求时再新增 RFC、golden、失败测试和纵向功能切片。明显有问题但已经对外可观察的旧行为默认兼容，不能在实现中顺手修复；修正必须先记录为有意偏差并取得确认。
 - 当前 NHSK 生产参考配置提供了第一批使用事实：`robot_level=2` 并配置外部 RobotTran 地址，`custom_deck.enabled=1` 且有账号白名单，因此外部 AI 和白名单自定义牌堆进入切换范围；三份配置的 `replay_enabled=1`，且旧 BaseGame 对该字段的创建/保存判断实际都被注释，回放生成无条件可达，因此回放同样必须进入范围但该假开关本身删除。`yueju_mode=0`、`match_live_mode=0`，且 watcher 的实际出牌调用被注释，因此约局和旁观放弃。仓库没有证明回放上传、偏置洗牌、惩罚、战绩、投票、GL 骰子定座和 Robot relay 被目标部署使用的 BaseRule、GameRule、动态规则或录包，这些能力同样放弃，不作为切换缺口。
-- `INIT` 中的旧 GameRule 只解析当前玩法真实可达的前四项，其中偏置洗牌已按上一条放弃；首版将最小机器人出牌次数、最小机器人出牌比例和单牌换牌数量归一化为 Battle 创建后不可变的 `NHSKConfig`。缺少字段、空字段或解析失败时沿用对应默认值，不使 Battle 创建失败；多余字段忽略。原始规则只以脱敏摘要进入诊断，不在玩法处理中反复解析，也不为已放弃的规则项创建空字段或占位 handler。
+- `INIT` 中的旧 GameRule 只解析当前玩法真实可达的前四项，其中偏置洗牌已按上一条放弃；首版将最小机器人出牌次数、最小机器人出牌比例和单牌换牌数量归一化为 Battle 创建后不可变的 `NHSKConfig`。缺少字段、空字段或解析失败时沿用对应默认值，不使 Battle 创建失败；多余字段忽略。原始规则在 adapter 完成归一化后丢弃；诊断已有类型化 INIT Command 和规范化配置，不另存无消费者摘要，不为已放弃规则创建空字段或占位 handler。
 - Legacy INIT 已有独立字段的 Fee、MaxGameNum、MaxSubgameNum、ScoreBase/Denominator 和 Match/Game/Round 身份直接成为权威，不再从 BaseRule 重复读取。BaseRule 只向 NHSK 玩法配置提供当前需要且没有独立字段替代的三项：index 1 `OfflineAutoUsesAI`、index 6 `TimeoutAutoMove` 和 index 22 `RobotLevel`。字段缺失或无效时分别沿用 false、true 和进程配置默认值；目标生产进程的 RobotLevel 默认 2。其余 BaseRule 项属于旧 GM 职责或已放弃的战绩、上传、充值、约局、投票、惩罚、流程检测、随机换座等能力，不进入新 GameLogic 玩法配置；仅按后文保留最小的旧回放属性投影。
-- BaseRule index 10 的 GL 结算展示延迟不迁移。目标生产配置没有启用证据，旧 GM 已拥有结算展示等待；客户端 GameResult 后，Battle 只等待已确认的回放收敛，随后立即通知 GM，不再叠加第二段 GL 延迟。原始 BaseRule 只保存脱敏摘要供诊断，不进入回放或可变业务状态。
+- BaseRule index 10 的 GL 结算展示延迟不迁移。目标生产配置没有启用证据，旧 GM 已拥有结算展示等待；客户端 GameResult 后，Battle 只等待已确认的回放收敛，随后立即通知 GM，不再叠加第二段 GL 延迟。原始 BaseRule 在必要的玩法与回放投影完成后丢弃，不进入回放、诊断摘要或可变业务状态。
 - 每个 Battle 创建时获得独立伪随机源和注入的 `Clock`。生产随机种子只从 `crypto/rand` 生成；随机源失败使本次 Battle 创建明确失败，不使用当前时间、进程号或全局 `math/rand` 降级。测试显式注入固定 seed 和 fake Clock；洗牌、庄家、新手路径及其他玩法随机选择都只能使用本 Battle 的随机源。诊断保存 seed 和有序 Command 事实用于重现，但不改变旧回放 XML。
 - 保留 `NEW_GAME.IsNewbie`，但不把它作为恢复 Nacos 偏牌体系的理由。可用自定义牌堆优先并绕过新手调整；否则先由 Battle PRNG 产生普通牌序，再对座位顺序中的第一个非机器人执行与参考 `RandCardListByNewPlayer` 等价的调整，四家都是机器人时不调整。参考 helper 会全局交换四家牌而非只修改目标手牌，首版以固定 seed golden 锁定四家最终牌序，不在迁移中修正。Nacos、每座动态偏牌参数和通用 `BiasedShuffling` 继续放弃；诊断只保存 `IsNewbie`、seed 与最终发牌事实。
 - 普通随机发牌继续应用 NHSK 的散牌调整，而不是把“普通洗牌”解释为不带玩法后处理。`GameRule` 第四项在 adapter 边界归一化为不可变 `SingleCountToSwap`：默认 `4`，缺失、空值或非法值沿用默认，`<=0` 关闭。实现保持参考 `SwapSingleCard` 的座位顺序和换牌结果；后续座位可能重新影响先前座位，因此不把“四家最终均不超过阈值”写成错误不变量。固定 seed golden 校验四家完整牌序、104 张总牌多重集合和每座 26 张。自定义牌堆和新手路径按原优先级绕过该普通路径；诊断只记阈值。参考虽把 `SingleCountSwap` 传给 `RecordGameStart`，该入口为空且旧 XML 实际不输出，因此新回放不得新增该属性。该算法属于 NHSK，不进入 Core Runtime 或通用玩法模板。

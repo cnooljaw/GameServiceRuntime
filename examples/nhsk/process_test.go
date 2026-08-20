@@ -1,8 +1,10 @@
 package nhsk
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"net"
 	"os"
@@ -110,8 +112,13 @@ func TestGameLogicProcessRoutesNewGameAckAndStopsConnectionGeneration(t *testing
 	}
 	server := <-serverReady
 	defer server.Close()
-	if _, err := legacywire.ReadFrame(server); err != nil {
+	origin, err := legacywire.ReadFrame(server)
+	if err != nil {
 		t.Fatal(err)
+	}
+	wantOrigin := processGolden(t, "00000000000000006b000000000600000000000018000000")
+	if !bytes.Equal(origin.Bytes, wantOrigin) {
+		t.Fatalf("GameLogic origin = %x, want %x", origin.Bytes, wantOrigin)
 	}
 	if _, err := server.Write(processOriginFrame()); err != nil {
 		t.Fatal(err)
@@ -122,11 +129,16 @@ func TestGameLogicProcessRoutesNewGameAckAndStopsConnectionGeneration(t *testing
 	binary.LittleEndian.PutUint32(newGame[24:28], 101)
 	binary.LittleEndian.PutUint32(newGame[28:32], 7)
 	binary.LittleEndian.PutUint32(newGame[40:44], NHSKDescriptor.GameID)
+	wantNewGame := processGolden(t, "000000000000000000000000c1860000000000002c0000006500000007000000000000000000000052000000")
+	if !bytes.Equal(newGame, wantNewGame) {
+		t.Fatalf("NEW_GAME fixture = %x, want %x", newGame, wantNewGame)
+	}
 	if _, err := server.Write(newGame); err != nil {
 		t.Fatal(err)
 	}
 	ack, err := legacywire.ReadFrame(server)
-	if err != nil || ack.Type != 0x800086c0 || len(ack.Bytes) != 29 || ack.Bytes[28] != 1 {
+	wantACK := processGolden(t, "000000000000000000000000c0860080000000001d0000006500000001")
+	if err != nil || !bytes.Equal(ack.Bytes, wantACK) {
 		t.Fatalf("NEW_GAME ack = %#v, %v", ack, err)
 	}
 	_ = server.Close()
@@ -143,6 +155,15 @@ func TestGameLogicProcessRoutesNewGameAckAndStopsConnectionGeneration(t *testing
 	}
 	_ = process.Close(context.Background())
 	t.Fatal("connection generation battle was not stopped")
+}
+
+func processGolden(t *testing.T, value string) []byte {
+	t.Helper()
+	data, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func processOriginFrame() []byte {

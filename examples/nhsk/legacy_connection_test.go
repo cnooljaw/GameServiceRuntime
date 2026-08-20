@@ -4,12 +4,112 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/examples/nhsk/internal/legacywire"
+	"github.com/lijiawang/GameServiceRuntime/game"
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
+
+func TestLegacyConnectionCachesCreatedBattleRouteUntilDelete(t *testing.T) {
+	battleRef := gsr.ServiceRef{Node: "nhsk", ID: 9}
+	runtime := &connectionRoutingRuntime{battleRef: battleRef}
+	connection, err := NewLegacyGMConnection(LegacyGMConnectionConfig{
+		Address: "gm-test", DialTimeout: time.Second, OriginTimeout: time.Second,
+		InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond,
+		BackoffMultiplier: 2, Jitter: .2, StableReset: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.AttachRouting(runtime, gsr.ServiceRef{Node: "nhsk", ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	session := &legacyConnectionSession{generation: 3, frames: make(chan []byte, 1), outputs: make(chan GameOutputBatch, 1), done: make(chan struct{})}
+	connection.session = session
+
+	newGame := controlTestFrame(0x86c1, 44, func(data []byte) {
+		putControl32(data, 24, 1234)
+		putControl32(data, 28, 82)
+		putControl32(data, 40, NHSKDescriptor.GameID)
+	})
+	if err := connection.config.OnFrame(context.Background(), 3, legacywire.Frame{Type: 0x86c1, Bytes: newGame}); err != nil {
+		t.Fatal(err)
+	}
+	if ack := <-session.frames; len(ack) != 29 || ack[28] != 1 {
+		t.Fatalf("NEW_GAME ack = %x", ack)
+	}
+
+	init := controlTestFrame(0x8600, 144, func(data []byte) {
+		putControlGLHeader(data, 1234, 0)
+		putControl32(data, 34, 7)
+		putControl32(data, 46, 88)
+		putControl32(data, 56, 9)
+		putControl32(data, 64, NHSKDescriptor.GameID)
+		putControl32(data, 116, 4)
+		putControl32(data, 120, 8)
+		putControlSuffix(data, 136, 144, nil)
+	})
+	if err := connection.config.OnFrame(context.Background(), 3, legacywire.Frame{Type: 0x8600, Bytes: init}); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.config.OnFrame(context.Background(), 3, legacywire.Frame{Type: 0x8605, Bytes: decodeLegacyMapperGolden(t, legacyOutCardRelayGolden)}); err != nil {
+		t.Fatal(err)
+	}
+
+	deleteGame := controlTestFrame(0x86c2, 28, func(data []byte) { putControl32(data, 24, 1234) })
+	if err := connection.config.OnFrame(context.Background(), 3, legacywire.Frame{Type: 0x86c2, Bytes: deleteGame}); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.config.OnFrame(context.Background(), 3, legacywire.Frame{Type: 0x8600, Bytes: init}); err == nil {
+		t.Fatal("Battle control used a route after DEL_GAME invalidated it")
+	}
+	if runtime.resolveCalls != 0 {
+		t.Fatalf("Host ResolveBattle calls = %d, want 0", runtime.resolveCalls)
+	}
+	if got := runtime.sendTargets(); len(got) != 3 || got[0] != battleRef || got[1] != battleRef || got[2].ID != 1 {
+		t.Fatalf("Send targets = %#v", got)
+	}
+}
+
+type connectionRoutingRuntime struct {
+	mu                sync.Mutex
+	battleRef         gsr.ServiceRef
+	operationBattleID game.BattleID
+	resolveCalls      int
+	targets           []gsr.ServiceRef
+}
+
+func (runtime *connectionRoutingRuntime) Send(target gsr.ServiceRef, _ gsr.CommandID, _ any) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	runtime.targets = append(runtime.targets, target)
+	return nil
+}
+
+func (runtime *connectionRoutingRuntime) Call(_ context.Context, _ gsr.ServiceRef, command gsr.CommandID, payload any) (any, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if command == ResolveBattleCommand {
+		runtime.resolveCalls++
+		request := payload.(ResolveBattleRequest)
+		return ResolveBattleResult{BattleID: request.BattleID, Ref: runtime.battleRef}, nil
+	}
+	request := payload.(CreateBattleRequest)
+	battleID := runtime.operationBattleID
+	if battleID == 0 {
+		battleID = request.BattleID
+	}
+	return CreateBattleOperation{OperationID: 1, BattleID: battleID, Phase: HostOperationCompleted, Ref: runtime.battleRef}, nil
+}
+
+func (runtime *connectionRoutingRuntime) sendTargets() []gsr.ServiceRef {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return append([]gsr.ServiceRef(nil), runtime.targets...)
+}
 
 func TestLegacyGMConnectionPerformsOriginQueuesOutputAndReportsGeneration(t *testing.T) {
 	serverReady := make(chan net.Conn, 1)
