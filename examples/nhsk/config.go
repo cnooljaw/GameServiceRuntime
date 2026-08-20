@@ -29,6 +29,7 @@ type appConfig struct {
 	CustomDeck      customDeckConfig `json:"custom_deck"`
 	AI              aiConfig         `json:"ai"`
 	Replay          replayConfig     `json:"replay"`
+	Diagnostic      diagnosticConfig `json:"diagnostic"`
 	Logging         loggingConfig    `json:"logging"`
 	ShutdownTimeout configDuration   `json:"shutdown_timeout"`
 }
@@ -81,6 +82,13 @@ type customDeckConfig struct {
 
 type replayConfig struct {
 	Root string `json:"root"`
+}
+
+type diagnosticConfig struct {
+	Root        string `json:"root"`
+	AdminSocket string `json:"admin_socket"`
+	QueueSize   int    `json:"queue_size"`
+	Workers     int    `json:"workers"`
 }
 
 type aiConfig struct {
@@ -145,9 +153,10 @@ func defaultConfig() appConfig {
 			Jitter:            connection.JitterRatio,
 			StableReset:       configDuration(connection.StableResetAfter),
 		},
-		Logging: loggingConfig{Level: "info"},
-		Replay:  replayConfig{Root: "replays"},
-		AI:      aiConfig{Provider: "local", Timeout: configDuration(5 * time.Second)},
+		Logging:    loggingConfig{Level: "info"},
+		Replay:     replayConfig{Root: "replays"},
+		Diagnostic: diagnosticConfig{Root: "diagnostics", AdminSocket: "diagnostics/nhsk-admin.sock", QueueSize: 16, Workers: 1},
+		AI:         aiConfig{Provider: "local", Timeout: configDuration(5 * time.Second)},
 	}
 }
 
@@ -173,6 +182,8 @@ func applyEnvironment(config *appConfig) error {
 	overrideString("NHSK_WECHAT_APP_SECRET", &config.WeChat.AppSecret)
 	overrideString("NHSK_LOG_LEVEL", &config.Logging.Level)
 	overrideString("NHSK_REPLAY_ROOT", &config.Replay.Root)
+	overrideString("NHSK_DIAGNOSTIC_ROOT", &config.Diagnostic.Root)
+	overrideString("NHSK_DIAGNOSTIC_ADMIN_SOCKET", &config.Diagnostic.AdminSocket)
 	overrideString("NHSK_AI_PROVIDER", &config.AI.Provider)
 	overrideString("NHSK_AI_URL", &config.AI.URL)
 
@@ -357,6 +368,18 @@ func (config appConfig) validate() error {
 	}
 	if strings.TrimSpace(config.Replay.Root) == "" {
 		return configFieldError("replay.root", "is required")
+	}
+	if strings.TrimSpace(config.Diagnostic.Root) == "" {
+		return configFieldError("diagnostic.root", "is required")
+	}
+	if strings.TrimSpace(config.Diagnostic.AdminSocket) == "" {
+		return configFieldError("diagnostic.admin_socket", "is required")
+	}
+	if config.Diagnostic.QueueSize <= 0 {
+		return configFieldError("diagnostic.queue_size", "must be positive")
+	}
+	if config.Diagnostic.Workers <= 0 {
+		return configFieldError("diagnostic.workers", "must be positive")
 	}
 	aiProvider := strings.ToLower(strings.TrimSpace(config.AI.Provider))
 	if aiProvider != "local" && aiProvider != "http" {

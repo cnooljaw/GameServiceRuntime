@@ -167,7 +167,6 @@ type SetPlayerAutoStateRequest struct {
 | `0x0410f007` | `applyDeleteBarrier` | Host/Battle stop barrier |
 | `0x0410f008` | `legacyContinue` | Legacy no-op ordering compatibility |
 | `0x0410f009` | `applyDiagnosticExportResult` | diagnostic runner result |
-| `0x0410f00a` | `applyQuarantinedReleaseResult` | Host lifecycle runner result |
 | `0x0410f00b` | `deliverGameOutputBatch` | GameOutputService |
 
 Legacy bridge 必须使用显式映射表。Envelope `0x7402`、`0x8605`、`0x8644` 不是 Command，不分配 CommandID。Legacy TCP 不等待 GSR Reply；它使用 `Send`。Cluster 调用者需要当前结果时可以对表中标记 Send/Call 的同一 Command 使用 `Call`。
@@ -564,11 +563,11 @@ GM 连接断开后，当代 Creating、Active、Stopping Battle 进入停止收�
 
 ## 错误与失败语义
 
-稳定拒绝包括：无效 BattleID、编号占用、容量耗尽、未初始化、非法阶段、非参与者、身份冲突、旧 TurnRevision/TimelineRevision/VerifyCode、非法动作、停止中、已隔离和找不到。稳定拒绝不产生未声明的客户端输出。
+稳定拒绝包括：无效 BattleID、编号占用、容量耗尽、未初始化、非法阶段、非参与者、身份冲突、旧 TurnRevision/VerifyCode、非法动作、停止中、已隔离和找不到。稳定拒绝不产生未声明的客户端输出。
 
-普通 Handler 或 Timer Handler 的 panic、状态机不变量失败和 Handler/Stop 超时是程序缺陷。它们只使当前 Battle 进入 Quarantined，保留编号和取证状态；其他 Battle 继续，节点报告 Degraded 但继续接收不同编号新局。隔离 Battle 收到 DEL_GAME 只记录外部结束事实，不 Stop、替换或释放。
+普通 Handler 或 Timer Handler 的 panic、状态机不变量失败和 Stop 超时是程序缺陷。它们只使当前 Battle 进入 Quarantined，保留编号和取证状态；其他 Battle 继续，节点报告 Degraded 但继续接收不同编号新局。隔离 Battle 收到 DEL_GAME 只记录外部结束事实，不 Stop、替换或释放。Core 不在 Handler 外并发抢占或修改 Service 状态，因此 `SlowCommandThreshold` 只提供慢 Handler 观测，不能把尚未返回的 Go Handler 安全地宣告为已隔离；真正不返回的 Handler 仍由 Runtime Inspection 暴露活动 dispatch task，并按进程故障处理，而不是创建无法停止的业务 watchdog goroutine。
 
-诊断 runner 自动导出最后稳定 Snapshot、Command Record、seed、Clock、失败 Command、Command Record Sequence、TurnRevision、TimelineRevision、stack 和 Runtime Inspection。只有材料原子发布并产生绑定 BattleID、完整 Ref 和摘要的 receipt 后，本地 CLI 才能精确释放该隔离实例。
+诊断 runner 自动导出最后稳定 Snapshot、Command Record、seed、Clock、失败 Command、Command Record Sequence、窄业务 Revision、TurnRevision、stack 和 Runtime Inspection。只有材料原子发布并产生绑定 BattleID、完整 Ref 和摘要的 receipt 后，本地 CLI 才能精确释放该隔离实例。
 
 Call 超时只表示未及时收到 Reply，不取消已进 Mailbox 的 Command。普通玩法不增加通用 RequestID 或幂等缓存。调用方在超时后先查询 Snapshot，不自动重发原动作。
 
@@ -580,7 +579,7 @@ Timeline、AI 和 Replay 结果都必须携带完整 BattleRef、小局身份与
 
 ## 可观测性
 
-Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 通过只读 Command 暴露。日志、Record 和诊断至少携带 BattleID、完整 Ref、ConnectionGeneration、Command Record Sequence、Subgame identity、TurnRevision、TimelineRevision、CommandID 和稳定错误类别。
+Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 通过只读 Command 暴露。日志、Record 和诊断至少携带 BattleID、完整 Ref、ConnectionGeneration、Command Record Sequence、Subgame identity、窄业务 Revision、TurnRevision、CommandID 和稳定错误类别。
 
 日志不记录 token、secret、proof、微信 code、完整身份材料或未脱敏结算响应。节点健康必须区分 GM-link NotReady、业务 Ready 和存在 Quarantined 时的 Degraded。
 
@@ -591,7 +590,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 固定 seed 覆盖 104 张牌、牌型、压制、抓分、对家、名次、单扣/双扣、新手换牌、散牌调整、自定义牌堆与外部 AI。
 - fake Clock 和 Timeline 覆盖唯一 ActionDeadline、托管/离线最小延迟、超时、迟到 AI、重连与旧 Revision。测试不用 `time.Sleep` 猜测业务顺序。
 - 结算覆盖成功、坏响应、失败、重复、迟到、MATCH_STOP、回放成功/失败/超时和 DEL_GAME 竞争。
-- 隔离覆盖 Handler/Timer panic、诊断队列满、导出重试、receipt 精确释放、同号创建、GM 断线和容量占用。
+- 隔离覆盖 Handler/Timer panic、状态不变量、Stop 超时、诊断队列满、导出重试、receipt 精确释放、同号创建、GM 断线和容量占用；慢 Handler 由 Runtime Inspection 验证可观测性，不伪造可抢占语义。
 - 连接覆盖 origin 失败、半帧、超长帧、坏 suffix、输出队列满、writer 失败、指数退避、稳定重置和连接代际 fencing。
 - 100,000 次 Battle 创建/停止 churn 后，Registry、Timer、PendingCall、Mailbox 和 goroutine 回到基线。不预创建或复用 ServiceRef 池。
 - `go test ./...`、`go vet ./...`、`go test -race ./...` 和 `git diff --check` 全部通过；Core Runtime 的 import graph 不含 `examples/nhsk`。
@@ -623,8 +622,10 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `CompleteSettlement` 终态入口。
 - `MATCH_STOP` 已在 Battle Mailbox 内废止当前行动或外部结算，按本地 Success 结果完成 ShowCards、GameResult、回放、ROUND_STAT、GAME_OVER 和 NOTICE；后到 `0x8650` 稳定无副作用。
 - `DEL_GAME` 的正常路径先把 Host 绑定置为 Stopping，再由固定生命周期 runner Call Battle 删除屏障；屏障后禁止输出并 fence 迟到 AI/回放/结算结果，随后 Runtime Stop，只有真实 Stop 成功才删除绑定。`0x7218 BROADCAST_USE_PROP` 只作为 `RecordPropUse` 事实追加旧 Prop 回放节点。
+- 每个 Battle 由领域隔离边界包装：输入在委派前复制为有序 Record，成功后替换最后稳定 Snapshot；Handler/Timer panic 先投递不可变证据再让 Core 按既有失败语义注销 Service。Host 将原 BattleID/Ref 转为 Quarantined 并继续占用容量，Resolve 返回 `ErrBattleQuarantined`；GM 断线和同号创建不会覆盖它，DEL_GAME 只记录首次/最近时间、次数和连接代际。正常删除前的诊断捕获还允许 Factory 在 Stop timeout 时保留相同现场。
+- 固定 `DiagnosticRunner` 在 Handler 外补入 `Runtime.Inspect()` 并原子发布 `manifest.json`、`snapshot.json`、`commands.jsonl`、`panic.txt`、`runtime-inspection.json` 和 `receipt.json`；文件、临时目录和父目录均完成同步后才返回绑定 BattleID、完整 Ref 和 SHA-256 摘要的 receipt。节点本地 Unix socket 与 `cmd/nhskdiag` 提供 list/retry/release/cleanup；私有管理 Command 不进入 Legacy 或 Cluster codec。release 只接受完整匹配 receipt，释放后保留材料，cleanup 是独立显式动作。进程健康已区分 GM NotReady、Ready 和存在隔离桌的 Degraded。
 
-尚未完成的 RFC 契约包括 Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、MATCH_STOP、正常 DEL_GAME 屏障、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括代表性整包 golden、100,000 次生命周期 churn、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、MATCH_STOP、正常 DEL_GAME 屏障、Quarantine/诊断、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

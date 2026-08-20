@@ -65,7 +65,7 @@ func MapLegacyControl(control legacywire.LegacyControl, generation ConnectionGen
 		}
 		return LegacyControlRoute{Kind: control.Kind, Target: LegacyControlTargetHost, BattleID: battleID, Command: gsr.Command{ID: BeginCreateBattleCommand, Payload: CreateBattleRequest{BattleID: battleID, IsNewbie: control.IsNewbie, ConnectionGeneration: generation}}}, nil
 	case legacywire.ControlDeleteGame:
-		return LegacyControlRoute{Kind: control.Kind, Target: LegacyControlTargetHost, BattleID: battleID, Command: gsr.Command{ID: RequestDeleteBattleCommand, Payload: RequestDeleteBattleRequest{BattleID: battleID}}}, nil
+		return LegacyControlRoute{Kind: control.Kind, Target: LegacyControlTargetHost, BattleID: battleID, Command: gsr.Command{ID: RequestDeleteBattleCommand, Payload: RequestDeleteBattleRequest{BattleID: battleID, ConnectionGeneration: generation}}}, nil
 	case legacywire.ControlInitGame:
 		if control.ProductID == 0 || control.MatchID == 0 || control.RoundID == 0 || control.MaxGameNum > 65535 || control.MaxSubgameNum > 65535 {
 			return LegacyControlRoute{}, fmt.Errorf("%w: INIT_GAME identity or limits", errInvalidLegacyControl)

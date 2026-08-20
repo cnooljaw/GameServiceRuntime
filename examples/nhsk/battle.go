@@ -88,6 +88,9 @@ type NHSKBattleConfig struct {
 	// Random optionally injects the Battle-owned random source. When nil,
 	// NewBattleService seeds a private source from crypto/rand.
 	Random NHSKRandomSource
+	// RandomSeed identifies an injected deterministic Random for diagnostics.
+	// Production-generated random sources always retain their generated seed.
+	RandomSeed *int64
 	// Clock optionally injects the Battle-owned wall clock. When nil,
 	// NewBattleService uses the process system clock.
 	Clock NHSKClock
@@ -168,6 +171,8 @@ type NHSKBattleService struct {
 	customDeckCatalog    CustomDeckCatalog
 	outedCards           [][]byte
 	deleting             bool
+	randomSeed           int64
+	randomSeedKnown      bool
 }
 
 type battleInitialization struct {
@@ -188,12 +193,16 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		return nil, errInvalidBattleConfig
 	}
 	random := config.Random
+	randomSeed, randomSeedKnown := int64(0), false
 	if random == nil {
 		var err error
-		random, err = newBattleRandom()
+		random, randomSeed, err = newBattleRandom()
 		if err != nil {
 			return nil, err
 		}
+		randomSeedKnown = true
+	} else if config.RandomSeed != nil {
+		randomSeed, randomSeedKnown = *config.RandomSeed, true
 	}
 	clock := config.Clock
 	if clock == nil {
@@ -211,6 +220,8 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
 		isNewbie:        config.IsNewbie,
 		random:          random,
+		randomSeed:      randomSeed,
+		randomSeedKnown: randomSeedKnown,
 		clock:           clock,
 		replaySubmitter: config.ReplaySubmitter,
 		replayTimeout:   config.ReplayTimeout,
@@ -223,14 +234,15 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	}, nil
 }
 
-func newBattleRandom() (NHSKRandomSource, error) {
+func newBattleRandom() (NHSKRandomSource, int64, error) {
 	var seedBytes [8]byte
 	if n, err := readRandomSeed(seedBytes[:]); err != nil {
-		return nil, fmt.Errorf("%w: %v", errBattleRandomFailure, err)
+		return nil, 0, fmt.Errorf("%w: %v", errBattleRandomFailure, err)
 	} else if n != len(seedBytes) {
-		return nil, fmt.Errorf("%w: short seed read", errBattleRandomFailure)
+		return nil, 0, fmt.Errorf("%w: short seed read", errBattleRandomFailure)
 	}
-	return mathrand.New(mathrand.NewSource(int64(binary.LittleEndian.Uint64(seedBytes[:])))), nil
+	seed := int64(binary.LittleEndian.Uint64(seedBytes[:]))
+	return mathrand.New(mathrand.NewSource(seed)), seed, nil
 }
 
 // Init captures the Service capability used for timers and output delivery.

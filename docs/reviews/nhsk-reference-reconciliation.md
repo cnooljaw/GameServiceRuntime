@@ -1136,6 +1136,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-047、D-086、D-093；TODO CARD-026、028、040、043、044、060。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录业务代码未修改。 |
 
+### 4.56 NHSK 单桌隔离、原子诊断与携票释放
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 在 Runtime 保持既有 panic 注销语义的前提下，为每桌保留最后稳定 Snapshot 和有序输入；Host 保留缺陷编号/Ref/容量，通过原子本地诊断和节点本地 CLI 完成人工释放。 |
+| GSR 文件/测试 | `quarantine.go`、`quarantine_test.go`、`diagnostic_admin.go`、`diagnostic_admin_test.go`、`host.go`、`process.go`、`commands.go`；测试覆盖 Handler panic、Stop timeout、同号/容量、GM 断代、重复 DEL、队列满、原子目录、receipt 错配、Unix socket 单 owner 与 race。 |
+| 参考入口 | `nhsk/game/timers.go:OnTimer`、`gamecore/gamebase/turnbased/turnbased.go:executeProcess`、`gamelogic/app/handler/game.go:ReqDelGameRound.Execute`、`gamelogic/internal/roundmanager/round_manager.go:RemoveRound/CreateNewRound`、`gamelogic/internal/game/game_api.go:StartMsgProcessor/PushMsg`、`nhsk/game/game_base_api.go:GameOver`。 |
+| 参考测试/配置/录包 | 参考源码确认 Timer/流程/GameOver panic 只 recover 并继续、DEL_GAME 立即 Clear+Remove、同号 Create 清理旧 Round；旧仓库没有诊断 receipt、隔离状态或管理协议，故无 wire golden。 |
+| Legacy MessageID | 不增加 MessageID。`0x86c2 DEL_GAME` 继续映射 Host Command，并把当前 ConnectionGeneration 带到外部结束观察；隔离管理只走 `0600` Unix socket，不进入 GM TCP。 |
+| 输入与校验 | Boundary 在委派前 JSON 深拷贝 Command payload/Source/Sequence/时间；成功后更新最后稳定 Snapshot。panic/不变量失败上报完整 Ref；Stop 前额外捕获证据。Host 只接受当前精确绑定的报告；release 必须完整匹配 receipt ID、BattleID、Ref、摘要、目录和时间。 |
+| 权威状态变化 | Runtime panic 后仍按 Core 规则关闭 Service；Host 单独把绑定转为 Quarantined 并保留容量。DEL 首次时间不可变，重复只更新最近时间、次数和代际。Factory 跳过断线停止；receipt release 成功才删除 Host/Factory 绑定，材料目录继续存在。 |
+| Timer/Timeline | Timer Command 与普通 Command 共用同一 Boundary，因此 Timer handler panic 不会被吞掉后继续使用可疑状态。Go 无法安全抢占未返回 Handler，慢处理只由 Runtime 指标/Inspection 观测；Stop timeout 则使用屏障后的预捕获证据进入隔离。 |
+| 输出目标与顺序 | 隔离不伪造 GameResult、GameOver、NOTICE 或客户端错误包。自动诊断先由 Host 非阻塞提交固定 runner，runner 补入 Runtime Inspection；成功/失败结果只回 Host 私有 Command。 |
+| 生命周期结果 | exporter 依次同步五份材料、receipt、临时目录，rename 后同步父目录；成功 receipt 绑定材料 SHA-256。`nhskdiag` 支持 list/retry/release/cleanup；release 与材料 cleanup 分离。节点在 GM Ready 且隔离数大于零时报告 Degraded，仍接收容量内其他编号。 |
+| 已一致 | DEL_GAME 仍是旧 GM 表达“该 Round 已结束”的控制事实；未隔离桌继续由删除路径 Clear/Stop 后回收；不增加旧 wire。 |
+| 有意偏差 | 参考 Timer/流程/GameOver recover 后可能继续使用部分修改状态，且 DEL/同号 Create 会直接销毁现场；新实现按 D-100 让 panic 交回 Runtime、只隔离单桌并保留证据，后续 DEL/断线/同号创建均不能释放。诊断 I/O 和管理面是新运维能力。 |
+| 发现遗漏 | 没有旧录包可证明诊断行为，因为参考系统不存在该能力。代表性连接整包 golden 和 100,000 次 churn 属于后续最终验收，不是本隔离切片的业务偏差。 |
+| 结论 | 正常删除职责 **已一致**；panic recover 与缺陷现场销毁是已裁决、已测试的 **有意偏差**；本切片未发现新的 Legacy wire 遗漏。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-100；TODO CARD-013、CARD-028。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

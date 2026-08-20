@@ -43,6 +43,12 @@
   "replay": {
     "root": "replays"
   },
+  "diagnostic": {
+    "root": "diagnostics",
+    "admin_socket": "diagnostics/nhsk-admin.sock",
+    "queue_size": 16,
+    "workers": 1
+  },
   "ai": {
     "provider": "local",
     "url": "",

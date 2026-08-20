@@ -66,6 +66,16 @@ type LegacyGMConnection struct {
 	closeErr   error
 }
 
+// Ready reports whether one origin-complete GM connection generation is active.
+func (connection *LegacyGMConnection) Ready() bool {
+	if connection == nil {
+		return false
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	return connection.session != nil
+}
+
 // NewLegacyGMConnection creates a stopped connection owner.
 func NewLegacyGMConnection(config LegacyGMConnectionConfig) (*LegacyGMConnection, error) {
 	if config.Address == "" || config.DialTimeout <= 0 || config.OriginTimeout <= 0 || config.InitialBackoff <= 0 || config.MaxBackoff < config.InitialBackoff || config.BackoffMultiplier <= 1 || config.Jitter <= 0 || config.Jitter >= 1 || config.StableReset <= 0 {

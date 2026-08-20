@@ -1,9 +1,16 @@
 package nhsk
 
 import (
+	"errors"
+	"time"
+
 	"github.com/lijiawang/GameServiceRuntime/game"
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
 )
+
+// ErrBattleQuarantined indicates that a Battle binding is retained only for
+// defect evidence and cannot accept ordinary gameplay or snapshot requests.
+var ErrBattleQuarantined = errors.New("nhsk: battle quarantined")
 
 const (
 	// BeginCreateBattleCommand asks the NHSK Host to create a Battle asynchronously.
@@ -111,6 +118,8 @@ const (
 	HostOperationFailed HostOperationPhase = "failed"
 	// HostOperationStopping keeps the binding reserved until Runtime Stop returns.
 	HostOperationStopping HostOperationPhase = "stopping"
+	// HostOperationQuarantined keeps the binding and capacity reserved for diagnostics.
+	HostOperationQuarantined HostOperationPhase = "quarantined"
 )
 
 // CreateBattleOperation is an independent Host operation projection.
@@ -136,15 +145,60 @@ type ResolveBattleResult struct {
 
 // RequestDeleteBattleRequest asks the Host to stop one Battle.
 type RequestDeleteBattleRequest struct {
-	BattleID game.BattleID
-	Ref      gsr.ServiceRef
+	BattleID             game.BattleID
+	Ref                  gsr.ServiceRef
+	ConnectionGeneration ConnectionGeneration
 }
 
 // HostSnapshot is a read-only Host index summary.
 type HostSnapshot struct {
 	MaxActiveBattles uint32
 	ActiveBattles    map[game.BattleID]gsr.ServiceRef
-	Quarantined      []game.BattleID
+	Quarantined      []QuarantinedBattleSnapshot
+}
+
+// DiagnosticExportStatus describes whether immutable evidence has a published receipt.
+type DiagnosticExportStatus string
+
+const (
+	// DiagnosticExportPending awaits initial submission or an explicit retry.
+	DiagnosticExportPending DiagnosticExportStatus = "export_pending"
+	// DiagnosticExportFailed records a completed exporter failure.
+	DiagnosticExportFailed DiagnosticExportStatus = "export_failed"
+	// DiagnosticExported means an atomic diagnostic directory and receipt exist.
+	DiagnosticExported DiagnosticExportStatus = "exported"
+)
+
+// ExternalEndObservation records Legacy DEL_GAME facts without releasing a quarantined Battle.
+type ExternalEndObservation struct {
+	FirstObservedAt            time.Time
+	LatestObservedAt           time.Time
+	Count                      uint64
+	LatestConnectionGeneration ConnectionGeneration
+}
+
+// DiagnosticReceipt authorizes one exact quarantined Battle release after evidence publication.
+type DiagnosticReceipt struct {
+	ReceiptID string
+	BattleID  game.BattleID
+	Ref       gsr.ServiceRef
+	Digest    string
+	Directory string
+	CreatedAt time.Time
+}
+
+// QuarantinedBattleSnapshot is an independent Host projection of one retained defect.
+type QuarantinedBattleSnapshot struct {
+	BattleID             game.BattleID
+	Ref                  gsr.ServiceRef
+	ConnectionGeneration ConnectionGeneration
+	QuarantinedAt        time.Time
+	FailedCommand        gsr.CommandID
+	CommandSequence      uint64
+	ExportStatus         DiagnosticExportStatus
+	ExportError          string
+	Receipt              *DiagnosticReceipt
+	ExternalEnd          ExternalEndObservation
 }
 
 // BattleIdentity freezes the Legacy/GameMaster identity for one Battle.

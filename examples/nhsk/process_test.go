@@ -25,8 +25,11 @@ func TestNewGameLogicProcessComposesHostFactoryAndConnection(t *testing.T) {
 	if process.HostRef().ID == 0 || process.Runtime() == nil {
 		t.Fatalf("process refs = host=%#v runtime=%v", process.HostRef(), process.Runtime())
 	}
-	if process.replayWriter == nil {
-		t.Fatal("replay writer runner was not composed")
+	if process.replayWriter == nil || process.diagnosticRunner == nil || process.adminServer == nil {
+		t.Fatal("process-owned runners or diagnostic admin were not composed")
+	}
+	if health := process.Health(); health.Readiness != string(nodeNotReady) || health.GMLinkReady || health.QuarantinedBattles != 0 {
+		t.Fatalf("initial health = %#v", health)
 	}
 	if err := process.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -84,6 +87,7 @@ func TestGameLogicProcessRoutesNewGameAckAndStopsConnectionGeneration(t *testing
 	serverReady := make(chan net.Conn, 1)
 	config := GameLogicProcessConfig{
 		NodeID: "nhsk-process-wire", Workers: 2, MaxActiveBattles: 8,
+		Diagnostic: DiagnosticProcessConfig{Root: t.TempDir(), AdminSocket: shortAdminSocket(t)},
 		Legacy: LegacyGMConnectionConfig{
 			Address: "gm-test", DialTimeout: time.Second, OriginTimeout: time.Second,
 			InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond, BackoffMultiplier: 2,

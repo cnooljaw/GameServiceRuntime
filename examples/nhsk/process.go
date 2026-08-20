@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ type GameLogicProcessConfig struct {
 	CustomDeck       CustomDeckProcessConfig
 	Replay           ReplayProcessConfig
 	AI               AIProcessConfig
+	Diagnostic       DiagnosticProcessConfig
 }
 
 // AIProcessConfig selects the process-owned AI provider. Local is the default
@@ -38,6 +40,14 @@ type AIProcessConfig struct {
 // the GameLogic process rather than by Battle Services.
 type ReplayProcessConfig struct {
 	Root string
+}
+
+// DiagnosticProcessConfig configures atomic local quarantine evidence.
+type DiagnosticProcessConfig struct {
+	Root        string
+	AdminSocket string
+	QueueSize   int
+	Workers     int
 }
 
 // CustomDeckProcessConfig configures the optional Legacy compatibility bridge
@@ -75,9 +85,19 @@ type GameLogicProcess struct {
 	customDeckRunner *CustomDeckRunner
 	replayWriter     *ReplayWriterRunner
 	aiRunner         *AIRunner
+	diagnosticRunner *DiagnosticRunner
+	diagnosticRoot   string
+	adminServer      *DiagnosticAdminServer
 	closeOnce        bool
 	outputMu         sync.Mutex
 	outputRef        gsr.ServiceRef
+}
+
+// GameLogicHealthSnapshot separates GM-link readiness from retained Battle defects.
+type GameLogicHealthSnapshot struct {
+	Readiness          string
+	GMLinkReady        bool
+	QuarantinedBattles int64
 }
 
 // NewGameLogicProcess creates and composes a complete process owner.
@@ -86,24 +106,36 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		return nil, errors.New("nhsk: invalid GameLogic process config")
 	}
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: config.NodeID, Workers: config.Workers})
+	diagnosticRoot := strings.TrimSpace(config.Diagnostic.Root)
+	if diagnosticRoot == "" {
+		diagnosticRoot = "diagnostics"
+	}
+	diagnosticRunner, err := NewDiagnosticRunner(runtime, LocalDiagnosticExporter{Root: diagnosticRoot}, DiagnosticRunnerConfig{QueueSize: config.Diagnostic.QueueSize, Workers: config.Diagnostic.Workers})
+	if err != nil {
+		_ = runtime.Close(context.Background())
+		return nil, err
+	}
 	replayRoot := strings.TrimSpace(config.Replay.Root)
 	if replayRoot == "" {
 		replayRoot = "replays"
 	}
 	replayWriter, err := NewReplayWriterRunner(runtime, FileReplayWriter{Root: replayRoot}, ReplayWriterRunnerConfig{})
 	if err != nil {
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
 	aiProvider, err := aiProviderFromConfig(config.AI)
 	if err != nil {
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
 	aiRunner, err := NewAIRunner(runtime, aiProvider)
 	if err != nil {
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -113,6 +145,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if providerErr != nil {
 			_ = aiRunner.Close()
 			_ = replayWriter.Close()
+			_ = diagnosticRunner.Close()
 			_ = runtime.Close(context.Background())
 			return nil, providerErr
 		}
@@ -120,6 +153,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if err != nil {
 			_ = aiRunner.Close()
 			_ = replayWriter.Close()
+			_ = diagnosticRunner.Close()
 			_ = runtime.Close(context.Background())
 			return nil, err
 		}
@@ -131,6 +165,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -141,16 +176,18 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	host, err := NewNHSKHostService(NHSKHostConfig{MaxActiveBattles: config.MaxActiveBattles, FactoryRef: factoryRef})
+	host, err := NewNHSKHostService(NHSKHostConfig{MaxActiveBattles: config.MaxActiveBattles, FactoryRef: factoryRef, Diagnostic: diagnosticRunner})
 	if err != nil {
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -161,6 +198,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -208,6 +246,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, fmt.Errorf("nhsk: create Legacy connection: %w", err)
 	}
@@ -217,10 +256,26 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		}
 		_ = aiRunner.Close()
 		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner, replayWriter: replayWriter, aiRunner: aiRunner}
+	adminSocket := strings.TrimSpace(config.Diagnostic.AdminSocket)
+	if adminSocket == "" {
+		adminSocket = filepath.Join(diagnosticRoot, "nhsk-admin.sock")
+	}
+	adminServer, err := NewDiagnosticAdminServer(adminSocket, NewQuarantineAdmin(runtime, hostRef, diagnosticRoot))
+	if err != nil {
+		if customDeckRunner != nil {
+			_ = customDeckRunner.Close()
+		}
+		_ = aiRunner.Close()
+		_ = replayWriter.Close()
+		_ = diagnosticRunner.Close()
+		_ = runtime.Close(context.Background())
+		return nil, err
+	}
+	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner, replayWriter: replayWriter, aiRunner: aiRunner, diagnosticRunner: diagnosticRunner, diagnosticRoot: diagnosticRoot, adminServer: adminServer}
 	return process, nil
 }
 
@@ -229,7 +284,14 @@ func (process *GameLogicProcess) Start(ctx context.Context) error {
 	if process == nil || process.connection == nil {
 		return errors.New("nhsk: nil GameLogic process")
 	}
-	return process.connection.Start(ctx)
+	if err := process.adminServer.Start(); err != nil {
+		return err
+	}
+	if err := process.connection.Start(ctx); err != nil {
+		_ = process.adminServer.Close()
+		return err
+	}
+	return nil
 }
 
 // Run starts the process and waits for its context to finish before closing all owners.
@@ -254,6 +316,9 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	if err := process.connection.Close(ctx); err != nil {
+		if process.adminServer != nil {
+			_ = process.adminServer.Close()
+		}
 		if process.customDeckRunner != nil {
 			_ = process.customDeckRunner.Close()
 		}
@@ -263,8 +328,14 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 		if process.replayWriter != nil {
 			_ = process.replayWriter.Close()
 		}
+		if process.diagnosticRunner != nil {
+			_ = process.diagnosticRunner.Close()
+		}
 		_ = process.runtime.Close(ctx)
 		return err
+	}
+	if process.adminServer != nil {
+		_ = process.adminServer.Close()
 	}
 	if process.customDeckRunner != nil {
 		_ = process.customDeckRunner.Close()
@@ -275,7 +346,18 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 	if process.replayWriter != nil {
 		_ = process.replayWriter.Close()
 	}
+	if process.diagnosticRunner != nil {
+		_ = process.diagnosticRunner.Close()
+	}
 	return process.runtime.Close(ctx)
+}
+
+// QuarantineAdmin returns node-local diagnostic operations for this process.
+func (process *GameLogicProcess) QuarantineAdmin() *QuarantineAdmin {
+	if process == nil {
+		return nil
+	}
+	return NewQuarantineAdmin(process.runtime, process.hostRef, process.diagnosticRoot)
 }
 
 // HostRef returns the stable Host ServiceRef for in-process composition tests.
@@ -292,6 +374,27 @@ func (process *GameLogicProcess) Runtime() *gsr.Runtime {
 		return nil
 	}
 	return process.runtime
+}
+
+// Health returns a process-owned readiness projection without mutating Services.
+func (process *GameLogicProcess) Health() GameLogicHealthSnapshot {
+	if process == nil || process.runtime == nil {
+		return GameLogicHealthSnapshot{Readiness: string(nodeNotReady)}
+	}
+	ready := process.connection != nil && process.connection.Ready()
+	quarantined := process.runtime.Inspect().Metrics.Gauge("nhsk_quarantined_battles")
+	readiness := nodeReady
+	if !ready {
+		readiness = nodeNotReady
+	} else if quarantined > 0 {
+		readiness = nodeDegraded
+	}
+	return GameLogicHealthSnapshot{Readiness: string(readiness), GMLinkReady: ready, QuarantinedBattles: quarantined}
+}
+
+func (process *GameLogicProcess) NodeHealth() nodeHealthSnapshot {
+	health := process.Health()
+	return nodeHealthSnapshot{GMLinkReady: health.GMLinkReady, QuarantinedBattles: int(health.QuarantinedBattles)}
 }
 
 // submitLegacyCustomDeck translates the old Redis-backed lookup into the
@@ -350,7 +453,7 @@ func LoadGameLogicProcessConfig(path string) (GameLogicProcessConfig, error) {
 		JitterRatio:       config.LegacyGM.Jitter,
 		StableResetAfter:  time.Duration(config.LegacyGM.StableReset),
 	}
-	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}, Replay: ReplayProcessConfig{Root: config.Replay.Root}, AI: AIProcessConfig{Provider: config.AI.Provider, URL: config.AI.URL, Timeout: time.Duration(config.AI.Timeout)}}, nil
+	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}, Replay: ReplayProcessConfig{Root: config.Replay.Root}, AI: AIProcessConfig{Provider: config.AI.Provider, URL: config.AI.URL, Timeout: time.Duration(config.AI.Timeout)}, Diagnostic: DiagnosticProcessConfig{Root: config.Diagnostic.Root, AdminSocket: config.Diagnostic.AdminSocket, QueueSize: config.Diagnostic.QueueSize, Workers: config.Diagnostic.Workers}}, nil
 }
 
 func aiProviderFromConfig(config AIProcessConfig) (AIProvider, error) {
