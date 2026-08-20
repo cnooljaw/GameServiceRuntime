@@ -59,6 +59,12 @@ func encodeLegacyGameOutputBatch(batch GameOutputBatch) ([][]byte, error) {
 				return nil, fmt.Errorf("%w: GAME_OVER: %v", errInvalidLegacyGameOutput, err)
 			}
 			frames = append(frames, frame)
+		case SettlementRequestOutput:
+			frame, err := encodeLegacySettlementRequest(uint32(batch.BattleID), output)
+			if err != nil {
+				return nil, err
+			}
+			frames = append(frames, frame)
 		case NoticeRoundOverOutput:
 			var endPlayer uint32
 			if output.EndPlayer != "" {
@@ -78,6 +84,26 @@ func encodeLegacyGameOutputBatch(batch GameOutputBatch) ([][]byte, error) {
 		}
 	}
 	return frames, nil
+}
+
+func encodeLegacySettlementRequest(battleID uint32, output SettlementRequestOutput) ([]byte, error) {
+	gains := make([]legacywire.SettlementGain, len(output.Gains))
+	for index, gain := range output.Gains {
+		gains[index] = legacywire.SettlementGain{PayTeamID: gain.PayTeamID, GainTeamID: gain.GainTeamID, Score: gain.Score}
+	}
+	players := make([]legacywire.SettlementPlayer, len(output.Players))
+	for index, player := range output.Players {
+		players[index] = legacywire.SettlementPlayer{PlayerID: player.PlayerID, Flag: player.Flag, Score: player.Score, Exp: player.Exp, TeamID: player.TeamID}
+	}
+	frame, err := legacywire.EncodeSettlementRequest(legacywire.SettlementRequest{
+		BattleID: battleID, ResultType: output.ResultType, TeamCount: output.TeamCount,
+		Gains: gains, Players: players, NoScoreBase: output.NoScoreBase, NoCheckSeal: output.NoCheckSeal,
+		NoRecharge: output.NoRecharge, LevelScoreType: output.LevelScoreType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: settlement request: %v", errInvalidLegacyGameOutput, err)
+	}
+	return frame, nil
 }
 
 func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {

@@ -20,7 +20,7 @@ func TestNormalizeNHSKConfigUsesReferenceDefaultsAndReachableRules(t *testing.T)
 	if !got.OfflineAutoUsesAI || got.TimeoutAutoMove || got.RobotLevel != 1 {
 		t.Fatalf("base rule projection = %#v", got)
 	}
-	if got.MinRobotOutCardCount != 2 || got.MinRobotOutCardRatio != 50 || got.SingleCountToSwap != 3 {
+	if got.AutoSettlementMinCount != 2 || got.AutoSettlementRatioFactor != 50 || got.SingleCountToSwap != 3 {
 		t.Fatalf("game rule projection = %#v", got)
 	}
 }
@@ -35,7 +35,7 @@ func TestNormalizeNHSKConfigIgnoresMissingAndMalformedValues(t *testing.T) {
 
 func TestNormalizeNHSKConfigIgnoresGameRulePrefixAfterSemicolon(t *testing.T) {
 	got := normalizeNHSKConfig("", "2,50,1,3;legacy-extra")
-	if got.MinRobotOutCardCount != 2 || got.MinRobotOutCardRatio != 50 || got.SingleCountToSwap != 3 {
+	if got.AutoSettlementMinCount != 2 || got.AutoSettlementRatioFactor != 50 || got.SingleCountToSwap != 3 {
 		t.Fatalf("game rule = %#v", got)
 	}
 }

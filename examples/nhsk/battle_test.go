@@ -448,10 +448,14 @@ func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
 	if !service.players["1"].IsBreak || !service.players["1"].IsSeal || !service.players["2"].IsSeal || service.players["2"].IsBreak || !service.players["4"].IsBreak || service.players["4"].IsSeal {
 		t.Fatalf("settlement flags = %#v", service.players)
 	}
-	if len(output.sends) != 1 {
-		t.Fatalf("settlement outputs = %d, want one GAME_OVER", len(output.sends))
+	if len(output.sends) != 2 {
+		t.Fatalf("settlement outputs = %d, want GAME_RESULT then GAME_OVER", len(output.sends))
 	}
-	gameOver := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	gameResult := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if gameResult.Kind != OutputGameResult || gameResult.Payload.(GameResultPayload).Scores != want {
+		t.Fatalf("success GAME_RESULT = %#v", gameResult)
+	}
+	gameOver := output.sends[1].(GameOutputBatch).Outputs[0].(GameOverOutput)
 	if gameOver.Reason != int32(GameOverReasonSuccess) {
 		t.Fatalf("success GAME_OVER = %#v", gameOver)
 	}
@@ -512,11 +516,15 @@ func TestBattleSettlementFailureDissolvesAndClearsFlags(t *testing.T) {
 			t.Fatalf("seat %d failure state = %#v", seat, value)
 		}
 	}
-	if len(output.sends) != 1 {
-		t.Fatalf("failure outputs = %d, want one GAME_OVER", len(output.sends))
+	if len(output.sends) != 2 {
+		t.Fatalf("failure outputs = %d, want GAME_RESULT then GAME_OVER", len(output.sends))
 	}
-	gameOver := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
-	if gameOver.Reason != int32(GameOverReasonDissolve) || !gameOver.IsGameOver {
+	gameResult := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput).Payload.(GameResultPayload)
+	if gameResult.Reason != GameOverReasonDissolve || gameResult.Result != SubgameResultPeace || gameResult.Scores != [4]int32{} {
+		t.Fatalf("failure GAME_RESULT = %#v", gameResult)
+	}
+	gameOver := output.sends[1].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	if gameOver.Reason != int32(GameOverReasonDissolve) || gameOver.IsGameOver {
 		t.Fatalf("failure GAME_OVER = %#v", gameOver)
 	}
 }
@@ -629,8 +637,8 @@ func TestBattlePartnerPairFinishShowsAllRemainingHands(t *testing.T) {
 	if service.phase != NHSKBattleAwaitingSettlement {
 		t.Fatalf("pair finish phase=%s, want awaiting_settlement", service.phase)
 	}
-	if len(output.sends) != 2 {
-		t.Fatalf("pair finish outputs=%d, want out-card/show-cards", len(output.sends))
+	if len(output.sends) != 3 {
+		t.Fatalf("pair finish outputs=%d, want out-card/show-cards/settlement", len(output.sends))
 	}
 	show := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
 	if show.Kind != OutputShowCards || !reflect.DeepEqual(show.Targets, []game.PlayerID{"1", "2", "3", "4"}) {
@@ -639,6 +647,10 @@ func TestBattlePartnerPairFinishShowsAllRemainingHands(t *testing.T) {
 	payload := show.Payload.(ShowCardsPayload)
 	if payload.Cards[1][0] != 4 || payload.Cards[3][0] != 6 || payload.HandCounts[2] != 0 {
 		t.Fatalf("pair hands=%#v counts=%v", payload.Cards, payload.HandCounts)
+	}
+	settlement := output.sends[2].(GameOutputBatch).Outputs[0].(SettlementRequestOutput)
+	if settlement.TeamCount != 4 || len(settlement.Players) != 4 {
+		t.Fatalf("settlement output=%#v", settlement)
 	}
 }
 

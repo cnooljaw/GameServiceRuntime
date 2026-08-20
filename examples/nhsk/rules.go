@@ -24,10 +24,12 @@ type NHSKConfig struct {
 	TimeoutAutoMove bool
 	// RobotLevel selects the process-level robot implementation.
 	RobotLevel int
-	// MinRobotOutCardCount is the minimum robot action count threshold.
-	MinRobotOutCardCount int
-	// MinRobotOutCardRatio is the minimum robot action ratio threshold.
-	MinRobotOutCardRatio int
+	// AutoSettlementMinCount is the minimum automatic-action count used to
+	// assign settlement responsibility; -1 disables this condition.
+	AutoSettlementMinCount int
+	// AutoSettlementRatioFactor is the reference multiplier used with the
+	// automatic-action count; -1 disables this condition.
+	AutoSettlementRatioFactor int
 	// SingleCountToSwap controls the ordinary single-card adjustment count.
 	SingleCountToSwap int
 }
@@ -35,15 +37,15 @@ type NHSKConfig struct {
 // DefaultNHSKConfig returns the defaults used by the reference NHSK game.
 func DefaultNHSKConfig() NHSKConfig {
 	return NHSKConfig{
-		MsFirstOutCard:       10 * time.Second,
-		MsOutCard:            10 * time.Second,
-		MsOutCardRobot:       0,
-		MsAITimeout:          0,
-		TimeoutAutoMove:      true,
-		RobotLevel:           2,
-		MinRobotOutCardCount: -1,
-		MinRobotOutCardRatio: -1,
-		SingleCountToSwap:    4,
+		MsFirstOutCard:            10 * time.Second,
+		MsOutCard:                 10 * time.Second,
+		MsOutCardRobot:            0,
+		MsAITimeout:               0,
+		TimeoutAutoMove:           true,
+		RobotLevel:                2,
+		AutoSettlementMinCount:    -1,
+		AutoSettlementRatioFactor: -1,
+		SingleCountToSwap:         4,
 	}
 }
 
@@ -61,10 +63,10 @@ func normalizeNHSKConfig(baseRule, gameRule string) NHSKConfig {
 	}
 	game := splitRule(gameRule)
 	if value, ok := ruleInt(game, 0); ok {
-		config.MinRobotOutCardCount = value
+		config.AutoSettlementMinCount = value
 	}
 	if value, ok := ruleInt(game, 1); ok {
-		config.MinRobotOutCardRatio = value
+		config.AutoSettlementRatioFactor = value
 	}
 	if value, ok := ruleInt(game, 3); ok {
 		config.SingleCountToSwap = value

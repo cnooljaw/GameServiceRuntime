@@ -83,7 +83,7 @@ func MapLegacyControl(control legacywire.LegacyControl, generation ConnectionGen
 			if player.UserID == 0 || player.SeatID >= 4 {
 				return LegacyControlRoute{}, fmt.Errorf("%w: UPDATE_PLAYER record", errInvalidLegacyControl)
 			}
-			players = append(players, BattlePlayer{Player: game.PlayerID(strconv.FormatUint(uint64(player.UserID), 10)), UserID: player.UserID, SeatID: player.SeatID, Score: player.Score, Nickname: player.Nickname, ClientID: player.ClientID, Automated: player.IsAI})
+			players = append(players, BattlePlayer{Player: game.PlayerID(strconv.FormatUint(uint64(player.UserID), 10)), UserID: player.UserID, SeatID: player.SeatID, Score: player.Score, Exp: player.Exp, PlayerState: player.PlayerState, Nickname: player.Nickname, ClientID: player.ClientID, Automated: player.IsAI})
 		}
 		if len(players) == 0 {
 			return LegacyControlRoute{}, fmt.Errorf("%w: empty UPDATE_PLAYER", errInvalidLegacyControl)

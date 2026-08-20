@@ -616,7 +616,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
 - 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
 - Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；A/2 逻辑值、同型比较和炸弹长度优先已锁定测试。每个 Battle 持有独立随机源和 `NHSKClock`：生产创建只从 `crypto/rand` 取种子，测试可注入固定 seed/fake Clock；每小局只抽一次庄家、洗牌一次 104 张标准牌组，普通路径按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，新手路径按旧 `RandCardListByNewPlayer` 对首个非自动玩家执行三张/四张重试，并按庄家座位环形分发；`ProvideCustomDeck` 接收由外围文件/Redis bridge 或 Cluster 调用者转换好的不可变 catalog，命中时覆盖庄家与手牌且绕过普通/新手调整；期限起点、场景剩余时间和回放行动耗时只读取该 Clock，期限和 GameInfo 秒数读取已冻结的 `NHSKConfig`。完整机器人/AI 专用期限、回放终局时间和单扣/双扣仍未实现；`SingleCountToSwap<=0` 明确关闭普通路径调整，新手路径不消费该普通阈值。
+- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；发牌、新手/散牌调整、自定义牌堆与逐墩抓分均由 Battle 独立状态完成。对家出完时先结清当前分牌，再按旧 `CalcSuccessResult` 的名次与 `100/105/200` 阈值计算单扣/双扣、胜组和倍数；托管责任按 GameRule 前两项的原乘法公式认定并修正失败组负分。结果转换为类型化 SettlementRequestOutput，Legacy egress 已编码 0x8650 固定体和两段 suffix；ACK 应用后已产生客户端 GAME_RESULT。完整 AI 来源、回放终局与 writer 收敛仍待后续切片。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。

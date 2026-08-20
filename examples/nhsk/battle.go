@@ -114,6 +114,9 @@ type NHSKBattleService struct {
 	passCount            int
 	scoreCards           []byte
 	capturedPoints       [4]uint16
+	moveCount            [4]uint32
+	autoCount            [4]uint32
+	moveMilliseconds     [4]uint32
 	lastPlayedCards      [4][8]byte
 	lastPlayCounts       [4]int8
 	revision             uint64
@@ -133,6 +136,7 @@ type NHSKBattleService struct {
 	finished             [4]bool
 	ranks                [4]uint8
 	settlementFailed     bool
+	pendingResult        subgameResultSnapshot
 	nextRound            UpdateRoundContextRequest
 	currentRound         UpdateRoundContextRequest
 	startedDresses       [4]string
@@ -398,6 +402,10 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.finished = [4]bool{}
 	battle.ranks = [4]uint8{}
 	battle.capturedPoints = [4]uint16{}
+	battle.moveCount = [4]uint32{}
+	battle.autoCount = [4]uint32{}
+	battle.moveMilliseconds = [4]uint32{}
+	battle.pendingResult = subgameResultSnapshot{}
 	battle.settlementFailed = false
 	for playerID, player := range battle.players {
 		player.IsBreak = false
@@ -616,6 +624,11 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		source = ReplayMoveSourceAuto
 	}
 	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Source: source, MoveMilliseconds: moveMilliseconds})
+	battle.moveCount[battle.activeSeat]++
+	battle.moveMilliseconds[battle.activeSeat] += moveMilliseconds
+	if !player.Automated && source != ReplayMoveSourcePlayer {
+		battle.autoCount[battle.activeSeat]++
+	}
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputOutCardInfo, Payload: OutCardInfoPayload{Player: request.Player, Cards: toFixedEight(request.Cards), CardCount: uint8(len(request.Cards))}}); err != nil {
 		return err
@@ -626,9 +639,14 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		battle.ranks[finishedSeat] = uint8(battle.finishedPlayerCount())
 		partnerSeat := battle.partnerSeat(finishedSeat)
 		if len(battle.hands[battle.bySeat[partnerSeat]]) == 0 {
+			battle.awardFinalScoreCards()
 			battle.phase = NHSKBattleAwaitingSettlement
 			battle.deadlineAt = time.Time{}
 			if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputShowCards, Payload: battle.showCardsPayload(-1, true)}); err != nil {
+				return err
+			}
+			battle.pendingResult = calculateSubgameResult(GameOverReasonSuccess, battle.ranks, battle.capturedPoints, battle.settlementAutomated())
+			if err := battle.emit(ctx, buildSettlementRequest(battle.pendingResult, battle.playersBySeat())); err != nil {
 				return err
 			}
 		} else {
@@ -645,6 +663,45 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		}
 	}
 	return battle.reply(ctx, ActionResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) awardFinalScoreCards() {
+	if battle.preOutSeat < 0 || battle.preOutSeat >= len(battle.bySeat) {
+		battle.scoreCards = nil
+		return
+	}
+	points, cards := scoreCardsIn(battle.scoreCards)
+	if points > 0 {
+		battle.capturedPoints[battle.preOutSeat] += uint16(points)
+		player := battle.players[battle.bySeat[battle.preOutSeat]]
+		battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveCatchPoint, SeatID: uint8(battle.preOutSeat), UserID: player.UserID, Cards: cards, Point: points, Source: ReplayMoveSourceSystem})
+	}
+	battle.scoreCards = nil
+}
+
+func (battle *NHSKBattleService) playersBySeat() [4]BattlePlayer {
+	var players [4]BattlePlayer
+	for seat, playerID := range battle.bySeat {
+		players[seat] = battle.players[playerID]
+	}
+	return players
+}
+
+func (battle *NHSKBattleService) settlementAutomated() [4]bool {
+	var automated [4]bool
+	for seat := range automated {
+		countEnabled := battle.rules.AutoSettlementMinCount >= 0
+		ratioEnabled := battle.rules.AutoSettlementRatioFactor >= 0
+		switch {
+		case countEnabled && ratioEnabled:
+			automated[seat] = battle.autoCount[seat] >= uint32(battle.rules.AutoSettlementMinCount) && int(battle.autoCount[seat])*battle.rules.AutoSettlementRatioFactor >= int(battle.moveCount[seat])
+		case countEnabled:
+			automated[seat] = battle.autoCount[seat] >= uint32(battle.rules.AutoSettlementMinCount)
+		case ratioEnabled:
+			automated[seat] = int(battle.autoCount[seat])*battle.rules.AutoSettlementRatioFactor >= int(battle.moveCount[seat])
+		}
+	}
+	return automated
 }
 
 func (battle *NHSKBattleService) scene(ctx gsr.CommandContext, payload any) error {
@@ -707,16 +764,36 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 		battle.players[player] = value
 	}
 	battle.settlementFailed = plan.failed
+	result := battle.pendingResult
+	if result.ranks == ([4]uint8{}) {
+		result = calculateSubgameResult(GameOverReasonSuccess, battle.ranks, battle.capturedPoints, battle.settlementAutomated())
+	}
 	battle.phase = NHSKBattleFinished
 	battle.revision++
-	reason := int32(GameOverReasonSuccess)
+	reason := GameOverReasonSuccess
 	if plan.failed {
-		reason = int32(GameOverReasonDissolve)
+		reason = GameOverReasonDissolve
+		result = calculateSubgameResult(reason, battle.ranks, battle.capturedPoints, battle.settlementAutomated())
 	}
-	if err := battle.emit(ctx, GameOverOutput{Reason: reason, ReplayName: battle.currentReplayName(), IsGameOver: true}); err != nil {
+	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameResult, Payload: battle.gameResultPayload(reason, plan.scores, result)}); err != nil {
+		return err
+	}
+	if err := battle.emit(ctx, GameOverOutput{Reason: int32(reason), ReplayName: battle.currentReplayName(), IsGameOver: false}); err != nil {
 		return err
 	}
 	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) gameResultPayload(reason GameOverReason, scores [4]int32, result subgameResultSnapshot) GameResultPayload {
+	var players [4]game.PlayerID
+	for seat, player := range battle.bySeat {
+		players[seat] = player
+	}
+	return GameResultPayload{
+		Reason: reason, Players: players, Automated: result.automated, Scores: scores,
+		Outcomes: result.outcomes, CapturedPoints: result.points, Ranks: result.ranks,
+		Result: result.result, WinningTeam: result.winningTeam, ReplayUID: battle.replayDocument.start.ReplayUID,
+	}
 }
 
 type settlementPlan struct {

@@ -19,6 +19,7 @@
 - Battle 当前牌规层已按参考覆盖单牌、对子、三张、三带二和 4～8 张炸弹；A/2 使用旧逻辑值，炸弹优先且同型炸弹按长度比较；普通发牌使用两副完整 1..K 牌，先由 Battle 随机源抽庄家并 Fisher-Yates 洗牌，再按旧 `SwapSingleCard` 的座位顺序执行 `SingleCountToSwap` 散牌调整，最后按庄家环形分给四座，双副中的相同物理牌可同时出。`NEW_GAME.IsNewbie` 会优先选择座位顺序中的首个非 `Automated` 玩家执行旧 `RandCardListByNewPlayer` 的三张/四张重试；四座都是自动玩家时跳过该调整。生产随机源只由 `crypto/rand` 种子创建，测试显式注入固定 seed；普通阈值小于等于 0 时保留纯洗牌路径。
 - 自定义牌堆现在通过公开 `ProvideCustomDeckCommand` 由外部推送：Battle 只在 `Preparing` 接收匹配的 BattleID、GameNum、SubgameNum 和 canonical catalog，并在本小局固定快照。旧文件/Redis 数据源、旧文本 grammar、账号白名单和 ProductID/GameID key 兼容全部位于外围 Legacy bridge；读取失败、超时、空值或队列满不推送数据，Battle 回退普通发牌。可用 catalog 优先覆盖庄家和四手牌，并绕过新手/散牌调整；Redis 适配器使用标准库 RESP GET，不把 Redis 客户端依赖带进 Battle。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌结束一墩后，按 `OutCardInfo -> TurnEnd -> AskOutCard` 提交抓分归属，并在 GameScene 投影当前墩牌、上次出牌、累计抓分。
+- 固定对家组出完时会先把尚在桌面的分牌结清给最后出牌者，再按旧 `CalcSuccessResult` 的 `100/105/200` 分支计算单扣/双扣、胜组与四座倍数；GameRule 前两项已按真实用途归一化为托管结算阈值，保留旧乘法公式和单个托管失败队员的负分责任修正。Battle 随后输出类型化 `SettlementRequestOutput`，Legacy egress 编码为 `0x8650` 连续 gain/player suffix；综合 ACK 应用后先输出客户端 `GAME_RESULT`，再进入当前临时 GAME_OVER，完整回放收敛线序仍在下一切片接入。
 - 单条主动 Legacy GM TCP connection owner：双向 origin、ConnectionGeneration、bounded output queue、指数退避重连。
 - `cmd/gamelogic` 独立组合根，可从 JSON 配置启动并按连接→Runtime 顺序关闭。
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、`INIT_GAME` 连续规则 suffix 解码、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。

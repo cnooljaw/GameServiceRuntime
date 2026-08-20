@@ -1054,6 +1054,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-047、D-061、D-074、D-075、D-079、D-085；TODO CARD-047、048、052、058。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务代码未修改。 |
 
+### 4.52 NHSK 单扣双扣与综合结算请求
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 完成对家出完后的末墩抓分、名次/单扣双扣、托管责任修正、类型化 SettlementRequestOutput、Legacy 0x8650 请求和 ACK 后客户端 GAME_RESULT。 |
+| GSR 文件/测试 | `settlement.go`、`settlement_test.go`、`battle.go`、`outputs.go`、`internal/legacywire/settlement_request.go`；案例 golden 覆盖 XRX-NHSK-271～275/280、阈值公式、定向矩阵、玩家 Flag/Exp 与固定 wire 偏移。 |
+| 参考入口 | `nhsk/game/flow_core.go:CalcSuccessResult/buildResultScoreMatrix/correctScore/sendResultScoreRequest`、`auto.go:isPlayerAutoInSubGame`、`helpers.go:awardCurrentScoreCardsToPreOutSeat`、`gamelogic/internal/game/game_api.go:SendMsgAskResScore`。 |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go:TestXuRuoxuanSettlementCases/TestCalcSuccessResultAdjustsScoresForAutoPlayerInSubgame/TestDoProcessResultSendsScoreMatrix`；protocol `ReqGL2GMGameResultComprehensive.FormatToTcp`。 |
+| Legacy MessageID | 新增出站 `0x8650`：71 字节 fixed body，随后每条 12 字节 gain 和四条 20 字节 player；入站 `BSAck|0x8650` 路径不变。客户端 ACK 应用后输出既有 `0x7607 GAME_RESULT`。 |
+| 输入与校验 | 只在固定对家组结束后生成一次请求；gain 必须是四座间正向有向转移，玩家固定 SeatID 0..3。UPDATE_PLAYER 的 Exp/PlayerState 现按 RFC 保存，ScoreChange 等无消费者字段仍丢弃。 |
+| 权威状态变化 | Battle 保存每座 MoveCount/AutoCount/MoveMS 和 pending result；ResultType/TeamCount/LevelScoreType 只是请求事实。ACK 的交易矩阵仍是最终客户端 Score 权威。 |
+| Timer/Timeline | 不新增 Timer；合法动作在既有 Ask Clock 结束点累加 MoveMS。进入 AwaitingSettlement 后清除行动 deadline。 |
+| 输出目标与顺序 | 最后一手保持 OutCardInfo→ShowCards→SettlementRequest；ACK 成功或失败后先向未退出玩家输出 GAME_RESULT。当前回放 writer 未接入，故后续 ROUND_STAT/GAME_OVER 完整收敛仍是下一切片。 |
+| 生命周期结果 | 正常路径进入 AwaitingSettlement 单飞；坏 ACK 保持等待，失败 ACK 形成 Dissolve/Peace/零分外观。 |
+| 已一致 | 末墩抓分、参考不对称阈值、单/双扣、胜组、托管乘法公式、负分责任修正、矩阵和 0x8650 wire 均已逐案例一致。 |
+| 有意偏差 | 领域配置删除误导性的 MinRobotOutCard 命名，改成 AutoSettlementMinCount/RatioFactor；数值与公式不变。Battle 不在 Mailbox 内 Call GM，而输出请求事实。 |
+| 发现遗漏 | 外部 AI/超时来源尚未增加 AutoCount；完整 replay terminal、writer、ROUND_STAT 和带四座数据的 GAME_OVER 仍待后续切片。 |
+| 结论 | 核心结算计算与异步请求 **已一致**；终局持久化线序 **发现遗漏，继续实现**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-058、D-065、D-070、D-089～D-093；TODO CARD-026、031、038、043、060。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务代码未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

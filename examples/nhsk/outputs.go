@@ -266,6 +266,22 @@ type GameOverOutput struct {
 
 func (GameOverOutput) isNHSKGameOutput() {}
 
+// SettlementRequestOutput asks the external coordinator to apply one frozen
+// NHSK score-transfer matrix. Its later completion enters the Battle only
+// through CompleteSettlementCommand.
+type SettlementRequestOutput struct {
+	ResultType     int32
+	TeamCount      int32
+	Gains          []SettlementGain
+	Players        []SettlementPlayerResult
+	NoScoreBase    bool
+	NoCheckSeal    bool
+	NoRecharge     bool
+	LevelScoreType uint8
+}
+
+func (SettlementRequestOutput) isNHSKGameOutput() {}
+
 // NoticeRoundOverOutput tells the old GameMaster that the whole round was
 // forcibly ended after the terminal GameOver message.
 type NoticeRoundOverOutput struct {

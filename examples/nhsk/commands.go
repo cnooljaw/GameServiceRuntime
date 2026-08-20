@@ -193,11 +193,15 @@ type InitializeBattleRequest struct {
 
 // BattlePlayer is the normalized four-seat player record.
 type BattlePlayer struct {
-	Player   game.PlayerID
-	UserID   uint32
-	SeatID   uint8
-	Score    int32
-	Nickname string
+	Player game.PlayerID
+	UserID uint32
+	SeatID uint8
+	Score  int32
+	Exp    int32
+	// PlayerState is preserved from UPDATE_PLAYER for the player's current
+	// transport-facing state projection; settlement flags remain separate.
+	PlayerState int32
+	Nickname    string
 	// ClientID is the legacy CltID projection used only as replay Platform.
 	ClientID uint32
 	// Dress is opaque replay metadata for the player's next subgame.
