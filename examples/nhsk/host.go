@@ -12,21 +12,25 @@ import (
 )
 
 const (
-	applyBattleCreatedCommand     gsr.CommandID = 0x0410f001
-	applyBattleStoppedCommand     gsr.CommandID = 0x0410f002
-	createBattleInternalCommand   gsr.CommandID = 0x0410f010
-	stopBattleInternalCommand     gsr.CommandID = 0x0410f011
-	bindOutputInternalCommand     gsr.CommandID = 0x0410f012
-	unbindOutputInternalCommand   gsr.CommandID = 0x0410f013
-	stopGenerationCommand         gsr.CommandID = 0x0410f014
-	applyFactoryStopResultCommand gsr.CommandID = 0x0410f019
+	applyBattleCreatedCommand       gsr.CommandID = 0x0410f001
+	applyBattleStoppedCommand       gsr.CommandID = 0x0410f002
+	createBattleInternalCommand     gsr.CommandID = 0x0410f010
+	stopBattleInternalCommand       gsr.CommandID = 0x0410f011
+	bindOutputInternalCommand       gsr.CommandID = 0x0410f012
+	unbindOutputInternalCommand     gsr.CommandID = 0x0410f013
+	stopGenerationCommand           gsr.CommandID = 0x0410f014
+	applyFactoryStopResultCommand   gsr.CommandID = 0x0410f019
+	applyFactoryCreateResultCommand gsr.CommandID = 0x0410f01b
 )
 
 var (
-	errInvalidHostConfig = errors.New("nhsk: invalid Host config")
-	errBattleIDInUse     = errors.New("nhsk: battle id in use")
-	errHostCapacity      = errors.New("nhsk: Host capacity exhausted")
-	errInvalidBattleID   = errors.New("nhsk: invalid BattleID")
+	errInvalidHostConfig          = errors.New("nhsk: invalid Host config")
+	errBattleIDInUse              = errors.New("nhsk: battle id in use")
+	errHostCapacity               = errors.New("nhsk: Host capacity exhausted")
+	errInvalidBattleID            = errors.New("nhsk: invalid BattleID")
+	errBattleCreateFailed         = errors.New("nhsk: Battle creation returned an empty ServiceRef")
+	errConnectionGenerationClosed = errors.New("nhsk: connection generation closed")
+	errConnectionGenerationSource = errors.New("nhsk: connection generation is reserved for the local Legacy adapter")
 )
 
 // NHSKHostConfig configures the stable `.nhsk-game-host` Service.
@@ -39,16 +43,19 @@ type NHSKHostConfig struct {
 
 // NHSKHostService owns BattleID-to-ServiceRef bindings and delegates lifecycle work to a factory Service.
 type NHSKHostService struct {
-	max        uint32
-	factory    gsr.ServiceRef
-	service    gsr.ServiceContext
-	nextOp     HostOperationID
-	active     map[game.BattleID]gsr.ServiceRef
-	states     map[game.BattleID]HostOperationPhase
-	operations map[HostOperationID]CreateBattleOperation
-	clock      NHSKClock
-	diagnostic DiagnosticSubmitter
-	quarantine map[game.BattleID]*quarantinedBattle
+	max              uint32
+	factory          gsr.ServiceRef
+	service          gsr.ServiceContext
+	nextOp           HostOperationID
+	active           map[game.BattleID]gsr.ServiceRef
+	states           map[game.BattleID]HostOperationPhase
+	operations       map[HostOperationID]CreateBattleOperation
+	createRequests   map[game.BattleID]CreateBattleRequest
+	battleOperations map[game.BattleID]HostOperationID
+	replacements     map[game.BattleID]HostOperationID
+	clock            NHSKClock
+	diagnostic       DiagnosticSubmitter
+	quarantine       map[game.BattleID]*quarantinedBattle
 }
 
 type quarantinedBattle struct {
@@ -66,7 +73,7 @@ func NewNHSKHostService(config NHSKHostConfig) (*NHSKHostService, error) {
 	if clock == nil {
 		clock = systemNHSKClock{}
 	}
-	return &NHSKHostService{max: config.MaxActiveBattles, factory: config.FactoryRef, active: make(map[game.BattleID]gsr.ServiceRef), states: make(map[game.BattleID]HostOperationPhase), operations: make(map[HostOperationID]CreateBattleOperation), clock: clock, diagnostic: config.Diagnostic, quarantine: make(map[game.BattleID]*quarantinedBattle)}, nil
+	return &NHSKHostService{max: config.MaxActiveBattles, factory: config.FactoryRef, active: make(map[game.BattleID]gsr.ServiceRef), states: make(map[game.BattleID]HostOperationPhase), operations: make(map[HostOperationID]CreateBattleOperation), createRequests: make(map[game.BattleID]CreateBattleRequest), battleOperations: make(map[game.BattleID]HostOperationID), replacements: make(map[game.BattleID]HostOperationID), clock: clock, diagnostic: config.Diagnostic, quarantine: make(map[game.BattleID]*quarantinedBattle)}, nil
 }
 
 // Init captures the Host Service capability.
@@ -122,16 +129,18 @@ type createBattleInternal struct {
 	Host        gsr.ServiceRef
 }
 type applyBattleCreated struct {
-	OperationID HostOperationID
-	BattleID    game.BattleID
-	Ref         gsr.ServiceRef
-	Err         string
+	OperationID          HostOperationID
+	BattleID             game.BattleID
+	Ref                  gsr.ServiceRef
+	ConnectionGeneration ConnectionGeneration
+	Err                  string
 }
 type stopBattleInternal struct {
 	OperationID          HostOperationID
 	BattleID             game.BattleID
 	Ref, Host            gsr.ServiceRef
 	ReleaseQuarantined   bool
+	Orphan               bool
 	ConnectionGeneration ConnectionGeneration
 }
 
@@ -152,9 +161,10 @@ type applyBattleStopped struct {
 }
 
 type applyFactoryStopResult struct {
-	BattleID game.BattleID
-	Ref      gsr.ServiceRef
+	Request  stopBattleInternal
 	Err      string
+	Defect   bool
+	Evidence BattleDiagnosticEvidence
 }
 
 func (host *NHSKHostService) beginCreate(ctx gsr.CommandContext, payload any) error {
@@ -162,7 +172,16 @@ func (host *NHSKHostService) beginCreate(ctx gsr.CommandContext, payload any) er
 	if !ok || request.BattleID == 0 {
 		return host.reply(ctx, CreateBattleOperation{Phase: HostOperationFailed, Rejection: errInvalidBattleID.Error()})
 	}
+	if request.ConnectionGeneration != 0 && !host.isLocalAdmin(ctx) {
+		return host.reply(ctx, CreateBattleOperation{BattleID: request.BattleID, Phase: HostOperationFailed, Rejection: errConnectionGenerationSource.Error()})
+	}
 	if phase, exists := host.states[request.BattleID]; exists && phase != HostOperationFailed {
+		if operationID := host.battleOperations[request.BattleID]; operationID != 0 && host.createRequests[request.BattleID] == request && (phase == HostOperationCreating || host.replacements[request.BattleID] == operationID) {
+			return host.reply(ctx, host.operations[operationID])
+		}
+		if phase == HostOperationCompleted && request.ConnectionGeneration != 0 {
+			return host.beginLegacyReplacement(ctx, request)
+		}
 		return host.reply(ctx, CreateBattleOperation{BattleID: request.BattleID, Phase: phase, Rejection: errBattleIDInUse.Error()})
 	}
 	if uint32(len(host.active))+uint32(host.creatingCount()) >= host.max {
@@ -172,12 +191,41 @@ func (host *NHSKHostService) beginCreate(ctx gsr.CommandContext, payload any) er
 	operation := CreateBattleOperation{OperationID: host.nextOp, BattleID: request.BattleID, Phase: HostOperationCreating}
 	host.operations[operation.OperationID] = operation
 	host.states[request.BattleID] = HostOperationCreating
-	if err := host.service.Send(host.factory, createBattleInternalCommand, createBattleInternal{OperationID: operation.OperationID, Request: request, Host: ctx.Self()}); err != nil {
+	host.createRequests[request.BattleID] = request
+	host.battleOperations[request.BattleID] = operation.OperationID
+	if err := host.submitCreate(ctx.Self(), operation.OperationID, request); err != nil {
 		operation.Phase, operation.Rejection = HostOperationFailed, err.Error()
 		host.operations[operation.OperationID] = operation
 		delete(host.states, request.BattleID)
+		delete(host.createRequests, request.BattleID)
+		delete(host.battleOperations, request.BattleID)
 	}
 	return host.reply(ctx, operation)
+}
+
+func (host *NHSKHostService) beginLegacyReplacement(ctx gsr.CommandContext, request CreateBattleRequest) error {
+	ref := host.active[request.BattleID]
+	host.nextOp++
+	operation := CreateBattleOperation{OperationID: host.nextOp, BattleID: request.BattleID, Phase: HostOperationStopping}
+	host.operations[operation.OperationID] = operation
+	host.createRequests[request.BattleID] = request
+	host.battleOperations[request.BattleID] = operation.OperationID
+	host.replacements[request.BattleID] = operation.OperationID
+	host.states[request.BattleID] = HostOperationStopping
+	stop := stopBattleInternal{OperationID: operation.OperationID, BattleID: request.BattleID, Ref: ref, Host: ctx.Self()}
+	if err := host.service.Send(host.factory, stopBattleInternalCommand, stop); err != nil {
+		operation.Phase, operation.Rejection = HostOperationFailed, err.Error()
+		host.operations[operation.OperationID] = operation
+		host.states[request.BattleID] = HostOperationCompleted
+		delete(host.replacements, request.BattleID)
+		delete(host.createRequests, request.BattleID)
+		delete(host.battleOperations, request.BattleID)
+	}
+	return host.reply(ctx, operation)
+}
+
+func (host *NHSKHostService) submitCreate(self gsr.ServiceRef, operationID HostOperationID, request CreateBattleRequest) error {
+	return host.service.Send(host.factory, createBattleInternalCommand, createBattleInternal{OperationID: operationID, Request: request, Host: self})
 }
 
 func (host *NHSKHostService) getOperation(ctx gsr.CommandContext, payload any) error {
@@ -248,16 +296,21 @@ func (host *NHSKHostService) applyCreated(ctx gsr.CommandContext, payload any) e
 		return gsr.ErrInvalidClusterEnvelope
 	}
 	operation, exists := host.operations[result.OperationID]
-	if !exists {
+	request, pending := host.createRequests[result.BattleID]
+	if !exists || !pending || operation.BattleID != result.BattleID || host.battleOperations[result.BattleID] != result.OperationID || request.ConnectionGeneration != result.ConnectionGeneration {
 		return nil
 	}
 	if result.Err != "" || result.Ref.ID == 0 {
 		operation.Phase, operation.Rejection = HostOperationFailed, result.Err
 		delete(host.states, result.BattleID)
+		delete(host.createRequests, result.BattleID)
+		delete(host.battleOperations, result.BattleID)
 	} else {
 		operation.Phase, operation.Ref = HostOperationCompleted, result.Ref
 		host.active[result.BattleID] = result.Ref
 		host.states[result.BattleID] = HostOperationCompleted
+		delete(host.createRequests, result.BattleID)
+		delete(host.battleOperations, result.BattleID)
 	}
 	host.operations[result.OperationID] = operation
 	return nil
@@ -272,6 +325,32 @@ func (host *NHSKHostService) applyStopped(ctx gsr.CommandContext, payload any) e
 		return gsr.ErrInvalidClusterEnvelope
 	}
 	if ref, exists := host.active[result.BattleID]; !exists || ref != result.Ref {
+		return nil
+	}
+	if operationID := host.replacements[result.BattleID]; operationID != 0 && operationID == result.OperationID {
+		operation := host.operations[operationID]
+		if result.Err != "" {
+			operation.Phase, operation.Rejection = HostOperationFailed, result.Err
+			host.operations[operationID] = operation
+			host.states[result.BattleID] = HostOperationCompleted
+			delete(host.replacements, result.BattleID)
+			delete(host.createRequests, result.BattleID)
+			delete(host.battleOperations, result.BattleID)
+			return nil
+		}
+		delete(host.active, result.BattleID)
+		operation.Phase, operation.Ref = HostOperationCreating, gsr.ServiceRef{}
+		host.operations[operationID] = operation
+		host.states[result.BattleID] = HostOperationCreating
+		delete(host.replacements, result.BattleID)
+		request := host.createRequests[result.BattleID]
+		if err := host.submitCreate(ctx.Self(), operationID, request); err != nil {
+			operation.Phase, operation.Rejection = HostOperationFailed, err.Error()
+			host.operations[operationID] = operation
+			delete(host.states, result.BattleID)
+			delete(host.createRequests, result.BattleID)
+			delete(host.battleOperations, result.BattleID)
+		}
 		return nil
 	}
 	if retained := host.quarantine[result.BattleID]; retained != nil {
@@ -484,11 +563,14 @@ type BattleFactoryService struct {
 	stopper          BattleStopper
 	commands         game.CommandRuntime
 	service          gsr.ServiceContext
+	self             gsr.ServiceRef
+	createQueue      chan factoryCreateTask
 	stopQueue        chan stopBattleInternal
-	stopDone         chan struct{}
-	stopCancel       context.CancelFunc
-	stopWG           sync.WaitGroup
+	runnerCancel     context.CancelFunc
+	runnerWG         sync.WaitGroup
+	creating         map[game.BattleID]factoryCreateTask
 	battles          map[game.BattleID]factoryBattle
+	closedThrough    ConnectionGeneration
 	outputRef        gsr.ServiceRef
 	outputGeneration ConnectionGeneration
 	outputReporter   ConnectionFailureReporter
@@ -509,6 +591,17 @@ type factoryBattle struct {
 	host        gsr.ServiceRef
 	quarantined bool
 	stopping    bool
+}
+
+type factoryCreateTask struct {
+	Request createBattleInternal
+	Config  NHSKBattleConfig
+}
+
+type applyFactoryCreateResult struct {
+	Task factoryCreateTask
+	Ref  gsr.ServiceRef
+	Err  string
 }
 
 // NewBattleFactoryService creates a lifecycle runner backed by the Runtime composition root.
@@ -533,13 +626,15 @@ func (factory *BattleFactoryService) Init(service gsr.ServiceContext) error {
 		return errInvalidHostConfig
 	}
 	factory.service = service
+	factory.self = service.Self()
 	ctx, cancel := context.WithCancel(context.Background())
-	factory.stopCancel = cancel
+	factory.runnerCancel = cancel
+	factory.createQueue = make(chan factoryCreateTask, 10000)
 	factory.stopQueue = make(chan stopBattleInternal, 10000)
-	factory.stopDone = make(chan struct{})
+	factory.creating = make(map[game.BattleID]factoryCreateTask)
 	factory.battles = make(map[game.BattleID]factoryBattle)
-	factory.stopWG.Add(1)
-	startFactoryStopRunner(factory, ctx)
+	factory.runnerWG.Add(2)
+	startFactoryLifecycleRunners(factory, ctx)
 	return nil
 }
 
@@ -548,27 +643,37 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 	switch command.ID {
 	case createBattleInternalCommand:
 		request, ok := command.Payload.(createBattleInternal)
-		if !ok {
+		if !ok || ctx.Source() != request.Host {
 			return gsr.ErrInvalidClusterEnvelope
+		}
+		if factory.generationClosed(request.Request.ConnectionGeneration) {
+			return factory.reportCreateResult(request, gsr.ServiceRef{}, errConnectionGenerationClosed)
+		}
+		if _, exists := factory.creating[request.Request.BattleID]; exists {
+			return factory.reportCreateResult(request, gsr.ServiceRef{}, errBattleIDInUse)
+		}
+		if _, exists := factory.battles[request.Request.BattleID]; exists {
+			return factory.reportCreateResult(request, gsr.ServiceRef{}, errBattleIDInUse)
 		}
 		outputRef, outputGeneration, outputReporter := factory.outputRef, factory.outputGeneration, factory.outputReporter
 		if outputGeneration != request.Request.ConnectionGeneration {
 			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, ReplaySubmitter: factory.replaySubmitter, AISubmitter: factory.aiSubmitter})
-		if err == nil {
-			var ref gsr.ServiceRef
-			var service gsr.Service
-			service, err = newBattleQuarantineBoundary(battle, battleQuarantineBoundaryConfig{Host: request.Host, Factory: factory.service.Self(), ConnectionGeneration: request.Request.ConnectionGeneration})
-			if err == nil {
-				ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: service})
-			}
-			if err == nil {
-				factory.battles[request.Request.BattleID] = factoryBattle{ref: ref, generation: request.Request.ConnectionGeneration, host: request.Host}
-				return factory.service.Send(request.Host, applyBattleCreatedCommand, applyBattleCreated{OperationID: request.OperationID, BattleID: request.Request.BattleID, Ref: ref})
-			}
+		task := factoryCreateTask{Request: request, Config: NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, ReplaySubmitter: factory.replaySubmitter, AISubmitter: factory.aiSubmitter}}
+		factory.creating[request.Request.BattleID] = task
+		select {
+		case factory.createQueue <- task:
+			return nil
+		default:
+			delete(factory.creating, request.Request.BattleID)
+			return factory.reportCreateResult(request, gsr.ServiceRef{}, gsr.ErrMailboxFull)
 		}
-		return factory.service.Send(request.Host, applyBattleCreatedCommand, applyBattleCreated{OperationID: request.OperationID, BattleID: request.Request.BattleID, Err: err.Error()})
+	case applyFactoryCreateResultCommand:
+		result, ok := command.Payload.(applyFactoryCreateResult)
+		if !ok || !factory.isRootSource(ctx.Source()) {
+			return gsr.ErrInvalidClusterEnvelope
+		}
+		return factory.applyCreateResult(result)
 	case stopBattleInternalCommand:
 		request, ok := command.Payload.(stopBattleInternal)
 		if !ok {
@@ -589,14 +694,14 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 		}
 	case bindOutputInternalCommand:
 		request, ok := command.Payload.(bindOutputInternal)
-		if !ok || request.Generation == 0 || request.Ref.ID == 0 || request.Reporter == nil {
+		if !ok || !factory.isRootSource(ctx.Source()) || request.Generation == 0 || request.Ref.ID == 0 || request.Reporter == nil {
 			return gsr.ErrInvalidClusterEnvelope
 		}
 		factory.outputRef, factory.outputGeneration, factory.outputReporter = request.Ref, request.Generation, request.Reporter
 		return nil
 	case unbindOutputInternalCommand:
 		request, ok := command.Payload.(unbindOutputInternal)
-		if !ok {
+		if !ok || !factory.isRootSource(ctx.Source()) {
 			return gsr.ErrInvalidClusterEnvelope
 		}
 		if request.Generation == factory.outputGeneration {
@@ -605,8 +710,11 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 		return nil
 	case stopGenerationCommand:
 		request, ok := command.Payload.(stopGenerationInternal)
-		if !ok || request.Generation == 0 {
+		if !ok || !factory.isRootSource(ctx.Source()) || request.Generation == 0 {
 			return gsr.ErrInvalidClusterEnvelope
+		}
+		if request.Generation > factory.closedThrough {
+			factory.closedThrough = request.Generation
 		}
 		for battleID, battle := range factory.battles {
 			if battle.generation != request.Generation || battle.quarantined || battle.stopping {
@@ -623,8 +731,8 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 		return nil
 	case reportBattleQuarantinedCommand:
 		report, ok := command.Payload.(battleQuarantineReport)
-		rootSource := ctx.Source().Node == factory.service.Self().Node && ctx.Source().ID == 0
-		if !ok || (ctx.Source() != report.Ref && ctx.Source() != factory.service.Self() && !rootSource) {
+		rootSource := factory.isRootSource(ctx.Source())
+		if !ok || (ctx.Source() != report.Ref && ctx.Source() != factory.self && !rootSource) {
 			return gsr.ErrInvalidClusterEnvelope
 		}
 		battle, exists := factory.battles[report.BattleID]
@@ -635,18 +743,39 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 		return nil
 	case applyFactoryStopResultCommand:
 		result, ok := command.Payload.(applyFactoryStopResult)
-		if !ok || ctx.Source() != factory.service.Self() {
+		if !ok || !factory.isRootSource(ctx.Source()) {
 			return gsr.ErrInvalidClusterEnvelope
 		}
-		battle, exists := factory.battles[result.BattleID]
-		if !exists || battle.ref != result.Ref {
+		request := result.Request
+		if request.Orphan {
+			if result.Err != "" {
+				factory.service.Logger().Error("failed to stop orphan NHSK Battle", "battle_id", request.BattleID, "ref", request.Ref, "error", result.Err)
+			}
+			return nil
+		}
+		battle, exists := factory.battles[request.BattleID]
+		if !exists || battle.ref != request.Ref {
 			return nil
 		}
 		if result.Err == "" {
-			delete(factory.battles, result.BattleID)
+			delete(factory.battles, request.BattleID)
 		} else {
 			battle.stopping = false
-			factory.battles[result.BattleID] = battle
+			factory.battles[request.BattleID] = battle
+		}
+		if !request.ReleaseQuarantined && result.Defect && result.Evidence.CommandSequence != 0 {
+			evidence := cloneDiagnosticEvidence(result.Evidence)
+			evidence.FailedCommand = deleteBattleBarrierCommand
+			evidence.Stack = "Battle Stop failure: " + result.Err
+			report := battleQuarantineReport{BattleID: request.BattleID, Ref: request.Ref, ConnectionGeneration: request.ConnectionGeneration, Evidence: evidence}
+			_ = factory.service.Send(request.Host, reportBattleQuarantinedCommand, cloneQuarantineReport(report))
+			if retained, retainedExists := factory.battles[request.BattleID]; retainedExists {
+				retained.quarantined = true
+				factory.battles[request.BattleID] = retained
+			}
+		}
+		if request.Host.ID != 0 {
+			return factory.service.Send(request.Host, applyBattleStoppedCommand, applyBattleStopped{OperationID: request.OperationID, BattleID: request.BattleID, Ref: request.Ref, Err: result.Err})
 		}
 		return nil
 	default:
@@ -654,24 +783,106 @@ func (factory *BattleFactoryService) Handle(ctx gsr.CommandContext, command gsr.
 	}
 }
 
+func (factory *BattleFactoryService) applyCreateResult(result applyFactoryCreateResult) error {
+	request := result.Task.Request
+	pending, exists := factory.creating[request.Request.BattleID]
+	if !exists || pending.Request != request {
+		if result.Ref.ID != 0 {
+			factory.enqueueOrphanStop(request.Request.BattleID, result.Ref, request.Request.ConnectionGeneration)
+		}
+		return nil
+	}
+	delete(factory.creating, request.Request.BattleID)
+	if result.Err != "" || result.Ref.ID == 0 {
+		if result.Err == "" {
+			result.Err = errBattleCreateFailed.Error()
+		}
+		return factory.reportCreateResult(request, gsr.ServiceRef{}, errors.New(result.Err))
+	}
+	battle := factoryBattle{ref: result.Ref, generation: request.Request.ConnectionGeneration, host: request.Host}
+	if factory.generationClosed(request.Request.ConnectionGeneration) {
+		factory.enqueueOrphanStop(request.Request.BattleID, result.Ref, request.Request.ConnectionGeneration)
+		return factory.reportCreateResult(request, gsr.ServiceRef{}, errConnectionGenerationClosed)
+	}
+	if _, exists := factory.battles[request.Request.BattleID]; exists {
+		factory.enqueueOrphanStop(request.Request.BattleID, result.Ref, request.Request.ConnectionGeneration)
+		return factory.reportCreateResult(request, gsr.ServiceRef{}, errBattleIDInUse)
+	}
+	factory.battles[request.Request.BattleID] = battle
+	if err := factory.reportCreateResult(request, result.Ref, nil); err != nil {
+		delete(factory.battles, request.Request.BattleID)
+		factory.enqueueOrphanStop(request.Request.BattleID, result.Ref, request.Request.ConnectionGeneration)
+		return err
+	}
+	return nil
+}
+
+func (factory *BattleFactoryService) reportCreateResult(request createBattleInternal, ref gsr.ServiceRef, err error) error {
+	return factory.service.Send(request.Host, applyBattleCreatedCommand, applyBattleCreated{
+		OperationID:          request.OperationID,
+		BattleID:             request.Request.BattleID,
+		Ref:                  ref,
+		ConnectionGeneration: request.Request.ConnectionGeneration,
+		Err:                  errorText(err),
+	})
+}
+
+func (factory *BattleFactoryService) enqueueOrphanStop(battleID game.BattleID, ref gsr.ServiceRef, generation ConnectionGeneration) {
+	select {
+	case factory.stopQueue <- stopBattleInternal{BattleID: battleID, Ref: ref, Orphan: true, ConnectionGeneration: generation}:
+	default:
+		factory.service.Logger().Error("NHSK orphan stop queue is full", "battle_id", battleID, "ref", ref)
+	}
+}
+
+func (factory *BattleFactoryService) generationClosed(generation ConnectionGeneration) bool {
+	return generation != 0 && generation <= factory.closedThrough
+}
+
+func (factory *BattleFactoryService) isRootSource(source gsr.ServiceRef) bool {
+	return source.Node == factory.self.Node && source.ID == 0
+}
+
 // Stop stops the runner's command intake.
 func (*BattleFactoryService) Stop(context.Context) error { return nil }
 
 // Close releases the runner capability.
 func (factory *BattleFactoryService) Close() error {
-	if factory.stopCancel != nil {
-		factory.stopCancel()
+	if factory.runnerCancel != nil {
+		factory.runnerCancel()
 	}
-	if factory.stopDone != nil {
-		<-factory.stopDone
-	}
+	factory.runnerWG.Wait()
 	factory.service = nil
+	factory.self = gsr.ServiceRef{}
 	return nil
 }
 
+func (factory *BattleFactoryService) createLoop(ctx context.Context) {
+	defer factory.runnerWG.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task := <-factory.createQueue:
+			battle, err := NewBattleService(task.Config)
+			var service gsr.Service
+			if err == nil {
+				service, err = newBattleQuarantineBoundary(battle, battleQuarantineBoundaryConfig{Host: task.Request.Host, Factory: factory.self, ConnectionGeneration: task.Request.Request.ConnectionGeneration})
+			}
+			var ref gsr.ServiceRef
+			if err == nil {
+				ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", task.Request.Request.BattleID)), Service: service})
+			}
+			result := applyFactoryCreateResult{Task: task, Ref: ref, Err: errorText(err)}
+			if sendErr := factory.commands.Send(factory.self, applyFactoryCreateResultCommand, result); sendErr != nil && ref.ID != 0 {
+				_ = factory.stopper.Stop(context.Background(), ref)
+			}
+		}
+	}
+}
+
 func (factory *BattleFactoryService) stopLoop(ctx context.Context) {
-	defer factory.stopWG.Done()
-	defer close(factory.stopDone)
+	defer factory.runnerWG.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -694,18 +905,7 @@ func (factory *BattleFactoryService) stopLoop(ctx context.Context) {
 			if request.ReleaseQuarantined && (errors.Is(err, gsr.ErrServiceClosed) || errors.Is(err, gsr.ErrServiceNotFound)) {
 				err = nil
 			}
-			if factory.service != nil {
-				if !request.ReleaseQuarantined && isLifecycleDefect(err) && evidence.CommandSequence != 0 {
-					evidence.FailedAt = factory.service.Now()
-					evidence.FailedCommand = deleteBattleBarrierCommand
-					evidence.Stack = "Battle Stop failure: " + err.Error()
-					report := battleQuarantineReport{BattleID: request.BattleID, Ref: request.Ref, ConnectionGeneration: request.ConnectionGeneration, Evidence: evidence}
-					_ = factory.service.Send(request.Host, reportBattleQuarantinedCommand, cloneQuarantineReport(report))
-					_ = factory.service.Send(factory.service.Self(), reportBattleQuarantinedCommand, cloneQuarantineReport(report))
-				}
-				_ = factory.service.Send(factory.service.Self(), applyFactoryStopResultCommand, applyFactoryStopResult{BattleID: request.BattleID, Ref: request.Ref, Err: errorText(err)})
-				_ = factory.service.Send(request.Host, applyBattleStoppedCommand, applyBattleStopped{OperationID: request.OperationID, BattleID: request.BattleID, Ref: request.Ref, Err: errorText(err)})
-			}
+			_ = factory.commands.Send(factory.self, applyFactoryStopResultCommand, applyFactoryStopResult{Request: request, Err: errorText(err), Defect: isLifecycleDefect(err), Evidence: evidence})
 		}
 	}
 }
@@ -714,8 +914,9 @@ func isLifecycleDefect(err error) bool {
 	return errors.Is(err, gsr.ErrStopTimeout) || errors.Is(err, gsr.ErrServiceFailed) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// startFactoryStopRunner owns the bounded lifecycle worker outside the Service Handler.
-func startFactoryStopRunner(factory *BattleFactoryService, ctx context.Context) {
+// startFactoryLifecycleRunners owns fixed create/stop workers outside Service handlers.
+func startFactoryLifecycleRunners(factory *BattleFactoryService, ctx context.Context) {
+	go factory.createLoop(ctx)
 	go factory.stopLoop(ctx)
 }
 

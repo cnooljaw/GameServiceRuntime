@@ -1157,6 +1157,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-100；TODO CARD-013、CARD-028。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
 
+### 4.57 NHSK Battle 异步创建与 Legacy 同号替换
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将 `Runtime.CreateService + Init` 从 Factory Mailbox Handler 移到组合根拥有的固定有界 lifecycle worker；Host 以 OperationID、BattleID 和 ConnectionGeneration 收敛结果，并补齐活动同号 Legacy 先 Stop 后重建。 |
+| GSR 文件/测试 | `examples/nhsk/host.go`、`host_test.go`；单 worker 测试证明阻塞 Create 不阻塞 Host Resolve，相同请求只合并到同一 Operation，不同 payload 拒绝，断代后完成的创建作为孤儿 Stop，活动同号替换产生新完整 ServiceRef；定向 race 重复测试通过。 |
+| 参考入口 | `gamelogic/app/handler/game.go:ReqNewGame.Execute`、`gamelogic/internal/roundmanager/round_manager.go:CreateNewRound/RemoveRound`、`gamelogic/app/controller/game_master_controller.go:createGMDisconnectedCallback`、`gamemaster/app/handler/gamehandler/new_game.go:ReqGl2GmNewGame.Execute`、`gamemaster/app/controller/game_controller.go:OnDisconnected`。 |
+| 参考测试/配置/录包 | 参考 `CreateNewRound` 在同号存在时先从 map 删除并 `ClearRound`，随后创建新 Round；NEW_GAME 处理完成后异步发送 `ReqGL2GMNewGame`，GM 只在 `Res!=0` 后 `MakeGameReady`。旧 GL 断链回调仅记日志，旧 GM 则结束该 GL 地址关联 Round 并删除 pusher。 |
+| Legacy MessageID | `0x86bf NEW_GAME` 与 `0x86c0 ACK` 布局不变。ACK 成功仍只在 Host 已绑定可 Resolve 的完整 BattleRef 后产生；创建、替换或断代失败返回 `Res=0`。 |
+| 输入与校验 | Host 只接受非零 BattleID；非零 ConnectionGeneration 只允许本节点 Runtime 根代表 Legacy adapter 提交，Cluster Service 伪造时稳定拒绝。Creating 中仅同 ConnectionGeneration、BattleID、IsNewbie 的完全相同请求复用 OperationID，冲突请求不取消当前创建。Factory 同时拒绝已在创建或已活动的同号任务。结果必须匹配当前 OperationID、BattleID 和 ConnectionGeneration。 |
+| 权威状态变化 | Host Mailbox 独占 `Creating/Stopping/Active/Quarantined`、请求与 Operation 映射；Factory Mailbox独占 in-flight 和 Battle Ref 表。worker 只执行 Create/Stop 并把不可变结果 Command 投回 Factory，不在 Handler 外读取或修改 Service 状态，也不保存使用 `ServiceContext`。 |
+| Timer/Timeline | 不新增 Timer。两个固定 worker 分别串行执行 Create 与 Stop，队列上限均为 10000；Factory Close 取消并等待真实返回。 |
+| 输出目标与顺序 | 普通创建为 Host 保存 Creating→worker Create/Init→Factory result→Host Active→Legacy ACK；Legacy 同号异常路径为 Host Stopping→Battle 删除屏障→Runtime Stop 完成→同 Operation 转 Creating→新 Ref Active→ACK。旧 Ref 完全停止前不创建新同号 Service。 |
+| 生命周期结果 | 连接断代使用单调 `closedThrough` 水位拒绝该代及更旧的迟到创建结果；已经创建但不能再绑定的实例进入孤儿 Stop。Cluster generation=0 不获得同号替换能力，活动编号仍返回 `ErrBattleIDInUse`。Quarantined 不进入替换。 |
+| 已一致 | NEW_GAME 完成后才返回创建结果、同号异常请求替换旧 Round、GM 只在成功 ACK 后继续初始化这三项可观察行为与参考一致。 |
+| 有意偏差 | 参考在网络 Handler 中同步创建并直接清理同号对象；新实现按 D-016/D-029 让 Runtime 生命周期只在外部有界 worker 执行，并等待旧完整 Ref 真正 Stop。参考 GL 断链不清本地 Round，新实现按 D-037 主动收敛未隔离的旧代际 Battle；Quarantined 按 D-038 保留。 |
+| 发现遗漏 | 本切片未发现新的业务或 wire 遗漏。代表性连接整包 golden、100,000 次 churn 与真实旧 GM 联调仍属于最终验收门禁。 |
+| 结论 | 异步创建、结果 fencing、断代孤儿回收和 Legacy 活动同号替换 **已按 RFC 完成**；参考同步对象管理差异均已有明确裁决。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-016、D-022、D-023、D-029、D-037、D-038；TODO CARD-016。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

@@ -168,6 +168,8 @@ type SetPlayerAutoStateRequest struct {
 | `0x0410f008` | `legacyContinue` | Legacy no-op ordering compatibility |
 | `0x0410f009` | `applyDiagnosticExportResult` | diagnostic runner result |
 | `0x0410f00b` | `deliverGameOutputBatch` | GameOutputService |
+| `0x0410f019` | `applyFactoryStopResult` | lifecycle stop worker result |
+| `0x0410f01b` | `applyFactoryCreateResult` | lifecycle create worker result |
 
 Legacy bridge 必须使用显式映射表。Envelope `0x7402`、`0x8605`、`0x8644` 不是 Command，不分配 CommandID。Legacy TCP 不等待 GSR Reply；它使用 `Send`。Cluster 调用者需要当前结果时可以对表中标记 Send/Call 的同一 Command 使用 `Call`。
 
@@ -229,6 +231,8 @@ type CreateBattleOperation struct {
 ```
 
 `BeginCreateBattle` 只在 Host Mailbox 内检查编号、容量和连接代际，并提交有界 `BattleLifecycleRunner`。Runner 在 Handler 外执行 `Runtime.CreateService` 和 Init，再以 `applyBattleCreated` 返回结果。Host 进入 Active 并绑定完整 Ref 后，Legacy bridge 才可以发送 `NEW_GAME ACK Res=1`。
+
+`ConnectionGeneration=0` 表示普通 Cluster 创建。非零值只允许本节点 Runtime 根代表 Legacy adapter 提交；普通 Service 或远程节点不能通过伪造非零代际获得 Legacy 同号替换能力。Factory 的输出绑定、解绑和断代停止私有 Command 同样只接受本节点 Runtime 根来源。
 
 `ResolveBattle` 只返回 Active 条目的当前 Ref。Creating、Stopping、Quarantined 和不存在条目分别返回稳定错误。Cluster 调用者解析后直接向 Battle Ref `Send`/`Call`，Host 不代理玩法 Command。
 
@@ -624,6 +628,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `DEL_GAME` 的正常路径先把 Host 绑定置为 Stopping，再由固定生命周期 runner Call Battle 删除屏障；屏障后禁止输出并 fence 迟到 AI/回放/结算结果，随后 Runtime Stop，只有真实 Stop 成功才删除绑定。`0x7218 BROADCAST_USE_PROP` 只作为 `RecordPropUse` 事实追加旧 Prop 回放节点。
 - 每个 Battle 由领域隔离边界包装：输入在委派前复制为有序 Record，成功后替换最后稳定 Snapshot；Handler/Timer panic 先投递不可变证据再让 Core 按既有失败语义注销 Service。Host 将原 BattleID/Ref 转为 Quarantined 并继续占用容量，Resolve 返回 `ErrBattleQuarantined`；GM 断线和同号创建不会覆盖它，DEL_GAME 只记录首次/最近时间、次数和连接代际。正常删除前的诊断捕获还允许 Factory 在 Stop timeout 时保留相同现场。
 - 固定 `DiagnosticRunner` 在 Handler 外补入 `Runtime.Inspect()` 并原子发布 `manifest.json`、`snapshot.json`、`commands.jsonl`、`panic.txt`、`runtime-inspection.json` 和 `receipt.json`；文件、临时目录和父目录均完成同步后才返回绑定 BattleID、完整 Ref 和 SHA-256 摘要的 receipt。节点本地 Unix socket 与 `cmd/nhskdiag` 提供 list/retry/release/cleanup；私有管理 Command 不进入 Legacy 或 Cluster codec。release 只接受完整匹配 receipt，释放后保留材料，cleanup 是独立显式动作。进程健康已区分 GM NotReady、Ready 和存在隔离桌的 Degraded。
+- Host 创建已由 Factory 的固定有界 lifecycle worker 异步执行：单 worker Runtime 下 Create/Init 不阻塞 Host Mailbox；结果以 OperationID、BattleID、完整 Ref 和 ConnectionGeneration 回到 Factory/Host Mailbox。Creating 同请求合并、冲突请求拒绝，断代迟到实例作为孤儿 Stop；Legacy 活动同号请求先完全 Stop 旧 Ref，再以同一 Operation 创建新 Ref，Cluster 与 Quarantined 不具备替换能力。
 
 尚未完成的 RFC 契约包括代表性整包 golden、100,000 次生命周期 churn、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、MATCH_STOP、正常 DEL_GAME 屏障、Quarantine/诊断、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
