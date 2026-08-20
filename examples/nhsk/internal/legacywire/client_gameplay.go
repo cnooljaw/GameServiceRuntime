@@ -16,6 +16,8 @@ const (
 	ClientGameplayReconnect ClientGameplayMessage = ClientGameplayMessage(messageGameUserReconnect)
 	// ClientGameplayScene identifies 0x720D GAME_SCENE.
 	ClientGameplayScene ClientGameplayMessage = ClientGameplayMessage(messageGameScene)
+	// ClientGameplayPropUse identifies GM's replay-only 0x7218 fact.
+	ClientGameplayPropUse ClientGameplayMessage = ClientGameplayMessage(messageGameBroadcastUseProp)
 )
 
 // DecodeClientGameplayMessage reads the MessageID from one complete client payload.

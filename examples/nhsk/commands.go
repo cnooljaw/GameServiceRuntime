@@ -109,6 +109,8 @@ const (
 	HostOperationCompleted HostOperationPhase = "completed"
 	// HostOperationFailed means the requested lifecycle action failed.
 	HostOperationFailed HostOperationPhase = "failed"
+	// HostOperationStopping keeps the binding reserved until Runtime Stop returns.
+	HostOperationStopping HostOperationPhase = "stopping"
 )
 
 // CreateBattleOperation is an independent Host operation projection.
@@ -248,6 +250,15 @@ type SetPlayerOfflineRequest struct {
 	Offline bool
 }
 
+// RecordPropUseRequest is a successful external prop fact retained only in
+// the current subgame replay.
+type RecordPropUseRequest struct {
+	SenderID  uint32
+	PropID    string
+	SendCount uint32
+	TargetIDs []uint32
+}
+
 // ReconnectPlayerRequest identifies the player receiving a reconnect or scene restore.
 type ReconnectPlayerRequest struct{ Player game.PlayerID }
 
@@ -270,16 +281,14 @@ type SettlementPlayerResult struct {
 	TeamID   uint32
 }
 
-// CompleteSettlementRequest is the terminal settlement payload. Gains and
-// Players are populated by the legacy adapter; Scores remains a compatibility
-// fallback for the earlier minimal Cluster call shape.
+// CompleteSettlementRequest is the terminal settlement payload shared by the
+// Legacy adapter and direct Cluster callers.
 type CompleteSettlementRequest struct {
 	Success    bool
 	ResultType int32
 	TeamCount  int32
 	Gains      []SettlementGain
 	Players    []SettlementPlayerResult
-	Scores     [4]int32
 }
 
 // NHSKBattleSnapshot is the read-only state projection exposed by a Battle.

@@ -156,6 +156,31 @@ func TestMapLegacyGameplayCommandLeavesGameplayValidationToBattle(t *testing.T) 
 	}
 }
 
+func TestMapLegacyGameplayCommandMapsPropFact(t *testing.T) {
+	prop := []byte("flower")
+	data := make([]byte, 52+len(prop)+8)
+	binary.LittleEndian.PutUint32(data[12:16], 0x7218)
+	binary.LittleEndian.PutUint32(data[20:24], uint32(len(data)))
+	binary.LittleEndian.PutUint32(data[24:28], 2)
+	binary.LittleEndian.PutUint32(data[28:32], 1001)
+	binary.LittleEndian.PutUint32(data[32:36], 52)
+	binary.LittleEndian.PutUint32(data[36:40], uint32(len(prop)))
+	binary.LittleEndian.PutUint32(data[40:44], 2)
+	binary.LittleEndian.PutUint32(data[44:48], uint32(52+len(prop)))
+	binary.LittleEndian.PutUint32(data[48:52], 8)
+	copy(data[52:], prop)
+	binary.LittleEndian.PutUint32(data[52+len(prop):], 1002)
+	binary.LittleEndian.PutUint32(data[56+len(prop):], 1002)
+	command, err := mapLegacyGameplayCommand(1001, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := command.Payload.(RecordPropUseRequest)
+	if command.ID != RecordPropUseCommand || request.SenderID != 1001 || request.PropID != "flower" || request.SendCount != 2 || !reflect.DeepEqual(request.TargetIDs, []uint32{1002, 1002}) {
+		t.Fatalf("command = %#v", command)
+	}
+}
+
 func TestMapLegacyGameplayCommandRejectsInvalidIdentityOrPayload(t *testing.T) {
 	outCard := decodeLegacyMapperGolden(t, "00000000000000000000000001770000000000003700000003130000000000000000000000000000000000000000000000000205000000")
 	malformedOutCard := append([]byte(nil), outCard[:54]...)

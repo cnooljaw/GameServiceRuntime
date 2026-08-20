@@ -63,6 +63,8 @@ const (
 	ReplayMoveCatchPoint ReplayMoveKind = "CatchPoint"
 	// ReplayMoveTurnEnd records the cumulative seat points after a trick.
 	ReplayMoveTurnEnd ReplayMoveKind = "TurnEnd"
+	// ReplayMoveProp records an already-authorized external prop fact.
+	ReplayMoveProp ReplayMoveKind = "Prop"
 )
 
 // ReplayMoveSource identifies the source attributed to one replay event. AI and
@@ -98,6 +100,9 @@ type ReplayMove struct {
 	CardType         string
 	Source           ReplayMoveSource
 	MoveMilliseconds uint32
+	PropID           string
+	PropCount        uint32
+	TargetIDs        []uint32
 }
 
 // Valid reports whether the start snapshot contains a complete four-seat
@@ -220,6 +225,7 @@ func cloneReplayHands(hands [4][]byte) [4][]byte {
 func cloneReplayMove(move ReplayMove) ReplayMove {
 	move.Hands = cloneReplayHands(move.Hands)
 	move.Cards = append([]byte(nil), move.Cards...)
+	move.TargetIDs = append([]uint32(nil), move.TargetIDs...)
 	return move
 }
 

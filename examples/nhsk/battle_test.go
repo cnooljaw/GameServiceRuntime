@@ -405,7 +405,7 @@ func TestBattleRequiresSettlementAfterASeatRunsOut(t *testing.T) {
 	if service.phase != NHSKBattleAwaitingSettlement {
 		t.Fatalf("phase after partner final card = %s", service.phase)
 	}
-	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: true, Scores: [4]int32{1, -1, 1, -1}}}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: successfulSettlementForTest(service)}); err != nil {
 		t.Fatal(err)
 	}
 	if result := ctx.reply.(SettlementCommandResult); !result.Accepted || service.phase != NHSKBattleFinished {
@@ -475,7 +475,7 @@ func TestBattleFencesReplayCompletionBeforeRoundStatAndGameOver(t *testing.T) {
 	service.phase = NHSKBattleAwaitingSettlement
 	output.sends = nil
 	ctx := &battleTestCommandContext{}
-	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: true, Scores: [4]int32{1, -1, 1, -1}}}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: successfulSettlementForTest(service)}); err != nil {
 		t.Fatal(err)
 	}
 	if service.phase != NHSKBattleFinalizingReplay || len(output.sends) != 1 || len(submitter.artifacts) != 1 {
@@ -706,7 +706,7 @@ func TestBattlePartnerPairFinishShowsAllRemainingHands(t *testing.T) {
 	}
 }
 
-func TestBattleForceFinishEmitsGameOverThenRoundOver(t *testing.T) {
+func TestBattleForceFinishUsesLocalResultAndEmitsNoticeAfterGameOver(t *testing.T) {
 	service, err := NewBattleService(NHSKBattleConfig{
 		ID:                   11,
 		MatchID:              1,
@@ -738,19 +738,28 @@ func TestBattleForceFinishEmitsGameOverThenRoundOver(t *testing.T) {
 	if err := service.Handle(ctx, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(output.sends) != 2 {
-		t.Fatalf("force finish outputs = %d, want 2", len(output.sends))
+	if len(output.sends) != 5 {
+		t.Fatalf("force finish outputs = %d, want Show/GameResult/RoundStat/GameOver/Notice", len(output.sends))
 	}
-	gameOver, ok := output.sends[0].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	show := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	result := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if show.Kind != OutputShowCards || result.Kind != OutputGameResult {
+		t.Fatalf("force client outputs = %#v / %#v", show, result)
+	}
+	roundStat := output.sends[2].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if roundStat.Kind != OutputRoundStat {
+		t.Fatalf("third force finish output = %#v, want RoundStat", roundStat)
+	}
+	gameOver, ok := output.sends[3].(GameOutputBatch).Outputs[0].(GameOverOutput)
 	if !ok {
-		t.Fatalf("first force finish output = %#v, want GameOverOutput", output.sends[0])
+		t.Fatalf("fourth force finish output = %#v, want GameOverOutput", output.sends[3])
 	}
 	if gameOver.Reason != int32(GameOverReasonSuccess) || gameOver.IsGameOver {
 		t.Fatalf("force finish GameOver = %#v, want success subgame", gameOver)
 	}
-	notice, ok := output.sends[1].(GameOutputBatch).Outputs[0].(NoticeRoundOverOutput)
+	notice, ok := output.sends[4].(GameOutputBatch).Outputs[0].(NoticeRoundOverOutput)
 	if !ok {
-		t.Fatalf("second force finish output = %#v, want NoticeRoundOverOutput", output.sends[1])
+		t.Fatalf("fifth force finish output = %#v, want NoticeRoundOverOutput", output.sends[4])
 	}
 	if notice.EndReason != int32(GameOverReasonSuccess) {
 		t.Fatalf("force finish Notice = %#v, want success reason", notice)
@@ -784,6 +793,94 @@ func TestBattleForceFinishBeforePlayingIsNoop(t *testing.T) {
 	}
 	if result, ok := ctx.reply.(CommandResult); !ok || !result.Accepted {
 		t.Fatalf("pre-playing force finish reply = %#v, want accepted no-op", ctx.reply)
+	}
+}
+
+func TestBattleForceFinishFencesSettlementAndDefersNoticeUntilReplay(t *testing.T) {
+	replay := &recordingReplaySubmitter{}
+	service, err := NewBattleService(NHSKBattleConfig{ID: 55, MatchID: 1, ProductID: NHSKDescriptor.GameID, OutputRef: gsr.ServiceRef{Node: "test", ID: 2}, ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3)), Clock: &nhskTestClock{now: time.Unix(1, 0)}, ReplaySubmitter: replay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	for _, command := range []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 55, ProductID: NHSKDescriptor.GameID, MatchID: 1}}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	} {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service.phase = NHSKBattleAwaitingSettlement
+	output.sends = nil
+	if err := service.Handle(ctx, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleFinalizingReplay || len(replay.artifacts) != 1 || len(output.sends) != 2 {
+		t.Fatalf("force pending state phase=%s artifacts=%d outputs=%d", service.phase, len(replay.artifacts), len(output.sends))
+	}
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: false}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.sends) != 2 {
+		t.Fatal("late settlement produced output")
+	}
+	artifact := replay.artifacts[0]
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.sends) != 5 {
+		t.Fatalf("final force outputs = %d, want Show/Result/RoundStat/GameOver/Notice", len(output.sends))
+	}
+	if _, ok := output.sends[4].(GameOutputBatch).Outputs[0].(NoticeRoundOverOutput); !ok {
+		t.Fatalf("last output = %#v", output.sends[4])
+	}
+}
+
+func TestBattleRecordsPropFactOnlyDuringWritableSubgame(t *testing.T) {
+	service := newPlayingBattleWithSeed(t, 53, 3)
+	request := RecordPropUseRequest{SenderID: 1, PropID: "flower", SendCount: 2, TargetIDs: []uint32{2, 2, 1}}
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: RecordPropUseCommand, Payload: request}); err != nil {
+		t.Fatal(err)
+	}
+	request.TargetIDs[0] = 99
+	moves := service.replayDocument.Moves()
+	move := moves[len(moves)-1]
+	if move.Kind != ReplayMoveProp || move.UserID != 1 || move.PropID != "flower" || move.PropCount != 2 || !reflect.DeepEqual(move.TargetIDs, []uint32{2, 2, 1}) {
+		t.Fatalf("prop move = %#v", move)
+	}
+	before := len(moves)
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: RecordPropUseCommand, Payload: RecordPropUseRequest{SenderID: 999}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(service.replayDocument.Moves()) != before {
+		t.Fatal("unknown sender changed replay")
+	}
+}
+
+func TestBattleDeleteBarrierFencesOutputsAndLateResults(t *testing.T) {
+	service, output := newBattleForTest(t, 54, mathrand.New(mathrand.NewSource(3)), &nhskTestClock{now: time.Unix(1, 0)})
+	before := len(output.sends)
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: deleteBattleBarrierCommand, Payload: deleteBattleBarrier{BattleID: 54}}); err != nil {
+		t.Fatal(err)
+	}
+	if !service.deleting || service.phase != NHSKBattleStopping || !ctx.reply.(CommandResult).Accepted {
+		t.Fatalf("barrier state = deleting:%t phase:%s reply:%#v", service.deleting, service.phase, ctx.reply)
+	}
+	player := service.bySeat[service.activeSeat]
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: player, Cards: []byte{service.hands[player][0]}, VerifyCode: service.verifyCode}})
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}})
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: aiResult{BattleID: 54}})
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyReplayResultCommand, Payload: replayWriteResult{BattleID: 54}})
+	if len(output.sends) != before {
+		t.Fatalf("post-barrier outputs = %d, want %d", len(output.sends), before)
 	}
 }
 
@@ -1045,6 +1142,14 @@ func newBattleForTestWithOptions(t *testing.T, id game.BattleID, random NHSKRand
 
 type nhskTestClock struct {
 	now time.Time
+}
+
+func successfulSettlementForTest(service *NHSKBattleService) CompleteSettlementRequest {
+	players := make([]SettlementPlayerResult, 4)
+	for seat, playerID := range service.bySeat {
+		players[seat] = SettlementPlayerResult{PlayerID: service.players[playerID].UserID, TeamID: uint32(seat)}
+	}
+	return CompleteSettlementRequest{Success: true, ResultType: 1, TeamCount: 4, Gains: []SettlementGain{{PayTeamID: 1, GainTeamID: 0, Score: 1}, {PayTeamID: 3, GainTeamID: 2, Score: 1}}, Players: players}
 }
 
 func (clock *nhskTestClock) Now() time.Time { return clock.now }

@@ -18,23 +18,24 @@ const (
 	messageGLToGMGame        uint32 = 0x8644
 	messageGLToGMGameStarted uint32 = 0x8654
 
-	messageNHSKBase            uint32 = 0x7600
-	messageGameUserStateChange uint32 = 0x720a
-	messageGameUserReconnect   uint32 = 0x7208
-	messageGameScene           uint32 = 0x720d
-	messageGameStart           uint32 = 0x7205
-	messageNHSKGameInfo               = messageNHSKBase + 0x001
-	messageNHSKDeal                   = messageNHSKBase + 0x002
-	messageNHSKAskOutCard             = messageNHSKBase + 0x003
-	messageNHSKOutCardInfo            = messageNHSKBase + 0x004
-	messageNHSKTurnEnd                = messageNHSKBase + 0x005
-	messageNHSKShowCards              = messageNHSKBase + 0x006
-	messageNHSKGameResult             = messageNHSKBase + 0x007
-	messageNHSKGameScene              = messageNHSKBase + 0x008
-	messageNHSKOutCardResult          = messageNHSKBase + 0x009
-	messageNHSKCardActionWatch        = messageNHSKBase + 0x011
-	messageNHSKOutCard                = messageNHSKBase + 0x101
-	messageNHSKCardAction             = messageNHSKBase + 0x102
+	messageNHSKBase             uint32 = 0x7600
+	messageGameUserStateChange  uint32 = 0x720a
+	messageGameUserReconnect    uint32 = 0x7208
+	messageGameScene            uint32 = 0x720d
+	messageGameBroadcastUseProp uint32 = 0x7218
+	messageGameStart            uint32 = 0x7205
+	messageNHSKGameInfo                = messageNHSKBase + 0x001
+	messageNHSKDeal                    = messageNHSKBase + 0x002
+	messageNHSKAskOutCard              = messageNHSKBase + 0x003
+	messageNHSKOutCardInfo             = messageNHSKBase + 0x004
+	messageNHSKTurnEnd                 = messageNHSKBase + 0x005
+	messageNHSKShowCards               = messageNHSKBase + 0x006
+	messageNHSKGameResult              = messageNHSKBase + 0x007
+	messageNHSKGameScene               = messageNHSKBase + 0x008
+	messageNHSKOutCardResult           = messageNHSKBase + 0x009
+	messageNHSKCardActionWatch         = messageNHSKBase + 0x011
+	messageNHSKOutCard                 = messageNHSKBase + 0x101
+	messageNHSKCardAction              = messageNHSKBase + 0x102
 )
 
 type bsHeader struct {

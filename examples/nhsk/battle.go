@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	nhskBattleTimerCommand   gsr.CommandID = 0x0410f003
-	applyReplayResultCommand gsr.CommandID = 0x0410f006
-	applyAIResultCommand     gsr.CommandID = 0x0410f007
+	nhskBattleTimerCommand     gsr.CommandID = 0x0410f003
+	applyReplayResultCommand   gsr.CommandID = 0x0410f006
+	applyAIResultCommand       gsr.CommandID = 0x0410f007
+	deleteBattleBarrierCommand gsr.CommandID = 0x0410f008
 )
 
 const (
@@ -70,6 +71,8 @@ const (
 	NHSKBattleFinalizingReplay NHSKBattlePhase = "finalizing_replay"
 	// NHSKBattleFinished is the terminal phase for the example Battle.
 	NHSKBattleFinished NHSKBattlePhase = "finished"
+	// NHSKBattleStopping has crossed the DEL_GAME Mailbox barrier and cannot emit.
+	NHSKBattleStopping NHSKBattlePhase = "stopping"
 )
 
 // NHSKBattleConfig configures one Battle Service before it is created by a factory.
@@ -157,12 +160,14 @@ type NHSKBattleService struct {
 	replaySubmitter      ReplaySubmitter
 	replayTimeout        time.Duration
 	replayFinalized      bool
+	noticeAfterReplay    bool
 	aiSubmitter          AISubmitter
 	random               NHSKRandomSource
 	clock                NHSKClock
 	rules                NHSKConfig
 	customDeckCatalog    CustomDeckCatalog
 	outedCards           [][]byte
+	deleting             bool
 }
 
 type battleInitialization struct {
@@ -239,6 +244,12 @@ func (battle *NHSKBattleService) Init(service gsr.ServiceContext) error {
 
 // Handle applies one Command inside the Battle Mailbox.
 func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Command) error {
+	if command.ID == deleteBattleBarrierCommand {
+		return battle.deleteBarrier(ctx, command.Payload)
+	}
+	if battle.deleting {
+		return nil
+	}
 	switch command.ID {
 	case InitializeBattleCommand:
 		return battle.initialize(ctx, command.Payload)
@@ -268,6 +279,8 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.preview(ctx, command.Payload)
 	case RequestGameSceneCommand:
 		return battle.scene(ctx, command.Payload)
+	case RecordPropUseCommand:
+		return battle.recordPropUse(command.Payload)
 	case ForceFinishSubgameCommand:
 		return battle.forceFinish(ctx, command.Payload)
 	case CompleteSettlementCommand:
@@ -282,6 +295,51 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.applyAIResult(ctx, command.Payload)
 	default:
 		return gsr.ErrUnknownCommand
+	}
+}
+
+type deleteBattleBarrier struct{ BattleID game.BattleID }
+
+func (battle *NHSKBattleService) deleteBarrier(ctx gsr.CommandContext, payload any) error {
+	request, ok := payload.(deleteBattleBarrier)
+	if !ok || request.BattleID != battle.id {
+		return gsr.ErrInvalidClusterEnvelope
+	}
+	if !battle.deleting {
+		battle.deleting = true
+		battle.phase = NHSKBattleStopping
+		battle.turnRevision++
+		battle.deadlineAt = time.Time{}
+		battle.noticeAfterReplay = false
+	}
+	return battle.reply(ctx, CommandResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) recordPropUse(payload any) error {
+	request, ok := payload.(RecordPropUseRequest)
+	if !ok || (battle.phase != NHSKBattlePlaying && battle.phase != NHSKBattleAwaitingSettlement) || battle.replayDocument.start.BattleID == 0 {
+		battle.observeDroppedProp("state")
+		return nil
+	}
+	found := false
+	for _, player := range battle.players {
+		if player.UserID == request.SenderID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		battle.observeDroppedProp("sender")
+		return nil
+	}
+	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveProp, UserID: request.SenderID, PropID: request.PropID, PropCount: request.SendCount, TargetIDs: append([]uint32(nil), request.TargetIDs...), Source: ReplayMoveSourceUnknown})
+	return nil
+}
+
+func (battle *NHSKBattleService) observeDroppedProp(cause string) {
+	if battle.service != nil {
+		battle.service.Metrics().Inc("nhsk_prop_fact_dropped_total")
+		battle.service.Logger().Warn("NHSK prop fact dropped", "battle_id", battle.id, "cause", cause)
 	}
 }
 
@@ -428,6 +486,7 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	startedAt := battle.clock.Now()
 	battle.resetTrick()
 	battle.finished = [4]bool{}
+	battle.noticeAfterReplay = false
 	battle.ranks = [4]uint8{}
 	battle.capturedPoints = [4]uint16{}
 	battle.moveCount = [4]uint32{}
@@ -797,19 +856,26 @@ func (battle *NHSKBattleService) forceFinish(ctx gsr.CommandContext, payload any
 		}
 	}
 	if battle.phase == NHSKBattlePlaying || battle.phase == NHSKBattleAwaitingSettlement {
+		battle.turnRevision++
+		battle.deadlineAt = time.Time{}
 		battle.phase = NHSKBattleFinished
 		battle.revision++
-		// The old GameLogic emits GAME_OVER before the force-round-over notice.
-		// Keep the two typed outputs in the same Mailbox order; the output owner
-		// then serializes them onto the single GM connection.
-		if err := battle.emit(ctx, GameOverOutput{
-			Reason:     int32(GameOverReasonSuccess),
-			ReplayName: battle.currentReplayName(),
-			IsGameOver: false,
-		}); err != nil {
+		if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputShowCards, Payload: battle.showCardsPayload(-1, true)}); err != nil {
 			return err
 		}
-		if err := battle.emit(ctx, NoticeRoundOverOutput{EndReason: int32(GameOverReasonSuccess)}); err != nil {
+		result := calculateSubgameResult(GameOverReasonSuccess, battle.ranks, battle.capturedPoints, battle.settlementAutomated())
+		scores := result.multiples
+		for seat, playerID := range battle.bySeat {
+			player := battle.players[playerID]
+			player.Score = scores[seat]
+			battle.players[playerID] = player
+		}
+		if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameResult, Payload: battle.gameResultPayload(GameOverReasonSuccess, scores, result)}); err != nil {
+			return err
+		}
+		battle.noticeAfterReplay = true
+		battle.finalizeReplay(result, scores)
+		if err := battle.beginReplayFinalization(ctx); err != nil {
 			return err
 		}
 	}
@@ -942,6 +1008,12 @@ func (battle *NHSKBattleService) finishReplay(ctx gsr.CommandContext) error {
 	if err := battle.emit(ctx, GameOverOutput{Reason: int32(end.result.reason), ReplayName: battle.currentReplayName(), IsGameOver: false, Players: players}); err != nil {
 		return err
 	}
+	if battle.noticeAfterReplay {
+		battle.noticeAfterReplay = false
+		if err := battle.emit(ctx, NoticeRoundOverOutput{EndReason: int32(GameOverReasonSuccess)}); err != nil {
+			return err
+		}
+	}
 	battle.phase = NHSKBattleFinished
 	return nil
 }
@@ -1002,9 +1074,6 @@ type settlementPlan struct {
 func (battle *NHSKBattleService) settlementPlan(request CompleteSettlementRequest) (settlementPlan, error) {
 	if !request.Success {
 		return settlementPlan{failed: true}, nil
-	}
-	if len(request.Gains) == 0 && len(request.Players) == 0 && request.TeamCount == 0 {
-		return settlementPlan{scores: request.Scores}, nil
 	}
 	if request.TeamCount != 4 || len(request.Players) != 4 {
 		return settlementPlan{}, fmt.Errorf("%w: settlement player matrix", errBattleInvalidRequest)
@@ -1669,7 +1738,7 @@ func (battle *NHSKBattleService) reply(ctx gsr.CommandContext, value any) error 
 }
 
 func (battle *NHSKBattleService) emit(ctx gsr.CommandContext, output GameOutput) error {
-	if battle.service == nil || battle.outputRef.ID == 0 || battle.matchID == 0 || battle.productID == 0 {
+	if battle.deleting || battle.service == nil || battle.outputRef.ID == 0 || battle.matchID == 0 || battle.productID == 0 {
 		return nil
 	}
 	batch := GameOutputBatch{BattleID: battle.id, MatchID: battle.matchID, ProductID: battle.productID, Ref: ctx.Self(), ConnectionGeneration: battle.connectionGeneration, Outputs: []GameOutput{output}}

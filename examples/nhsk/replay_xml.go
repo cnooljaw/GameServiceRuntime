@@ -301,6 +301,11 @@ func buildReplayMovesNode(document ReplayDocument) (*replayXMLNode, error) {
 			node.addAttribute("Point", strconv.FormatUint(uint64(move.Point), 10))
 		case ReplayMoveTurnEnd:
 			node.addAttribute("Scores", replayScoresString(move.Scores))
+		case ReplayMoveProp:
+			node.addAttribute("Count", strconv.FormatUint(uint64(move.PropCount), 10))
+			node.addAttribute("PropID", move.PropID)
+			node.addAttribute("TargetID", replayTargetIDsString(move.TargetIDs))
+			node.addAttribute("dwSenderID", strconv.FormatUint(uint64(move.UserID), 10))
 		default:
 			return nil, fmt.Errorf("nhsk: unsupported replay move kind %q", move.Kind)
 		}
@@ -314,6 +319,14 @@ func buildReplayMovesNode(document ReplayDocument) (*replayXMLNode, error) {
 		moves.children = append(moves.children, node)
 	}
 	return moves, nil
+}
+
+func replayTargetIDsString(targets []uint32) string {
+	parts := make([]string, len(targets))
+	for index, target := range targets {
+		parts[index] = strconv.FormatUint(uint64(target), 10)
+	}
+	return strings.Join(parts, ",")
 }
 
 func replaySourceAttribute(source ReplayMoveSource) (string, error) {

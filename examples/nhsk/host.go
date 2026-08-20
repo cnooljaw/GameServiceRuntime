@@ -178,9 +178,13 @@ func (host *NHSKHostService) delete(ctx gsr.CommandContext, payload any) error {
 	if !exists || (request.Ref.ID != 0 && request.Ref != ref) {
 		return host.reply(ctx, HostCommandResult{Rejection: gsr.ErrServiceNotFound.Error()})
 	}
-	host.states[request.BattleID] = HostOperationCreating
+	if host.states[request.BattleID] == HostOperationStopping {
+		return host.reply(ctx, HostCommandResult{Accepted: true})
+	}
+	host.states[request.BattleID] = HostOperationStopping
 	host.nextOp++
 	if err := host.service.Send(host.factory, stopBattleInternalCommand, stopBattleInternal{OperationID: host.nextOp, BattleID: request.BattleID, Ref: ref, Host: ctx.Self()}); err != nil {
+		host.states[request.BattleID] = HostOperationCompleted
 		return host.reply(ctx, HostCommandResult{Rejection: err.Error()})
 	}
 	return host.reply(ctx, HostCommandResult{Accepted: true, OperationID: host.nextOp})
@@ -220,10 +224,13 @@ func (host *NHSKHostService) applyStopped(ctx gsr.CommandContext, payload any) e
 	}
 	if ref, exists := host.active[result.BattleID]; !exists || ref != result.Ref {
 		return nil
-	} else {
-		delete(host.active, result.BattleID)
-		delete(host.states, result.BattleID)
 	}
+	if result.Err != "" {
+		host.states[result.BattleID] = HostOperationCompleted
+		return nil
+	}
+	delete(host.active, result.BattleID)
+	delete(host.states, result.BattleID)
 	return nil
 }
 
@@ -250,8 +257,9 @@ func (host *NHSKHostService) reply(ctx gsr.CommandContext, value any) error {
 	return nil
 }
 
-// BattleStopper stops an exact Battle ServiceRef from a lifecycle runner.
+// BattleStopper reaches the exact Battle Mailbox before stopping its ServiceRef.
 type BattleStopper interface {
+	game.CommandRuntime
 	Stop(context.Context, gsr.ServiceRef) error
 }
 
@@ -259,6 +267,7 @@ type BattleStopper interface {
 type BattleFactoryService struct {
 	creator          game.ServiceCreator
 	stopper          BattleStopper
+	commands         game.CommandRuntime
 	service          gsr.ServiceContext
 	stopQueue        chan stopBattleInternal
 	stopDone         chan struct{}
@@ -293,7 +302,7 @@ func NewBattleFactoryService(creator game.ServiceCreator, stopper BattleStopper,
 	if len(configs) > 1 {
 		return nil, errInvalidHostConfig
 	}
-	factory := &BattleFactoryService{creator: creator, stopper: stopper}
+	factory := &BattleFactoryService{creator: creator, stopper: stopper, commands: stopper}
 	if len(configs) == 1 {
 		factory.replaySubmitter = configs[0].ReplaySubmitter
 		factory.aiSubmitter = configs[0].AISubmitter
@@ -412,7 +421,10 @@ func (factory *BattleFactoryService) stopLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case request := <-factory.stopQueue:
-			err := factory.stopper.Stop(ctx, request.Ref)
+			_, err := factory.commands.Call(ctx, request.Ref, deleteBattleBarrierCommand, deleteBattleBarrier{BattleID: request.BattleID})
+			if err == nil {
+				err = factory.stopper.Stop(ctx, request.Ref)
+			}
 			if factory.service != nil {
 				_ = factory.service.Send(request.Host, applyBattleStoppedCommand, applyBattleStopped{OperationID: request.OperationID, BattleID: request.BattleID, Ref: request.Ref, Err: errorText(err)})
 			}

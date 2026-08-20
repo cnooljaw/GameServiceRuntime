@@ -621,8 +621,10 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的唯一 `ActionDeadline` fencing 已覆盖普通玩家、托管、机器人、外部 AI 与 AI 硬超时；默认本地 AI 不访问网络，可选 Legacy HTTP adapter 精确保留旧 RobotTran JSON/base64 envelope。AI 请求在固定 worker 外执行，结果携带完整小局/行动机会身份投回原 Battle Mailbox；非法或迟到结果不改变当前期限。托管状态仍通过旧 `0x8000720A` 广播/确认，并进入结算与回放来源统计。
 - `CompleteSettlement` 终态入口。
+- `MATCH_STOP` 已在 Battle Mailbox 内废止当前行动或外部结算，按本地 Success 结果完成 ShowCards、GameResult、回放、ROUND_STAT、GAME_OVER 和 NOTICE；后到 `0x8650` 稳定无副作用。
+- `DEL_GAME` 的正常路径先把 Host 绑定置为 Stopping，再由固定生命周期 runner Call Battle 删除屏障；屏障后禁止输出并 fence 迟到 AI/回放/结算结果，随后 Runtime Stop，只有真实 Stop 成功才删除绑定。`0x7218 BROADCAST_USE_PROP` 只作为 `RecordPropUse` 事实追加旧 Prop 回放节点。
 
-尚未完成的 RFC 契约包括 MATCH_STOP 与 DEL_GAME 屏障、Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、MATCH_STOP、正常 DEL_GAME 屏障、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

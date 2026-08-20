@@ -1116,6 +1116,26 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-026、D-045、D-090；TODO CARD-032、033、034、038。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录业务代码未修改。 |
 
+### 4.55 NHSK 道具事实、MATCH_STOP 与 DEL_GAME 正常屏障
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 补齐回放专用道具事实、MATCH_STOP 本地终局及正常 Battle 的 DEL_GAME Mailbox→Runtime Stop 两阶段删除。 |
+| GSR 文件/测试 | `internal/legacywire/prop_use.go`、`legacy_mapper.go`、`replay_document.go`、`replay_xml.go`、`battle.go`、`host.go`；codec/mapper/XML/Battle/Host 测试覆盖重复目标、异步回放线序、迟到结算和删除屏障。 |
+| 参考入口 | `gamelogic/internal/game/game.go:onMsgUserProp/addMoveProp/StopGame/GameOverProcess`、`nhsk/game/interface.go:ForceGameOver`、`flow_core.go:DoGameOver/DoProcessResult/finishProcessResult`、GM `SendDropProp` 与 `CleanRound`；协议 `BS_GAME_BROADCAST_USE_PROP`。 |
+| Legacy MessageID | `0x7218` 两个 suffix 解码为 `RecordPropUse`；`0x8602 COMMAND/MATCH_STOP` 映射 `ForceFinishSubgame`；`0x86c2 DEL_GAME` 仍只进入 Host。GAME_OVER/NOTICE wire 不变。 |
+| 输入与校验 | Prop 外层 UserID 必须等于 SenderID 且发送者属于当前 Battle；TargetIDs 不排序、不去重。MATCH_STOP 只在 Playing/AwaitingSettlement 生效。DEL_GAME 绑定精确 BattleID/Ref，重复 Stopping 请求幂等。 |
+| 权威状态变化 | Prop 只追加 ReplayMove。MATCH_STOP 递增 TurnRevision、废止在途结算，以当前 ranks/points/auto 计算本地倍数并冻结回放。DEL_GAME 屏障把 Battle 置 Stopping、清除 deadline、禁止 emit；Host 在 Runtime Stop 返回前保留 Ref 和容量。 |
+| Timer/Timeline | MATCH_STOP 使旧行动期限失效；回放仍使用既有单一 finalize deadline。DEL_GAME 不等待或取消已交给 writer/AI 的外部任务，屏障后结果 Command 无副作用。 |
+| 输出目标与顺序 | MATCH_STOP 独立完成为 ShowCards→GameResult→回放→ROUND_STAT→GAME_OVER→NOTICE。DEL_GAME 屏障前已提交输出不撤回，屏障后无输出，也不补结算。Prop 无输出。 |
+| 生命周期结果 | Factory 固定 runner 先 Call 精确 Battle 屏障，成功后才 Stop；Host 只在真实 Stop 成功后删除绑定，屏障/Stop 失败保留绑定并恢复可重试状态。Quarantined 特例留给下一切片。 |
+| 已一致 | Prop 固定布局/属性、ForceGameOver 跳过 0x8650、GameOver 后 NOTICE，以及 DEL_GAME 对正常实例的终止职责与参考有效路径一致。 |
+| 有意偏差 | 新 MATCH_STOP 不复制 TurnEngine/展示 Timer，而在一个 Mailbox 内确定性提交；DEL_GAME 增加显式屏障和真实 Stop 确认，避免参考中逻辑/删除竞态。Prop 只保留已成功事实，不迁移空 `OnMsgUseProp` seam。 |
+| 发现遗漏 | Quarantined 收到 DEL_GAME 时只记录外部结束事实的例外尚待诊断切片；代表性连接级 MATCH_STOP→DEL_GAME 整包 golden 待最终门禁。 |
+| 结论 | Prop、MATCH_STOP 和正常 DEL_GAME 屏障 **已按 RFC 完成**；隔离条目删除例外继续实现。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-047、D-086、D-093；TODO CARD-026、028、040、043、044、060。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录业务代码未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

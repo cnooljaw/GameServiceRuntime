@@ -21,13 +21,14 @@ func TestMarshalReplayMovesXMLMatchesLegacyFormat(t *testing.T) {
 	document.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: 2, Cards: nil, CardType: "不出", Source: ReplayMoveSourceAuto, MoveMilliseconds: 1234})
 	document.appendMove(ReplayMove{Kind: ReplayMoveCatchPoint, SeatID: 1, Cards: []byte{0x05, 0x1a}, Point: 15, Source: ReplayMoveSourceSystem})
 	document.appendMove(ReplayMove{Kind: ReplayMoveTurnEnd, Scores: [4]uint16{0, 15, 0, 0}, Source: ReplayMoveSourceSystem})
+	document.appendMove(ReplayMove{Kind: ReplayMoveProp, UserID: 1001, PropID: "flower", PropCount: 2, TargetIDs: []uint32{1002, 1002, 1001}, Source: ReplayMoveSourceUnknown})
 
 	got, err := marshalReplayMovesXML(document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `<?xml version="1.0" encoding="UTF-8"?>
-<Moves Count="5">
+<Moves Count="6">
 	<M0 Act="Deal">
 		<D0 Cards="0x01,0x0a" ChairID="0" UserID="1001"></D0>
 		<D1 Cards="0x02,0x0b" ChairID="1" UserID="1002"></D1>
@@ -38,6 +39,7 @@ func TestMarshalReplayMovesXMLMatchesLegacyFormat(t *testing.T) {
 	<M2 Act="OutCard" Actor="托管" CardType="不出" Cards="" ChairID="2" MSec="1234"></M2>
 	<M3 Act="CatchPoint" Actor="系统" Cards="0x05,0x1a" ChairID="1" Point="15"></M3>
 	<M4 Act="TurnEnd" Actor="系统" Scores="0,15,0,0"></M4>
+	<M5 Act="Prop" Count="2" PropID="flower" TargetID="1002,1002,1001" dwSenderID="1001"></M5>
 </Moves>`
 	if string(got) != want {
 		t.Fatalf("moves XML mismatch\ngot:\n%s\nwant:\n%s", got, want)
