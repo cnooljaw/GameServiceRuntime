@@ -71,7 +71,12 @@ func MapLegacyControl(control legacywire.LegacyControl, generation ConnectionGen
 			return LegacyControlRoute{}, fmt.Errorf("%w: INIT_GAME identity or limits", errInvalidLegacyControl)
 		}
 		rules := normalizeNHSKConfig(control.BaseRule, control.GameRule)
-		return battleRoute(control.Kind, battleID, InitializeBattleCommand, InitializeBattleRequest{Identity: BattleIdentity{BattleID: battleID, ProductID: control.ProductID, MatchID: control.MatchID, RoundID: control.RoundID, RoundUniCode: control.RoundUniCode}, MaxGameNum: uint16(control.MaxGameNum), MaxSubgameNum: uint16(control.MaxSubgameNum), Fee: control.Fee, ScoreBase: control.ScoreBase, ScoreDenominator: control.ScoreDenominator, Rules: &rules}), nil
+		return battleRoute(control.Kind, battleID, InitializeBattleCommand, InitializeBattleRequest{
+			Identity:   BattleIdentity{BattleID: battleID, ProductID: control.ProductID, MatchID: control.MatchID, RoundID: control.RoundID, RoundUniCode: control.RoundUniCode},
+			MaxGameNum: uint16(control.MaxGameNum), MaxSubgameNum: uint16(control.MaxSubgameNum), Fee: control.Fee, ScoreBase: control.ScoreBase, ScoreDenominator: control.ScoreDenominator,
+			ReplayMetadata: ReplayMetadata{MatchName: control.MatchName, GameType: control.GameType, ScoreType: control.ScoreType, ScoreMode: control.ScoreMode, RoomID: control.RoomID, CreatorID: control.CreatorID},
+			ReplayRules:    normalizeReplayRuleSnapshot(control.BaseRule), Rules: &rules,
+		}), nil
 	case legacywire.ControlUpdatePlayers:
 		players := make([]BattlePlayer, 0, len(control.Players))
 		for _, player := range control.Players {

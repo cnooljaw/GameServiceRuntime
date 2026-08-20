@@ -154,6 +154,27 @@ type BattleIdentity struct {
 	RoundUniCode string
 }
 
+// ReplayMetadata is the immutable INIT projection consumed only by the NHSK
+// replay builder. Identity, progress limits and score conversion remain owned
+// by their existing Battle fields and are not duplicated here.
+type ReplayMetadata struct {
+	MatchName string
+	GameType  uint32
+	ScoreType int32
+	ScoreMode int32
+	RoomID    uint32
+	CreatorID uint32
+}
+
+// ReplayRuleSnapshot preserves old BaseRule values that are emitted into the
+// replay XML but deliberately do not restore abandoned gameplay behavior.
+type ReplayRuleSnapshot struct {
+	TimeOutOver          bool
+	VoiceMode            bool
+	RandomSeatRoundStart bool
+	GameNumToRandomSeat  int
+}
+
 // InitializeBattleRequest is the one-time Battle initialization payload.
 type InitializeBattleRequest struct {
 	Identity         BattleIdentity
@@ -162,6 +183,8 @@ type InitializeBattleRequest struct {
 	Fee              int32
 	ScoreBase        int32
 	ScoreDenominator int32
+	ReplayMetadata   ReplayMetadata
+	ReplayRules      ReplayRuleSnapshot
 	// Rules is normalized at the Legacy adapter boundary. A nil value uses
 	// DefaultNHSKConfig, which keeps direct Cluster callers independent from
 	// the old comma-separated rule strings.

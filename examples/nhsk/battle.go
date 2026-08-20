@@ -123,6 +123,13 @@ type NHSKBattleService struct {
 	gameNum              uint16
 	subgameNum           uint16
 	fee                  int32
+	maxGameNum           uint16
+	maxSubgameNum        uint16
+	scoreBase            int32
+	scoreDenominator     int32
+	replayMetadata       ReplayMetadata
+	replayRules          ReplayRuleSnapshot
+	initialization       battleInitialization
 	finished             [4]bool
 	ranks                [4]uint8
 	settlementFailed     bool
@@ -134,6 +141,18 @@ type NHSKBattleService struct {
 	clock                NHSKClock
 	rules                NHSKConfig
 	customDeckCatalog    CustomDeckCatalog
+}
+
+type battleInitialization struct {
+	identity         BattleIdentity
+	maxGameNum       uint16
+	maxSubgameNum    uint16
+	fee              int32
+	scoreBase        int32
+	scoreDenominator int32
+	replayMetadata   ReplayMetadata
+	replayRules      ReplayRuleSnapshot
+	rules            NHSKConfig
 }
 
 // NewBattleService creates an NHSK Battle Service with no initialized business state.
@@ -245,8 +264,17 @@ func (battle *NHSKBattleService) initialize(ctx gsr.CommandContext, payload any)
 	if !ok || request.Identity.BattleID == 0 || request.Identity.BattleID != battle.id || request.Identity.ProductID == 0 || request.Identity.MatchID == 0 {
 		return battle.reject(ctx, errBattleInvalidRequest)
 	}
+	rules := DefaultNHSKConfig()
+	if request.Rules != nil {
+		rules = *request.Rules
+	}
+	initialization := battleInitialization{
+		identity: request.Identity, maxGameNum: request.MaxGameNum, maxSubgameNum: request.MaxSubgameNum,
+		fee: request.Fee, scoreBase: request.ScoreBase, scoreDenominator: request.ScoreDenominator,
+		replayMetadata: request.ReplayMetadata, replayRules: request.ReplayRules, rules: rules,
+	}
 	if battle.initialized {
-		if battle.identity == request.Identity {
+		if battle.initialization == initialization {
 			return battle.reply(ctx, CommandResult{Accepted: true})
 		}
 		return battle.reject(ctx, errBattleStateConflict)
@@ -255,9 +283,14 @@ func (battle *NHSKBattleService) initialize(ctx gsr.CommandContext, payload any)
 	battle.matchID = request.Identity.MatchID
 	battle.productID = request.Identity.ProductID
 	battle.fee = request.Fee
-	if request.Rules != nil {
-		battle.rules = *request.Rules
-	}
+	battle.maxGameNum = request.MaxGameNum
+	battle.maxSubgameNum = request.MaxSubgameNum
+	battle.scoreBase = request.ScoreBase
+	battle.scoreDenominator = request.ScoreDenominator
+	battle.replayMetadata = request.ReplayMetadata
+	battle.replayRules = request.ReplayRules
+	battle.rules = rules
+	battle.initialization = initialization
 	battle.initialized = true
 	return battle.reply(ctx, CommandResult{Accepted: true})
 }
@@ -402,7 +435,14 @@ func (battle *NHSKBattleService) buildReplayStartSnapshot(startedAt time.Time) R
 	snapshot.GameNum = battle.gameNum
 	snapshot.SubgameNum = battle.subgameNum
 	snapshot.StartedAt = startedAt
-	snapshot.ReplayName = battle.replayName()
+	snapshot.ReplayName, snapshot.ReplayUID, snapshot.RelativePath = battle.replayIdentity(startedAt)
+	snapshot.MaxGameNum = battle.maxGameNum
+	snapshot.MaxSubgameNum = battle.maxSubgameNum
+	snapshot.Fee = battle.fee
+	snapshot.ScoreBase = battle.scoreBase
+	snapshot.ScoreDenominator = battle.scoreDenominator
+	snapshot.ReplayMetadata = battle.replayMetadata
+	snapshot.ReplayRules = battle.replayRules
 	snapshot.RoundContext = battle.currentRound
 	snapshot.BankerSeat = uint8(battle.activeSeat)
 	for seat, playerID := range battle.bySeat {
@@ -635,7 +675,7 @@ func (battle *NHSKBattleService) forceFinish(ctx gsr.CommandContext, payload any
 		// then serializes them onto the single GM connection.
 		if err := battle.emit(ctx, GameOverOutput{
 			Reason:     int32(GameOverReasonSuccess),
-			ReplayName: battle.replayName(),
+			ReplayName: battle.currentReplayName(),
 			IsGameOver: false,
 		}); err != nil {
 			return err
@@ -673,7 +713,7 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 	if plan.failed {
 		reason = int32(GameOverReasonDissolve)
 	}
-	if err := battle.emit(ctx, GameOverOutput{Reason: reason, ReplayName: battle.replayName(), IsGameOver: true}); err != nil {
+	if err := battle.emit(ctx, GameOverOutput{Reason: reason, ReplayName: battle.currentReplayName(), IsGameOver: true}); err != nil {
 		return err
 	}
 	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
@@ -895,8 +935,17 @@ func (battle *NHSKBattleService) currentActionMilliseconds() uint32 {
 	return uint32(elapsed / time.Millisecond)
 }
 
-func (battle *NHSKBattleService) replayName() string {
-	return fmt.Sprintf("nhsk-%d-%d-%d.xml", battle.id, battle.gameNum, battle.subgameNum)
+func (battle *NHSKBattleService) replayIdentity(startedAt time.Time) (name, uid, relativePath string) {
+	local := startedAt.In(time.FixedZone("UTC+8", 8*60*60))
+	date, clockHour := local.Format("20060102"), local.Format("15")
+	seatZeroUserID := battle.players[battle.bySeat[0]].UserID
+	name = fmt.Sprintf("NHSK_M%dR%d_%s_%s_%d.xml", battle.identity.ProductID, battle.identity.RoundID, date, local.Format("150405"), seatZeroUserID)
+	uid = fmt.Sprintf("%d%d", startedAt.Unix(), battle.replayMetadata.CreatorID)
+	return name, uid, fmt.Sprintf("FuPan/%s/%s", date, clockHour)
+}
+
+func (battle *NHSKBattleService) currentReplayName() string {
+	return battle.replayDocument.start.ReplayName
 }
 
 func (battle *NHSKBattleService) hasFourPlayers() bool {

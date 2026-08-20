@@ -85,6 +85,8 @@ func TestReplayStartSnapshotValidatesFourSeatsAndHands(t *testing.T) {
 	snapshot.SubgameNum = 1
 	snapshot.StartedAt = time.Unix(1, 0)
 	snapshot.ReplayName = "replay.xml"
+	snapshot.ReplayUID = "1"
+	snapshot.RelativePath = "FuPan/19700101/08"
 	if !snapshot.Valid() {
 		t.Fatal("complete replay start snapshot was invalid")
 	}
@@ -113,7 +115,7 @@ func TestReplayCardTypeNamesFollowLegacyReplay(t *testing.T) {
 }
 
 func TestBattleFreezesReplayDocumentAtSubgameStart(t *testing.T) {
-	clock := &nhskTestClock{now: time.Unix(200, 123)}
+	clock := &nhskTestClock{now: time.Date(2026, 1, 2, 16, 5, 6, 123, time.UTC)}
 	service, err := NewBattleService(NHSKBattleConfig{ID: 33, Random: mathrand.New(mathrand.NewSource(3)), Clock: clock})
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +125,12 @@ func TestBattleFreezesReplayDocumentAtSubgameStart(t *testing.T) {
 	}
 	ctx := &battleTestCommandContext{}
 	commands := []gsr.Command{
-		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 33, ProductID: NHSKDescriptor.GameID, MatchID: 2, RoundID: 4, RoundUniCode: "round"}}},
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{
+			Identity:   BattleIdentity{BattleID: 33, ProductID: NHSKDescriptor.GameID, MatchID: 2, RoundID: 4, RoundUniCode: "round"},
+			MaxGameNum: 8, MaxSubgameNum: 16, Fee: 3, ScoreBase: 10, ScoreDenominator: 100,
+			ReplayMetadata: ReplayMetadata{MatchName: "比赛", GameType: 1, ScoreType: 2, ScoreMode: 3, RoomID: 4, CreatorID: 99},
+			ReplayRules:    ReplayRuleSnapshot{TimeOutOver: true, VoiceMode: true, RandomSeatRoundStart: true, GameNumToRandomSeat: 5},
+		}},
 		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{
 			{Player: "1", UserID: 1, SeatID: 0, Score: 10, Nickname: "A", ClientID: 11},
 			{Player: "2", UserID: 2, SeatID: 1, Score: 20, Nickname: "B", ClientID: 12, Automated: true},
@@ -150,6 +157,12 @@ func TestBattleFreezesReplayDocumentAtSubgameStart(t *testing.T) {
 	if start.RoundContext.RoomInfo != "before" || start.Players[0].Nickname != "A" || start.Players[0].InitScore != 10 || start.Players[0].Platform != 11 || start.Players[1].Automated != true || start.Players[3].Dress != "d4" {
 		t.Fatalf("replay metadata = %#v", start)
 	}
+	if start.ReplayName != "NHSK_M82R4_20260103_000506_1.xml" || start.ReplayUID != "176736990699" || start.RelativePath != "FuPan/20260103/00" {
+		t.Fatalf("replay identity = name %q uid %q path %q", start.ReplayName, start.ReplayUID, start.RelativePath)
+	}
+	if start.MaxGameNum != 8 || start.MaxSubgameNum != 16 || start.Fee != 3 || start.ScoreBase != 10 || start.ScoreDenominator != 100 || start.ReplayMetadata.CreatorID != 99 || !start.ReplayRules.TimeOutOver {
+		t.Fatalf("replay init projection = %#v", start)
+	}
 	if !reflect.DeepEqual(start.Hands[0], service.hands[service.bySeat[0]]) {
 		t.Fatalf("replay hand differs from dealt hand")
 	}
@@ -165,6 +178,45 @@ func TestBattleFreezesReplayDocumentAtSubgameStart(t *testing.T) {
 	unchanged := service.replayDocument.StartSnapshot()
 	if unchanged.Players[0].Nickname != "A" || unchanged.Players[0].Dress != "d1" || unchanged.RoundContext.RoomInfo != "before" || reflect.DeepEqual(unchanged.Hands[0], service.hands["1"]) {
 		t.Fatalf("replay start snapshot changed after Battle mutation: %#v", unchanged)
+	}
+}
+
+func TestBattleInitializeOnlyTreatsExactNormalizedDuplicateAsIdempotent(t *testing.T) {
+	service, err := NewBattleService(NHSKBattleConfig{ID: 36, Random: mathrand.New(mathrand.NewSource(1))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	rules := DefaultNHSKConfig()
+	request := InitializeBattleRequest{
+		Identity:   BattleIdentity{BattleID: 36, ProductID: NHSKDescriptor.GameID, MatchID: 2, RoundID: 4},
+		MaxGameNum: 8, MaxSubgameNum: 16, Fee: 3, ScoreBase: 10, ScoreDenominator: 100,
+		ReplayMetadata: ReplayMetadata{CreatorID: 99}, ReplayRules: ReplayRuleSnapshot{VoiceMode: true}, Rules: &rules,
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: request}); err != nil || !ctx.reply.(CommandResult).Accepted {
+		t.Fatalf("first init = %#v, %v", ctx.reply, err)
+	}
+	defaultService, _ := NewBattleService(NHSKBattleConfig{ID: 37, Random: mathrand.New(mathrand.NewSource(1))})
+	defaultRequest := request
+	defaultRequest.Identity.BattleID = 37
+	defaultRequest.Rules = nil
+	if err := defaultService.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: defaultRequest}); err != nil || !ctx.reply.(CommandResult).Accepted {
+		t.Fatalf("default init = %#v, %v", ctx.reply, err)
+	}
+	defaultRequest.Rules = &rules
+	if err := defaultService.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: defaultRequest}); err != nil || !ctx.reply.(CommandResult).Accepted {
+		t.Fatalf("normalized default duplicate = %#v, %v", ctx.reply, err)
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: request}); err != nil || !ctx.reply.(CommandResult).Accepted {
+		t.Fatalf("exact duplicate = %#v, %v", ctx.reply, err)
+	}
+	conflict := request
+	conflict.ScoreBase++
+	if err := service.Handle(ctx, gsr.Command{ID: InitializeBattleCommand, Payload: conflict}); err != nil {
+		t.Fatal(err)
+	}
+	if result := ctx.reply.(CommandResult); result.Accepted || result.Rejection == "" {
+		t.Fatalf("conflicting init = %#v", result)
 	}
 }
 

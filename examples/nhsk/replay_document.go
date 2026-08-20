@@ -25,16 +25,25 @@ type ReplayPlayerSnapshot struct {
 // client-facing output of one NHSK subgame. Hands are the final dealt hands,
 // including any custom-deck or ordinary-deal adjustment.
 type ReplayStartSnapshot struct {
-	BattleID     game.BattleID
-	Identity     BattleIdentity
-	GameNum      uint16
-	SubgameNum   uint16
-	StartedAt    time.Time
-	ReplayName   string
-	RoundContext UpdateRoundContextRequest
-	Players      [4]ReplayPlayerSnapshot
-	Hands        [4][]byte
-	BankerSeat   uint8
+	BattleID         game.BattleID
+	Identity         BattleIdentity
+	GameNum          uint16
+	SubgameNum       uint16
+	StartedAt        time.Time
+	ReplayName       string
+	ReplayUID        string
+	RelativePath     string
+	MaxGameNum       uint16
+	MaxSubgameNum    uint16
+	Fee              int32
+	ScoreBase        int32
+	ScoreDenominator int32
+	ReplayMetadata   ReplayMetadata
+	ReplayRules      ReplayRuleSnapshot
+	RoundContext     UpdateRoundContextRequest
+	Players          [4]ReplayPlayerSnapshot
+	Hands            [4][]byte
+	BankerSeat       uint8
 }
 
 // ReplayMoveKind identifies one in-memory NHSK replay event. Deal is one event
@@ -91,10 +100,9 @@ type ReplayMove struct {
 }
 
 // Valid reports whether the start snapshot contains a complete four-seat
-// subgame input. It intentionally validates only data available at Start;
-// replay naming, UID and XML-specific rules remain later builder concerns.
+// subgame input and the immutable replay identifiers derived at Start.
 func (snapshot ReplayStartSnapshot) Valid() bool {
-	if snapshot.BattleID == 0 || snapshot.Identity.BattleID != snapshot.BattleID || snapshot.Identity.ProductID == 0 || snapshot.Identity.MatchID == 0 || snapshot.GameNum == 0 || snapshot.SubgameNum == 0 || snapshot.StartedAt.IsZero() || snapshot.ReplayName == "" || snapshot.BankerSeat >= 4 {
+	if snapshot.BattleID == 0 || snapshot.Identity.BattleID != snapshot.BattleID || snapshot.Identity.ProductID == 0 || snapshot.Identity.MatchID == 0 || snapshot.GameNum == 0 || snapshot.SubgameNum == 0 || snapshot.StartedAt.IsZero() || snapshot.ReplayName == "" || snapshot.ReplayUID == "" || snapshot.RelativePath == "" || snapshot.BankerSeat >= 4 {
 		return false
 	}
 	seenPlayers := make(map[game.PlayerID]struct{}, len(snapshot.Players))

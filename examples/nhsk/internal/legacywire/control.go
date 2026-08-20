@@ -84,6 +84,12 @@ type LegacyControl struct {
 	Fee              int32
 	ScoreBase        int32
 	ScoreDenominator int32
+	GameType         uint32
+	ScoreType        int32
+	ScoreMode        int32
+	RoomID           uint32
+	CreatorID        uint32
+	CreateTime       uint32
 
 	Players       []LegacyPlayer
 	GameNum       uint32
@@ -187,11 +193,17 @@ func DecodeControl(data []byte) (LegacyControl, error) {
 		control.MatchID = binary.LittleEndian.Uint32(data[46:50])
 		control.RoundID = binary.LittleEndian.Uint32(data[56:60])
 		control.GameID = binary.LittleEndian.Uint32(data[64:68])
+		control.GameType = binary.LittleEndian.Uint32(data[92:96])
+		control.ScoreType = int32(binary.LittleEndian.Uint32(data[96:100]))
+		control.ScoreMode = int32(binary.LittleEndian.Uint32(data[100:104]))
 		control.Fee = int32(binary.LittleEndian.Uint32(data[104:108]))
 		control.ScoreBase = int32(binary.LittleEndian.Uint32(data[108:112]))
 		control.ScoreDenominator = int32(binary.LittleEndian.Uint32(data[112:116]))
 		control.MaxGameNum = binary.LittleEndian.Uint32(data[116:120])
 		control.MaxSubgameNum = binary.LittleEndian.Uint32(data[120:124])
+		control.RoomID = binary.LittleEndian.Uint32(data[124:128])
+		control.CreatorID = binary.LittleEndian.Uint32(data[128:132])
+		control.CreateTime = binary.LittleEndian.Uint32(data[132:136])
 		control.BaseRule, control.GameRule, control.MatchName, err = decodeInitRuleSuffixes(data)
 		if err != nil {
 			return LegacyControl{}, err

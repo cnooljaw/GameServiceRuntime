@@ -25,7 +25,7 @@
 - `GameDescriptor` 固定本组合根为 `GameID=82/宁海双扣`；Legacy `NEW_GAME` 收到其他玩法 ID 时在 adapter 边界直接失败 ACK，不创建 Battle，Cluster 调用者从 NHSK Host 进入时不再重复传 GameID。
 - `START_NEW_GAME` 的 RoundContext 与 `DRESS` 已在 Battle Mailbox 中保留：`START` 冻结当前小局的 `SecRoundTotal/SecRoundUsed/RoomInfo` 和四座 Dress，之后收到的更新只作用于下一局，不产生客户端输出。
 - `StartSubgame` 已按 `GAME_START -> GAME_STARTED -> GameInfo -> Seat0..3 私有 Deal -> AskOutCard` 提交完整开局线序；首个 VerifyCode 为 3，后续按 5/7 递增。四份 Deal 与回放 Deal 复用同一批 Battle 最终手牌，`ASK_OUT_CARD.SecRemain` 保持旧语义发送普通允许出牌毫秒数，首手 Timeline 可独立使用 `MsFirstOutCard`。
-- `StartSubgame` 已冻结一份 Battle-owned 的 `ReplayDocument` 起始快照：单次读取 `NHSKClock` 记录小局开始时间，深拷贝 BattleIdentity、RoundContext、四座玩家（含 Nickname/InitScore/CltID→Platform/Dress/Automated）和最终发牌手牌；首个 Ask 再单独读取行动起点。当前只提供内存快照，尚未接入 ReplayUID、规范文件名/目录、规范 Moves 序列化、Summary/CardDetail、XML 或 writer。
+- `StartSubgame` 已冻结一份 Battle-owned 的 `ReplayDocument` 起始快照：单次读取 `NHSKClock` 记录小局开始时间，深拷贝 BattleIdentity、RoundContext、INIT 进度/计分/回放投影、四座玩家和最终发牌手牌；同一时刻生成 `ReplayUID`、`NHSK_M...xml` 名称与 `FuPan/<date>/<hour>` 相对目录，时间统一按 UTC+8。首个 Ask 再单独读取行动起点；Summary/CardDetail、完整 XML 和 writer 尚未接入。
 - 回放内存事件已接入 Battle：起始只建立一个包含四手最终牌的 `Deal`，出牌按旧顺序追加 `CurrentPoint -> OutCard`，过牌只追加 `OutCard`，一墩结束追加 `CatchPoint -> TurnEnd`；OutCard 的 `MoveMilliseconds` 由注入 Clock 计算 Ask→合法动作耗时，非法动作和中途启用托管不重置起点。纯内存 Moves serializer 已固定 `M0..Mn`、D0..D3、真实 Count、Tab、字典序属性、小写牌值和旧 `Actor` 中文映射；完整 Info/GameOver/Summary/Dress/Other 树与 writer 尚未接入。
 - 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
@@ -52,7 +52,7 @@ examples/nhsk/
 ├── commands.go                 # Host/Battle/玩法 CommandID 与公开 request/result
 ├── rules.go                    # 旧 BaseRule/GameRule 的最小 NHSKConfig 投影
 ├── battle.go                   # NHSKBattleService：单桌 Mailbox、阶段、手牌、动作
-├── replay_document.go          # 起始回放快照与不可变内存文档边界
+├── replay_document.go          # 正式回放身份、起始快照与不可变内存文档边界
 ├── replay_xml.go               # 确定性 XML 节点编码与 Moves 兼容投影
 ├── custom_deck.go              # canonical catalog、旧 parser、provider 与有界 bridge runner
 ├── custom_deck_redis.go        # Redis key 选择与标准库 RESP GET adapter

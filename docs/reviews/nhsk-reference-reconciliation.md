@@ -1033,6 +1033,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-081、D-082、D-083；TODO CARD-052～059。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录未修改。 |
 
+### 4.51 NHSK INIT 回放投影与正式回放身份
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 补齐 INIT 固定体的回放消费者，冻结单一初始化快照，并从一次 SubgameStartedAt 生成正式 ReplayName、ReplayUID 和相对目录。 |
+| GSR 文件/测试 | `internal/legacywire/control.go`、`legacy_control_mapper.go`、`commands.go`、`rules.go`、`battle.go`、`replay_document.go`；codec、mapper、INIT 冲突与 UTC/UTC+8 边界 golden 覆盖。 |
+| 参考入口 | `protocol/gamelogic/tcpprotocol/gm2gl.go:BS_GM2GL_INIT_GAME`、`gamelogic/internal/game/game.go:PreStartGame/replayAttributeInitialize/createReplayName`、`game_config.go:applyBaseRuleValue`。 |
+| 参考测试/配置/录包 | 旧 protocol formatter 确认 fixed body 偏移；旧 replay builder 确认 CreatorID、MatchName、积分/房间字段消费者；固定 Clock 测试覆盖跨 UTC 日期边界。 |
+| Legacy MessageID | `0x8600 INIT_GAME` wire 不变；`0x8654 GAME_STARTED` 与当前 `0x8641 GAME_OVER` 改为复用本小局冻结的正式 ReplayName。 |
+| 输入与校验 | INIT 仍只在首次核对 BattleID/ProductID/MatchID；Rules=nil 归一化为默认配置。已初始化后仅整份归一化快照相同才幂等，身份、计分、回放元数据、回放规则或玩法规则冲突均拒绝。CreateTime 和未消费 MatchKey 字段不保存。 |
+| 权威状态变化 | Battle 单一冻结进度上限、Fee、计分换算、ReplayMetadata、ReplayRuleSnapshot 与 NHSKConfig；ReplayStartSnapshot 复用这些字段，不另建可变副本。 |
+| Timer/Timeline | START 只读取一次 Battle Clock；ReplayUID、文件日期/时间和目录都从该值派生，首个行动机会继续单独读取 Clock。 |
+| 输出目标与顺序 | 不新增输出；GAME_STARTED 仍位于 GAME_START 后，名称从占位值换成 `NHSK_M<Product>R<Round>_<date>_<time>_<Seat0>.xml`。 |
+| 生命周期结果 | 每小局覆盖当前 ReplayDocument，GAME_STARTED、回放文件和同局 GAME_OVER 可共享同一名称；不累计历史名称。 |
+| 已一致 | INIT 固定字段、BaseRule 回放投影、Unix秒+CreatorID、NHSK 文件名和 `FuPan/date/hour` 规则与参考一致。 |
+| 有意偏差 | 参考 `createReplayName` 连续三次 `time.Now` 且使用进程本地时区；新实现按 RFC 用一次 Clock 并显式 UTC+8，消除跨秒/小时不一致。CreateTime 虽解码但无消费者，按 D-074 丢弃。 |
+| 发现遗漏 | ReplayUID 尚未进入 XML/FuPanUID；Info/GameRule/Players/Dress 完整树、GBK 文本边界、终局树和 writer 仍待后续切片。 |
+| 结论 | INIT owner、正式回放名称与时间来源 **已一致**；完整文档消费者 **发现遗漏，继续实现**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-047、D-061、D-074、D-075、D-079、D-085；TODO CARD-047、048、052、058。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务代码未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

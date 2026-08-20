@@ -33,15 +33,21 @@ func TestDecodeControlCoversLegacyLifecycleFrames(t *testing.T) {
 				put32(data, 34, 7)
 				put32(data, 46, 88)
 				put32(data, 56, 9)
+				put32(data, 92, 3)
+				put32(data, 96, 4)
+				put32(data, 100, 5)
 				put32(data, 104, ^uint32(1))
 				put32(data, 108, 10)
 				put32(data, 112, 100)
 				put32(data, 116, 4)
 				put32(data, 120, 8)
+				put32(data, 124, 66)
+				put32(data, 128, 77)
+				put32(data, 132, 88)
 				putSuffix(data, 136, 144, []byte("round-1"))
 			}),
 			want: func(t *testing.T, got LegacyControl) {
-				if got.Kind != ControlInitGame || got.BattleID != 12345 || got.UserID != 99 || got.ProductID != 7 || got.MatchID != 88 || got.RoundID != 9 || got.Fee != -2 || got.MaxGameNum != 4 || got.RoundUniCode != "round-1" {
+				if got.Kind != ControlInitGame || got.BattleID != 12345 || got.UserID != 99 || got.ProductID != 7 || got.MatchID != 88 || got.RoundID != 9 || got.GameType != 3 || got.ScoreType != 4 || got.ScoreMode != 5 || got.Fee != -2 || got.MaxGameNum != 4 || got.RoomID != 66 || got.CreatorID != 77 || got.CreateTime != 88 || got.RoundUniCode != "round-1" {
 					t.Fatalf("init game = %#v", got)
 				}
 			},

@@ -2,6 +2,7 @@ package nhsk
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/lijiawang/GameServiceRuntime/examples/nhsk/internal/legacywire"
@@ -78,14 +79,21 @@ func TestMapLegacyNewGameRejectsOtherGameDescriptor(t *testing.T) {
 }
 
 func TestMapLegacyInitProjectsRulesIntoBattleCommand(t *testing.T) {
+	baseRule := make([]string, 50)
+	for index := range baseRule {
+		baseRule[index] = "0"
+	}
+	baseRule[1] = "1"
+	baseRule[6] = "0"
+	baseRule[11] = "7"
+	baseRule[15] = "1"
+	baseRule[22] = "1"
+	baseRule[38] = "1"
+	baseRule[49] = "1"
 	rules := legacywire.LegacyControl{
-		Kind:      legacywire.ControlInitGame,
-		BattleID:  12,
-		ProductID: 7,
-		MatchID:   88,
-		RoundID:   9,
-		BaseRule:  "0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1",
-		GameRule:  "2,50,0,3",
+		Kind: legacywire.ControlInitGame, BattleID: 12, ProductID: 7, MatchID: 88, RoundID: 9,
+		BaseRule: strings.Join(baseRule, ","), GameRule: "2,50,0,3", MatchName: "宁海赛",
+		GameType: 3, ScoreType: 4, ScoreMode: 5, RoomID: 6, CreatorID: 7,
 	}
 	route, err := MapLegacyControl(rules, 1)
 	if err != nil {
@@ -94,6 +102,12 @@ func TestMapLegacyInitProjectsRulesIntoBattleCommand(t *testing.T) {
 	request := route.Command.Payload.(InitializeBattleRequest)
 	if request.Rules == nil || !request.Rules.OfflineAutoUsesAI || request.Rules.TimeoutAutoMove || request.Rules.RobotLevel != 1 || request.Rules.SingleCountToSwap != 3 {
 		t.Fatalf("rules = %#v", request.Rules)
+	}
+	if request.ReplayMetadata != (ReplayMetadata{MatchName: "宁海赛", GameType: 3, ScoreType: 4, ScoreMode: 5, RoomID: 6, CreatorID: 7}) {
+		t.Fatalf("replay metadata = %#v", request.ReplayMetadata)
+	}
+	if request.ReplayRules != (ReplayRuleSnapshot{TimeOutOver: true, VoiceMode: true, RandomSeatRoundStart: true, GameNumToRandomSeat: 7}) {
+		t.Fatalf("replay rules = %#v", request.ReplayRules)
 	}
 }
 

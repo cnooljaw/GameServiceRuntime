@@ -72,6 +72,24 @@ func normalizeNHSKConfig(baseRule, gameRule string) NHSKConfig {
 	return config
 }
 
+func normalizeReplayRuleSnapshot(baseRule string) ReplayRuleSnapshot {
+	base := splitRule(baseRule)
+	var snapshot ReplayRuleSnapshot
+	if value, ok := ruleInt(base, 49); ok {
+		snapshot.TimeOutOver = value != 0
+	}
+	if value, ok := ruleInt(base, 38); ok {
+		snapshot.VoiceMode = value != 0
+	}
+	if value, ok := ruleInt(base, 15); ok {
+		snapshot.RandomSeatRoundStart = value > 0
+	}
+	if value, ok := ruleInt(base, 11); ok {
+		snapshot.GameNumToRandomSeat = value
+	}
+	return snapshot
+}
+
 func splitRule(rule string) []string {
 	if separator := strings.IndexByte(rule, ';'); separator >= 0 {
 		rule = rule[:separator]
