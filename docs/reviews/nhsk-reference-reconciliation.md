@@ -1012,6 +1012,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-026、D-070、D-075、D-081、D-095、D-096；TODO CARD-024、032、043、054、057、062。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录仅作知识来源，未修改业务代码。 |
 
+### 4.50 NHSK Moves 纯内存 XML 兼容投影
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将 Battle-owned ReplayMove 确定性投影为旧回放 Moves XML，不接文件系统、不公开通用 AddMove 或临时 serializer API。 |
+| GSR 文件/测试 | `examples/nhsk/replay_xml.go`、`replay_xml_test.go`；byte golden 覆盖 XML Header、Tab、属性排序、M0..M4、Deal/D0..D3、Cards、CardType、MSec、Point、Scores、Count 和 Actor，另覆盖六种来源与未知 kind/source 拒绝。 |
+| 参考入口 | `gamecore/replay/xmlnode.go:startElement/encode`、`move_builder.go:AddMove`、`persistence.go:Save`；`nhsk/replay/replay.go:RecordDealDetail/RecordOutCard/RecordCurrentPoint/RecordCatchPoint/RecordTurnEnd/CardsToHexString/replayScores`。 |
+| 参考测试/配置/录包 | `gamecore/replay/persistence_test.go` 锁定 XML Header 与标准 escaping；`nhsk/replay/replay_test.go` 锁定 Deal 子节点、动作字段和来源；runner fixture 只用于 reader 兼容，不覆盖当前 writer 的 M 节点契约。 |
+| Legacy MessageID | 不新增或改变 MessageID；Moves 只消费此前已经通过玩法 Command 形成的内存事件。 |
+| 输入与校验 | 已知 ReplayMoveKind 按类型写固定字段，未知 kind/source 返回序列化错误而不静默生成坏 XML。Unknown 来源省略 Actor；其他来源映射系统/玩家/AI/超时/托管。 |
+| 权威状态变化 | 无。serializer 只读取 ReplayDocument 包内快照，不修改 Moves、Battle 或计数；Count 直接取真实顶层 Move 数量，Deal 四个子节点不额外计数。 |
+| Timer/Timeline | 无新增 Timer；MSec 使用此前已经冻结在 ReplayMove 的值，serializer 不读取 Clock。 |
+| 输出目标与顺序 | 根为 Moves，子节点严格按内存事件顺序生成 M0..Mn；Deal 内按 SeatID 0..3 生成 D0..D3。属性按名称排序，牌值固定小写两位十六进制。 |
+| 生命周期结果 | 形成可供后续完整 ReplayBuilder 直接复用的纯内存节点/encoder；不落盘、不推进 Battle 阶段、不通知 GM。 |
+| 已一致 | 当前旧 writer 的节点编号、字段、Actor、Cards、Scores、Header、缩进、属性排序和无尾部追加行为均已 byte golden 锁定。 |
+| 有意偏差 | 新实现的通用 XML 节点类型保持 NHSK 包内私有，不复用旧 gamecore 全局路径配置、计数器或可变树 API；只实现当前真实 MoveKind。 |
+| 发现遗漏 | 完整 ReplayBuilder 的 Info/GameOver/Summary/Dress/Other、文本 GBK 边界、ReplayName/UID、终局冻结和 writer 仍待后续切片。 |
+| 结论 | Moves XML 兼容投影 **已一致**；完整文档与持久化 **发现遗漏，继续实现**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-081、D-082、D-083；TODO CARD-052～059。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
