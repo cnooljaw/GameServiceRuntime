@@ -207,19 +207,19 @@ func TestBattleRecordsReplayMovesInReferenceOrder(t *testing.T) {
 	if moves[0].SeatID != 0 || !reflect.DeepEqual(moves[0].Hands, initial.Hands) {
 		t.Fatalf("deal move = %#v, want frozen start hands", moves[0])
 	}
-	if moves[1].Point != 5 || !reflect.DeepEqual(moves[1].Cards, []byte{0x05}) || moves[1].Actor != ReplayActorSystem {
+	if moves[1].Point != 5 || !reflect.DeepEqual(moves[1].Cards, []byte{0x05}) || moves[1].Source != ReplayMoveSourceSystem {
 		t.Fatalf("current point move = %#v", moves[1])
 	}
-	if moves[2].SeatID != 0 || moves[2].UserID != 1 || moves[2].CardType != "单张" || moves[2].Actor != ReplayActorPlayer {
+	if moves[2].SeatID != 0 || moves[2].UserID != 1 || moves[2].CardType != "单张" || moves[2].Source != ReplayMoveSourcePlayer {
 		t.Fatalf("out card move = %#v", moves[2])
 	}
 	if moves[3].SeatID != 1 || len(moves[3].Cards) != 0 || moves[3].CardType != "不出" {
 		t.Fatalf("pass move = %#v", moves[3])
 	}
-	if moves[6].SeatID != 0 || moves[6].Point != 5 || !reflect.DeepEqual(moves[6].Cards, []byte{0x05}) || moves[6].Actor != ReplayActorSystem {
+	if moves[6].SeatID != 0 || moves[6].Point != 5 || !reflect.DeepEqual(moves[6].Cards, []byte{0x05}) || moves[6].Source != ReplayMoveSourceSystem {
 		t.Fatalf("catch point move = %#v", moves[6])
 	}
-	if moves[7].Scores[0] != 5 || moves[7].Actor != ReplayActorSystem {
+	if moves[7].Scores[0] != 5 || moves[7].Source != ReplayMoveSourceSystem {
 		t.Fatalf("turn end move = %#v", moves[7])
 	}
 }

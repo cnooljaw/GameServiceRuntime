@@ -55,24 +55,24 @@ const (
 	ReplayMoveTurnEnd ReplayMoveKind = "TurnEnd"
 )
 
-// ReplayActor identifies the source attributed to one replay event. AI and
+// ReplayMoveSource identifies the source attributed to one replay event. AI and
 // timeout values are reserved for the later AI/timeout slice; the current
 // Battle records player and ordinary auto-play actions.
-type ReplayActor string
+type ReplayMoveSource string
 
 const (
-	// ReplayActorUnknown is an event with no known source.
-	ReplayActorUnknown ReplayActor = "unknown"
-	// ReplayActorSystem is a server-generated replay event.
-	ReplayActorSystem ReplayActor = "system"
-	// ReplayActorPlayer is a human player action.
-	ReplayActorPlayer ReplayActor = "player"
-	// ReplayActorAI is an external AI action reserved for a later slice.
-	ReplayActorAI ReplayActor = "ai"
-	// ReplayActorTimeout is a hard-timeout action reserved for a later slice.
-	ReplayActorTimeout ReplayActor = "timeout"
-	// ReplayActorAuto is a Battle-owned托管 action.
-	ReplayActorAuto ReplayActor = "auto"
+	// ReplayMoveSourceUnknown is an event with no known source.
+	ReplayMoveSourceUnknown ReplayMoveSource = "unknown"
+	// ReplayMoveSourceSystem is a server-generated replay event.
+	ReplayMoveSourceSystem ReplayMoveSource = "system"
+	// ReplayMoveSourcePlayer is a human player action.
+	ReplayMoveSourcePlayer ReplayMoveSource = "player"
+	// ReplayMoveSourceAI is an external AI action reserved for a later slice.
+	ReplayMoveSourceAI ReplayMoveSource = "ai"
+	// ReplayMoveSourceTimeout is a hard-timeout action reserved for a later slice.
+	ReplayMoveSourceTimeout ReplayMoveSource = "timeout"
+	// ReplayMoveSourceAuto is a Battle-owned托管 action.
+	ReplayMoveSourceAuto ReplayMoveSource = "auto"
 )
 
 // ReplayMove is a deep-copyable in-memory event used to build the NHSK replay.
@@ -86,7 +86,7 @@ type ReplayMove struct {
 	Point            uint32
 	Scores           [4]uint16
 	CardType         string
-	Actor            ReplayActor
+	Source           ReplayMoveSource
 	MoveMilliseconds uint32
 }
 
@@ -127,7 +127,7 @@ type ReplayDocument struct {
 // start snapshot. The caller may safely reuse or mutate the input afterward.
 func NewReplayDocument(snapshot ReplayStartSnapshot) ReplayDocument {
 	document := ReplayDocument{start: cloneReplayStartSnapshot(snapshot)}
-	document.moves = []ReplayMove{{Kind: ReplayMoveDeal, Hands: cloneReplayHands(document.start.Hands), Actor: ReplayActorUnknown}}
+	document.moves = []ReplayMove{{Kind: ReplayMoveDeal, Hands: cloneReplayHands(document.start.Hands), Source: ReplayMoveSourceUnknown}}
 	return document
 }
 

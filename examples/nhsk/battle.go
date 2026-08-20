@@ -556,7 +556,7 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		_, scoreCards := scoreCardsIn(request.Cards)
 		battle.scoreCards = append(battle.scoreCards, scoreCards...)
 		currentScore, _ := scoreCardsIn(battle.scoreCards)
-		battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveCurrentPoint, Cards: battle.scoreCards, Point: currentScore, Actor: ReplayActorSystem})
+		battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveCurrentPoint, Cards: battle.scoreCards, Point: currentScore, Source: ReplayMoveSourceSystem})
 		battle.lastPlayCounts[battle.activeSeat] = int8(len(request.Cards))
 		copy(battle.lastPlayedCards[battle.activeSeat][:], request.Cards)
 	} else {
@@ -565,11 +565,11 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 		battle.lastPlayedCards[battle.activeSeat] = [8]byte{}
 	}
 	player := battle.players[request.Player]
-	actor := ReplayActorPlayer
+	source := ReplayMoveSourcePlayer
 	if battle.auto[request.Player] {
-		actor = ReplayActorAuto
+		source = ReplayMoveSourceAuto
 	}
-	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Actor: actor})
+	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Source: source})
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputOutCardInfo, Payload: OutCardInfoPayload{Player: request.Player, Cards: toFixedEight(request.Cards), CardCount: uint8(len(request.Cards))}}); err != nil {
 		return err
@@ -937,9 +937,9 @@ func (battle *NHSKBattleService) finishTrick(ctx gsr.CommandContext) error {
 	points, _ := scoreCardsIn(battle.scoreCards)
 	battle.capturedPoints[winnerSeat] += uint16(points)
 	if points > 0 {
-		battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveCatchPoint, SeatID: uint8(winnerSeat), UserID: battle.players[winner].UserID, Cards: battle.scoreCards, Point: points, Actor: ReplayActorSystem})
+		battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveCatchPoint, SeatID: uint8(winnerSeat), UserID: battle.players[winner].UserID, Cards: battle.scoreCards, Point: points, Source: ReplayMoveSourceSystem})
 	}
-	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveTurnEnd, Scores: battle.capturedPoints, Actor: ReplayActorSystem})
+	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveTurnEnd, Scores: battle.capturedPoints, Source: ReplayMoveSourceSystem})
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputTurnEnd, Payload: TurnEndPayload{Winner: winner, CapturedPoints: points}}); err != nil {
 		return err
 	}

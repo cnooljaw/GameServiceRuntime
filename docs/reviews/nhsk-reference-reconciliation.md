@@ -975,20 +975,20 @@
 | 字段 | 内容 |
 |---|---|
 | 切片 | 将旧回放已实际调用的 Deal、CurrentPoint、OutCard、CatchPoint、TurnEnd 收敛为 Battle-owned 内存事件；保持旧 Deal 单一 Move 和事件线序，不进入 XML/磁盘。 |
-| GSR 文件/测试 | `examples/nhsk/replay_document.go`、`battle.go`；`replay_document_test.go` 覆盖 Deal 单事件、CurrentPoint/OutCard/过牌/CatchPoint/TurnEnd 顺序、Seat/User/Point/Scores/Actor/CardType 和返回深拷贝。 |
+| GSR 文件/测试 | `examples/nhsk/replay_document.go`、`battle.go`；`replay_document_test.go` 覆盖 Deal 单事件、CurrentPoint/OutCard/过牌/CatchPoint/TurnEnd 顺序、Seat/User/Point/Scores/Source/CardType 和返回深拷贝。 |
 | 参考入口 | `nhsk/replay/replay.go:RecordDealDetail/RecordCurrentPoint/RecordOutCard/RecordCatchPoint/RecordTurnEnd`、`nhsk/game/flow_core.go:DoDeal/DoOutCard`、`nhsk/game/helpers.go:endCurrentRound/awardCurrentScoreCardsToPreOutSeat`。旧实现先在非空出牌后记录 CurrentPoint，再记录 OutCard；三家过牌结束时先 CatchPoint，再 SendTurnEnd 并记录 TurnEnd。 |
 | 参考测试/配置 | `nhsk/replay/replay_test.go` 的动作属性与 Actor 映射；`CardTypeToReplayName` 保留 `不出/单张/对子/三张/俘虏/炸弹N`。参考 `RecordGameStart` 是空兼容入口，不新增 GameStart Move。 |
 | Legacy MessageID | 本切片不新增 MessageID；现有 `NHSK_DEAL`、`OUT_CARD_INFO`、`TURN_END` 输出顺序不变。 |
-| 输入与校验 | 只有通过 Battle 规则校验的 PlayCards 才记录 OutCard；空 cards 记录 `不出`，不生成 CurrentPoint。CurrentPoint/CatchPoint 只保存旧 `ScoreCards` 的深拷贝和点数；TurnEnd 保存当前四座累计抓分。AI/超时 Actor 仅保留枚举，当前无实际入口。 |
+| 输入与校验 | 只有通过 Battle 规则校验的 PlayCards 才记录 OutCard；空 cards 记录 `不出`，不生成 CurrentPoint。CurrentPoint/CatchPoint 只保存旧 `ScoreCards` 的深拷贝和点数；TurnEnd 保存当前四座累计抓分。AI/超时 `ReplayMoveSource` 仅保留枚举，当前无实际入口。 |
 | 权威状态变化 | `NewReplayDocument` 由 Start 快照最终四手牌建立单一 Deal 事件；PlayCards 在 Mailbox 内先更新 ScoreCards，再追加 CurrentPoint（非空）和 OutCard；finishTrick 在更新 capturedPoints 后追加 CatchPoint（有分）和 TurnEnd。Battle 的 hand/scoreCards 后续变化不能修改事件。 |
 | Timer/Timeline | 不新增 Timer；事件只在既有 PlayCards/finishTrick Handler 内追加。MoveMilliseconds 当前保持 0，待后续确定性行动时间事实切片接入。 |
 | 输出目标与顺序 | 不新增客户端或 GM 输出，不改变 `OutCardInfo`/`TurnEnd` 线序；ReplayMove 只是后续 ReplayBuilder 的输入。 |
 | 生命周期结果 | 每次 StartSubgame 新建 Deal 事件并替换文档；普通过牌和抓分仍由同一 Battle 状态决定，回放事件不驱动玩法。 |
-| 已一致 | Deal 复用最终发牌手牌、单一 Deal Move、CurrentPoint→OutCard、OutCard→CatchPoint→TurnEnd、旧中文牌型和系统/玩家/托管 Actor 边界均已实现；参考目录未修改。 |
-| 有意偏差 | 旧实现直接写 `gamecore/replay.XMLNode`，新实现先保存值对象；MoveMilliseconds 暂不从 wall clock 读取，避免引入未经裁决的时间事实。 |
+| 已一致 | Deal 复用最终发牌手牌、单一 Deal Move、CurrentPoint→OutCard、OutCard→CatchPoint→TurnEnd、旧中文牌型和系统/玩家/托管来源边界均已实现；参考目录未修改。 |
+| 有意偏差 | 旧实现直接写 `gamecore/replay.XMLNode` 并称来源属性为 `Actor`；新领域模型使用 `ReplayMoveSource`，只允许未来 XML serializer 输出旧 `Actor` 属性。MoveMilliseconds 暂不从 wall clock 读取，避免引入未经裁决的时间事实。 |
 | 发现遗漏 | XML 节点树、属性排序/编码、小写牌值、真实 Moves.Count、MoveMilliseconds、终局 GameOver/Summary/CardDetail 和 writer 仍待 CARD-052～059。 |
 | 结论 | 回放事件 owner、最终手牌来源、事件顺序和深拷贝边界 **已建立**；序列化与终局文档 **发现遗漏，留待后续切片**。 |
-| RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077；TODO CARD-052～059。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077、D-081；TODO CARD-052～059。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读，未修改业务源文件。 |
 
 ## 5. 切片追加模板
