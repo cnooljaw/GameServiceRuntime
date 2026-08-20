@@ -1,6 +1,7 @@
 package nhsk
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
@@ -36,6 +37,59 @@ type ReplayStartSnapshot struct {
 	BankerSeat   uint8
 }
 
+// ReplayMoveKind identifies one in-memory NHSK replay event. Deal is one event
+// containing all four final hands; per-seat child nodes are a later serializer
+// concern.
+type ReplayMoveKind string
+
+const (
+	// ReplayMoveDeal is the single initial-deal event for one subgame.
+	ReplayMoveDeal ReplayMoveKind = "Deal"
+	// ReplayMoveCurrentPoint records the scoring cards currently on the table.
+	ReplayMoveCurrentPoint ReplayMoveKind = "CurrentPoint"
+	// ReplayMoveOutCard records one accepted play or pass.
+	ReplayMoveOutCard ReplayMoveKind = "OutCard"
+	// ReplayMoveCatchPoint records the trick's scoring-card owner.
+	ReplayMoveCatchPoint ReplayMoveKind = "CatchPoint"
+	// ReplayMoveTurnEnd records the cumulative seat points after a trick.
+	ReplayMoveTurnEnd ReplayMoveKind = "TurnEnd"
+)
+
+// ReplayActor identifies the source attributed to one replay event. AI and
+// timeout values are reserved for the later AI/timeout slice; the current
+// Battle records player and ordinary auto-play actions.
+type ReplayActor string
+
+const (
+	// ReplayActorUnknown is an event with no known source.
+	ReplayActorUnknown ReplayActor = "unknown"
+	// ReplayActorSystem is a server-generated replay event.
+	ReplayActorSystem ReplayActor = "system"
+	// ReplayActorPlayer is a human player action.
+	ReplayActorPlayer ReplayActor = "player"
+	// ReplayActorAI is an external AI action reserved for a later slice.
+	ReplayActorAI ReplayActor = "ai"
+	// ReplayActorTimeout is a hard-timeout action reserved for a later slice.
+	ReplayActorTimeout ReplayActor = "timeout"
+	// ReplayActorAuto is a Battle-owned托管 action.
+	ReplayActorAuto ReplayActor = "auto"
+)
+
+// ReplayMove is a deep-copyable in-memory event used to build the NHSK replay.
+// Only fields relevant to the event kind are populated.
+type ReplayMove struct {
+	Kind             ReplayMoveKind
+	SeatID           uint8
+	UserID           uint32
+	Hands            [4][]byte
+	Cards            []byte
+	Point            uint32
+	Scores           [4]uint16
+	CardType         string
+	Actor            ReplayActor
+	MoveMilliseconds uint32
+}
+
 // Valid reports whether the start snapshot contains a complete four-seat
 // subgame input. It intentionally validates only data available at Start;
 // replay naming, UID and XML-specific rules remain later builder concerns.
@@ -62,16 +116,19 @@ func (snapshot ReplayStartSnapshot) Valid() bool {
 }
 
 // ReplayDocument is the in-memory replay document under construction for one
-// subgame. The first slice freezes only the Start snapshot; moves, settlement,
-// summary and serialization are added by later replay slices.
+// subgame. It currently contains the Start snapshot and basic gameplay moves;
+// settlement, summary and serialization are added by later replay slices.
 type ReplayDocument struct {
 	start ReplayStartSnapshot
+	moves []ReplayMove
 }
 
 // NewReplayDocument creates a replay document that owns a deep copy of its
 // start snapshot. The caller may safely reuse or mutate the input afterward.
 func NewReplayDocument(snapshot ReplayStartSnapshot) ReplayDocument {
-	return ReplayDocument{start: cloneReplayStartSnapshot(snapshot)}
+	document := ReplayDocument{start: cloneReplayStartSnapshot(snapshot)}
+	document.moves = []ReplayMove{{Kind: ReplayMoveDeal, Hands: cloneReplayHands(document.start.Hands), Actor: ReplayActorUnknown}}
+	return document
 }
 
 // StartSnapshot returns a deep copy of the frozen subgame-start input.
@@ -79,14 +136,68 @@ func (document ReplayDocument) StartSnapshot() ReplayStartSnapshot {
 	return cloneReplayStartSnapshot(document.start)
 }
 
+// Moves returns a deep copy of the replay events recorded so far.
+func (document ReplayDocument) Moves() []ReplayMove {
+	return cloneReplayMoves(document.moves)
+}
+
 // Clone returns an independent copy of the in-memory replay document.
 func (document ReplayDocument) Clone() ReplayDocument {
-	return NewReplayDocument(document.start)
+	return ReplayDocument{start: cloneReplayStartSnapshot(document.start), moves: cloneReplayMoves(document.moves)}
+}
+
+func (document *ReplayDocument) appendMove(move ReplayMove) {
+	document.moves = append(document.moves, cloneReplayMove(move))
 }
 
 func cloneReplayStartSnapshot(snapshot ReplayStartSnapshot) ReplayStartSnapshot {
-	for seat := range snapshot.Hands {
-		snapshot.Hands[seat] = append([]byte(nil), snapshot.Hands[seat]...)
-	}
+	snapshot.Hands = cloneReplayHands(snapshot.Hands)
 	return snapshot
+}
+
+func cloneReplayHands(hands [4][]byte) [4][]byte {
+	for seat := range hands {
+		hands[seat] = append([]byte(nil), hands[seat]...)
+	}
+	return hands
+}
+
+func cloneReplayMove(move ReplayMove) ReplayMove {
+	move.Hands = cloneReplayHands(move.Hands)
+	move.Cards = append([]byte(nil), move.Cards...)
+	return move
+}
+
+func cloneReplayMoves(moves []ReplayMove) []ReplayMove {
+	if len(moves) == 0 {
+		return nil
+	}
+	cloned := make([]ReplayMove, len(moves))
+	for index, move := range moves {
+		cloned[index] = cloneReplayMove(move)
+	}
+	return cloned
+}
+
+func replayCardTypeName(pattern cardPattern, cardCount int) string {
+	if cardCount == 0 {
+		return "不出"
+	}
+	switch pattern.kind {
+	case cardPatternSingle:
+		return "单张"
+	case cardPatternPair:
+		return "对子"
+	case cardPatternTriple:
+		return "三张"
+	case cardPatternThreeTwo:
+		return "俘虏"
+	case cardPatternBomb:
+		if pattern.count > 0 {
+			return "炸弹" + strconv.Itoa(pattern.count)
+		}
+		return "炸弹4"
+	default:
+		return "不出"
+	}
 }
