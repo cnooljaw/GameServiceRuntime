@@ -268,6 +268,13 @@ type BattleFactoryService struct {
 	outputRef        gsr.ServiceRef
 	outputGeneration ConnectionGeneration
 	outputReporter   ConnectionFailureReporter
+	replaySubmitter  ReplaySubmitter
+}
+
+// BattleFactoryConfig contains process-owned adapters injected into every
+// Battle created by the factory.
+type BattleFactoryConfig struct {
+	ReplaySubmitter ReplaySubmitter
 }
 
 type factoryBattle struct {
@@ -277,11 +284,18 @@ type factoryBattle struct {
 }
 
 // NewBattleFactoryService creates a lifecycle runner backed by the Runtime composition root.
-func NewBattleFactoryService(creator game.ServiceCreator, stopper BattleStopper) (*BattleFactoryService, error) {
+func NewBattleFactoryService(creator game.ServiceCreator, stopper BattleStopper, configs ...BattleFactoryConfig) (*BattleFactoryService, error) {
 	if creator == nil || stopper == nil {
 		return nil, errInvalidHostConfig
 	}
-	return &BattleFactoryService{creator: creator, stopper: stopper}, nil
+	if len(configs) > 1 {
+		return nil, errInvalidHostConfig
+	}
+	factory := &BattleFactoryService{creator: creator, stopper: stopper}
+	if len(configs) == 1 {
+		factory.replaySubmitter = configs[0].ReplaySubmitter
+	}
+	return factory, nil
 }
 
 // Init captures the factory capability.
@@ -312,7 +326,7 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		if outputGeneration != request.Request.ConnectionGeneration {
 			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter})
+		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, ReplaySubmitter: factory.replaySubmitter})
 		if err == nil {
 			var ref gsr.ServiceRef
 			ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: battle})

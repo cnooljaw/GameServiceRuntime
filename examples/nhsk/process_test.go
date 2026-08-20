@@ -25,6 +25,9 @@ func TestNewGameLogicProcessComposesHostFactoryAndConnection(t *testing.T) {
 	if process.HostRef().ID == 0 || process.Runtime() == nil {
 		t.Fatalf("process refs = host=%#v runtime=%v", process.HostRef(), process.Runtime())
 	}
+	if process.replayWriter == nil {
+		t.Fatal("replay writer runner was not composed")
+	}
 	if err := process.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}

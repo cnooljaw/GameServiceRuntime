@@ -612,16 +612,16 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - `StartSubgame` 以一次 `NHSKClock` 读取冻结内存 `ReplayDocument` 的 `ReplayStartSnapshot`；快照深拷贝 BattleIdentity、RoundContext、INIT 进度/计分/ReplayMetadata/ReplayRuleSnapshot、四座 User/Seat/NickName/InitScore/CltID(Platform)/Dress/Automated 与最终 26 张手牌。同一开始时刻已生成旧式 `ReplayUID=Unix秒+CreatorID`、UTC+8 的 `NHSK_M<ProductID>R<RoundID>_<date>_<time>_<Seat0>.xml` 和 `FuPan/<date>/<hour>`。随后按 `GAME_START -> GAME_STARTED -> GameInfo -> Seat0..3 私有 Deal -> AskOutCard` 提交完整开局线序；首个 Ask 单独读取行动起点。规范 Moves 已实现，Summary/CardDetail、完整 XML 和 writer 仍待后续切片。
 - `ReplayDocument` 起始时创建一个包含四手最终牌的单一 `Deal` 内存事件；合法出牌按参考顺序记录 `CurrentPoint -> OutCard`，每次出牌/过牌都记录 `OutCard`，三家过牌结束一墩时记录 `CatchPoint -> TurnEnd`。OutCard 的 MoveMilliseconds 只由注入 Clock 计算当前 Ask 起点到合法动作的耗时；非法动作、重连和中途启用托管不重置起点。领域值用 `ReplayMove.Source/ReplayMoveSource` 表示来源，不引入 Actor 类型；纯内存 Moves serializer 已在兼容边界输出 `M0..Mn`、Deal 的 D0..D3、真实 Count、Tab 缩进、字典序属性、小写牌值和旧 `Actor` 中文值。事件和牌区都通过深拷贝返回；完整 Info/GameOver/Summary/Dress/Other 树与 writer 仍未接入。
 - Legacy `INIT_GAME` 已完整解码固定体回放字段与四个连续 suffix；adapter 将玩法规则投影为 `NHSKConfig`，将 MatchName/GameType/积分模式/房间/创建者投影为 `ReplayMetadata`，并单独冻结 BaseRule 的回放规则快照。INIT 只保存真实消费者；归一化后整份重复请求幂等，任何冲突配置稳定拒绝。
-- `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。完整客户端 GameResult、回放、ROUND_STAT/GAME_OVER 终局时序仍未接入。
+- `0x80008650` 的 ResultDetail/PlayerData 两段后缀已按旧 12/20 字节布局类型化解码；Legacy 映射与 Cluster `CompleteSettlement` 共用同一 Battle 矩阵门禁，坏包不会部分修改状态，成功 Flag 会更新 IsSeal/IsBreak，失败响应按 Dissolve(4) 清零收敛。正确响应已经接通客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER。
 - 强制结束小局按参考 `GameOverProcess` 的顺序提交最小 `GAME_OVER (0x8641)` 后的 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 不提交 NOTICE。
-- 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，正式结算时序仍需 GameResult 和回放收敛后接入。
-- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；发牌、新手/散牌调整、自定义牌堆与逐墩抓分均由 Battle 独立状态完成。对家出完时先结清当前分牌，再按旧 `CalcSuccessResult` 的名次与 `100/105/200` 阈值计算单扣/双扣、胜组和倍数；托管责任按 GameRule 前两项的原乘法公式认定并修正失败组负分。结果转换为类型化 SettlementRequestOutput，Legacy egress 已编码 0x8650 固定体和两段 suffix；ACK 应用后已产生客户端 GAME_RESULT。完整 AI 来源、回放终局与 writer 收敛仍待后续切片。
+- 客户端 `ROUND_STAT (0x7246)` 的首版空统计 wire/Legacy relay 已实现；PlayerCount 固定为 0，并已在 GameResult 和回放收敛后、GAME_OVER 前按目标逐用户发送。
+- Battle 已维护 `!Exited && ClientReady` 的 ROUND_STAT 目标资格表，并用于正式普通结算时序。
+- Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；发牌、新手/散牌调整、自定义牌堆与逐墩抓分均由 Battle 独立状态完成。对家出完时先结清当前分牌，再按旧 `CalcSuccessResult` 的名次与 `100/105/200` 阈值计算单扣/双扣、胜组和倍数；托管责任按 GameRule 前两项的原乘法公式认定并修正失败组负分。结果转换为类型化 SettlementRequestOutput，Legacy egress 已编码 0x8650 固定体和两段 suffix；ACK 应用后已产生客户端 GAME_RESULT、回放、ROUND_STAT 和 GAME_OVER。完整 AI/超时来源仍待后续切片。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
 - Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 `ROUND_STAT` 的结算时序、带玩家数据的 `GAME_OVER`/客户端 GameResult、回放收敛、回放终局时间、名次与单扣双扣、完整综合结算、完整结果/托管责任输出、AI、Quarantine/诊断、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。当前墩抓分、`TurnEnd`、开局输出和回放行动耗时已接入，但不代表最终计分或综合结算完成。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在这些切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 AI/托管/超时、MATCH_STOP 与 DEL_GAME 屏障、Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、综合结算、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

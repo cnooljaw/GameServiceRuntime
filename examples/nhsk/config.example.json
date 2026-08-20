@@ -40,6 +40,9 @@
     "workers": 1,
     "load_timeout": "5s"
   },
+  "replay": {
+    "root": "replays"
+  },
   "logging": {
     "level": "info"
   },

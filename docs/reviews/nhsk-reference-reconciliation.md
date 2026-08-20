@@ -1075,6 +1075,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-058、D-065、D-070、D-089～D-093；TODO CARD-026、031、038、043、060。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务代码未修改。 |
 
+### 4.53 NHSK 完整回放、异步落盘与普通终局
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 在综合结算提交客户端 GAME_RESULT 后冻结完整回放 XML，由进程级有界 I/O runner 落盘；最先到达的成功、失败或超时结果再产生 ROUND_STAT 与四座 GAME_OVER。 |
+| GSR 文件/测试 | `replay_document.go`、`replay_xml.go`、`replay_text.go`、`replay_writer.go`、`battle.go`、`process.go`、`outputs.go`、`internal/legacywire/game_over.go`；测试覆盖完整树序、GBK 边界、文件路径、XML 深拷贝、队列满、结果身份 fencing、重复完成、ROUND_STAT/GAME_OVER 顺序与四座 wire。 |
+| 参考入口 | `nhsk/replay/replay.go:RecordGameOver/RecordGameOverChairs/RecordSummary/RecordCardDetail`、`nhsk/game/second_batch.go:recordReplaySummaryAndOther/replayGameOverChairs`、`gamelogic/internal/game/game_api.go:GameOver`、`gamecore/replay/persistence.go:Save`、`protocol/gamelogic/gl2gm.go:ReqBSGL2GMGameOver`。 |
+| 参考测试/配置/录包 | `nhsk/replay/replay_test.go`、`nhsk/game/game_flow_test.go`、`gamecore/replay/persistence_test.go` 和 GL→GM formatter；确认终局树、Summary/Other、GAME_RESULT→同步 Save→GAME_OVER 以及 SeatID 数组关联。 |
+| Legacy MessageID | 客户端 `0x7607 GAME_RESULT` 后逐用户发送 `0x7246 ROUND_STAT`，再向 GM 发送 `0x8641 GAME_OVER`；消息 ID 和既有双层 relay 不变。 |
+| 输入与校验 | ReplayDocument 必须有有效起始与终局快照；Artifact 携带完整目标 Ref、BattleID、GameNum、SubgameNum、ReplayName、固定相对目录和非空 XML。writer 结果只有全部身份与当前 `FinalizingReplay` 匹配才生效。GAME_OVER 必须零座或恰好四座，普通结算固定四座。 |
+| 权威状态变化 | Battle 只在 Mailbox 内冻结一次结束时间、结果、最终分、玩家 Exp/Flag、动作计数/耗时和炸弹明细并完成纯内存序列化；runner 只拥有 XML bytes 的深拷贝和文件 I/O。首次有效结果把阶段推进为 Finished，重复或错配结果不改变状态。 |
+| Timer/Timeline | writer 提交后只建立一个固定 5 秒 finalize deadline；成功/失败与 deadline 竞争由阶段和小局身份单飞收敛。runner 使用固定一个 worker、128 队列且由进程 Close 取消并等待真实返回；Battle 不创建 goroutine。 |
+| 输出目标与顺序 | ACK 首先提交全桌 GAME_RESULT；回放收敛后向 `!Exited && ClientReady` 玩家逐用户输出空 ROUND_STAT，再发 GM GAME_OVER。GAME_OVER 玩家按 Seat0..3 编码 Score、ACK 前最新 Exp 和最终 Auto。 |
+| 生命周期结果 | 生产组合根始终装配 FileReplayWriter；仅根目录可配，固定写入 `FuPan/date/hour`。序列化、队列、写盘或超时失败不隔离、不重试、不熔断，仍以冻结 ReplayName 完成当前小局；DEL_GAME 不等待 I/O 的竞争留给停止屏障切片。 |
+| 已一致 | Info/Moves/GameOver/Summary/Dress/Other 树序、当前参考终局属性、四座稳定顺序、GAME_RESULT→回放→ROUND_STAT→GAME_OVER 可见线序和非原子直接文件写入均已实现。 |
+| 有意偏差 | 旧 BaseGame 在游戏 goroutine 同步写盘并可另起上传 goroutine；新实现按 D-047/D-082 在 Battle 内只做有界纯内存序列化，把阻塞 I/O 交给固定外部 worker。旧 writer 忽略部分文件错误，新 writer 检查 MkdirAll/Open/Write/Close，但仍不增加 rename、fsync、重试或上传。GBK 只在两个有证据的文本来源边界使用 `golang.org/x/text`。 |
+| 发现遗漏 | MATCH_STOP/DEL_GAME 竞争、隔离后的 writer 结果、Prop Move，以及 AI/超时来源统计仍待对应切片；旧跨小局战绩模块按既有 RFC 放弃。 |
+| 结论 | 普通综合结算后的完整回放持久化与生命周期输出 **已一致**；停止与异步玩法竞争 **发现遗漏，继续实现**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-047、D-079、D-082～D-086、D-093；TODO CARD-023、026、043、052～060。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

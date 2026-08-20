@@ -448,16 +448,68 @@ func TestBattleAppliesSettlementMatrixAtomically(t *testing.T) {
 	if !service.players["1"].IsBreak || !service.players["1"].IsSeal || !service.players["2"].IsSeal || service.players["2"].IsBreak || !service.players["4"].IsBreak || service.players["4"].IsSeal {
 		t.Fatalf("settlement flags = %#v", service.players)
 	}
-	if len(output.sends) != 2 {
-		t.Fatalf("settlement outputs = %d, want GAME_RESULT then GAME_OVER", len(output.sends))
+	if len(output.sends) != 3 {
+		t.Fatalf("settlement outputs = %d, want GAME_RESULT/ROUND_STAT/GAME_OVER", len(output.sends))
 	}
 	gameResult := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
 	if gameResult.Kind != OutputGameResult || gameResult.Payload.(GameResultPayload).Scores != want {
 		t.Fatalf("success GAME_RESULT = %#v", gameResult)
 	}
-	gameOver := output.sends[1].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	if roundStat := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput); roundStat.Kind != OutputRoundStat {
+		t.Fatalf("ROUND_STAT = %#v", roundStat)
+	}
+	gameOver := output.sends[2].(GameOutputBatch).Outputs[0].(GameOverOutput)
 	if gameOver.Reason != int32(GameOverReasonSuccess) {
 		t.Fatalf("success GAME_OVER = %#v", gameOver)
+	}
+	if len(gameOver.Players) != 4 || gameOver.Players[0].Score != -3 || gameOver.Players[3].Score != 5 {
+		t.Fatalf("success GAME_OVER players = %#v", gameOver.Players)
+	}
+}
+
+func TestBattleFencesReplayCompletionBeforeRoundStatAndGameOver(t *testing.T) {
+	service, output := newPlayingBattleForRestore(t, 38)
+	submitter := &recordingReplaySubmitter{}
+	service.replaySubmitter = submitter
+	service.replayTimeout = time.Second
+	service.phase = NHSKBattleAwaitingSettlement
+	output.sends = nil
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: CompleteSettlementCommand, Payload: CompleteSettlementRequest{Success: true, Scores: [4]int32{1, -1, 1, -1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleFinalizingReplay || len(output.sends) != 1 || len(submitter.artifacts) != 1 {
+		t.Fatalf("after settlement phase=%s outputs=%d artifacts=%d", service.phase, len(output.sends), len(submitter.artifacts))
+	}
+	artifact := submitter.artifacts[0]
+	if len(artifact.XML) == 0 || artifact.Target != ctx.Self() || artifact.BattleID != 38 {
+		t.Fatalf("artifact = %#v", artifact)
+	}
+	wrong := replayWriteResult{BattleID: 39, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: wrong}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleFinalizingReplay || len(output.sends) != 1 {
+		t.Fatalf("wrong completion changed phase=%s outputs=%d", service.phase, len(output.sends))
+	}
+	correct := replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: correct}); err != nil {
+		t.Fatal(err)
+	}
+	if service.phase != NHSKBattleFinished || len(output.sends) != 3 {
+		t.Fatalf("correct completion phase=%s outputs=%d", service.phase, len(output.sends))
+	}
+	if got := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput).Kind; got != OutputRoundStat {
+		t.Fatalf("second output = %s, want %s", got, OutputRoundStat)
+	}
+	if _, ok := output.sends[2].(GameOutputBatch).Outputs[0].(GameOverOutput); !ok {
+		t.Fatalf("third output = %#v, want GameOverOutput", output.sends[2])
+	}
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: correct}); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.sends) != 3 {
+		t.Fatalf("duplicate completion outputs=%d, want 3", len(output.sends))
 	}
 }
 
@@ -516,14 +568,14 @@ func TestBattleSettlementFailureDissolvesAndClearsFlags(t *testing.T) {
 			t.Fatalf("seat %d failure state = %#v", seat, value)
 		}
 	}
-	if len(output.sends) != 2 {
-		t.Fatalf("failure outputs = %d, want GAME_RESULT then GAME_OVER", len(output.sends))
+	if len(output.sends) != 3 {
+		t.Fatalf("failure outputs = %d, want GAME_RESULT/ROUND_STAT/GAME_OVER", len(output.sends))
 	}
 	gameResult := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput).Payload.(GameResultPayload)
 	if gameResult.Reason != GameOverReasonDissolve || gameResult.Result != SubgameResultPeace || gameResult.Scores != [4]int32{} {
 		t.Fatalf("failure GAME_RESULT = %#v", gameResult)
 	}
-	gameOver := output.sends[1].(GameOutputBatch).Outputs[0].(GameOverOutput)
+	gameOver := output.sends[2].(GameOutputBatch).Outputs[0].(GameOverOutput)
 	if gameOver.Reason != int32(GameOverReasonDissolve) || gameOver.IsGameOver {
 		t.Fatalf("failure GAME_OVER = %#v", gameOver)
 	}
@@ -984,3 +1036,10 @@ func (battleTestMetrics) Inc(string)                    {}
 func (battleTestMetrics) Add(string, uint64)            {}
 func (battleTestMetrics) SetGauge(string, int64)        {}
 func (battleTestMetrics) Observe(string, time.Duration) {}
+
+type recordingReplaySubmitter struct{ artifacts []ReplayArtifact }
+
+func (submitter *recordingReplaySubmitter) SubmitReplay(artifact ReplayArtifact) error {
+	submitter.artifacts = append(submitter.artifacts, artifact)
+	return nil
+}

@@ -54,7 +54,11 @@ func encodeLegacyGameOutputBatch(batch GameOutputBatch) ([][]byte, error) {
 				}
 				endPlayer = players[0]
 			}
-			frame, err := legacywire.EncodeGameOver(legacywire.GameOver{BattleID: uint32(batch.BattleID), Reason: output.Reason, ReplayName: output.ReplayName, IsGameOver: output.IsGameOver, YueJuEndReason: output.YueJuEndReason, YueJuEndPlayer: endPlayer})
+			players := make([]legacywire.GameOverPlayer, len(output.Players))
+			for index, player := range output.Players {
+				players[index] = legacywire.GameOverPlayer{Score: player.Score, Exp: player.Exp, Automated: player.Automated}
+			}
+			frame, err := legacywire.EncodeGameOver(legacywire.GameOver{BattleID: uint32(batch.BattleID), Reason: output.Reason, ReplayName: output.ReplayName, IsGameOver: output.IsGameOver, YueJuEndReason: output.YueJuEndReason, YueJuEndPlayer: endPlayer, Players: players})
 			if err != nil {
 				return nil, fmt.Errorf("%w: GAME_OVER: %v", errInvalidLegacyGameOutput, err)
 			}

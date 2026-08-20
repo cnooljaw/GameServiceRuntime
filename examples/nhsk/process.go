@@ -21,6 +21,13 @@ type GameLogicProcessConfig struct {
 	MaxActiveBattles uint32
 	Legacy           LegacyGMConnectionConfig
 	CustomDeck       CustomDeckProcessConfig
+	Replay           ReplayProcessConfig
+}
+
+// ReplayProcessConfig configures bounded replay serialization output owned by
+// the GameLogic process rather than by Battle Services.
+type ReplayProcessConfig struct {
+	Root string
 }
 
 // CustomDeckProcessConfig configures the optional Legacy compatibility bridge
@@ -56,6 +63,7 @@ type GameLogicProcess struct {
 	factoryRef       gsr.ServiceRef
 	connection       *LegacyGMConnection
 	customDeckRunner *CustomDeckRunner
+	replayWriter     *ReplayWriterRunner
 	closeOnce        bool
 	outputMu         sync.Mutex
 	outputRef        gsr.ServiceRef
@@ -67,25 +75,36 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		return nil, errors.New("nhsk: invalid GameLogic process config")
 	}
 	runtime := gsr.NewRuntime(gsr.Config{NodeID: config.NodeID, Workers: config.Workers})
+	replayRoot := strings.TrimSpace(config.Replay.Root)
+	if replayRoot == "" {
+		replayRoot = "replays"
+	}
+	replayWriter, err := NewReplayWriterRunner(runtime, FileReplayWriter{Root: replayRoot}, ReplayWriterRunnerConfig{})
+	if err != nil {
+		_ = runtime.Close(context.Background())
+		return nil, err
+	}
 	var customDeckRunner *CustomDeckRunner
-	var err error
 	if config.CustomDeck.Enabled {
 		provider, providerErr := customDeckProviderFromConfig(config.CustomDeck)
 		if providerErr != nil {
+			_ = replayWriter.Close()
 			_ = runtime.Close(context.Background())
 			return nil, providerErr
 		}
 		customDeckRunner, err = NewCustomDeckRunner(runtime, provider, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: config.CustomDeck.LoadTimeout})
 		if err != nil {
+			_ = replayWriter.Close()
 			_ = runtime.Close(context.Background())
 			return nil, err
 		}
 	}
-	factory, err := NewBattleFactoryService(runtime, runtime)
+	factory, err := NewBattleFactoryService(runtime, runtime, BattleFactoryConfig{ReplaySubmitter: replayWriter})
 	if err != nil {
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -94,6 +113,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -102,6 +122,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -110,6 +131,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
@@ -155,6 +177,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, fmt.Errorf("nhsk: create Legacy connection: %w", err)
 	}
@@ -162,10 +185,11 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner}
+	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner, replayWriter: replayWriter}
 	return process, nil
 }
 
@@ -202,11 +226,17 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 		if process.customDeckRunner != nil {
 			_ = process.customDeckRunner.Close()
 		}
+		if process.replayWriter != nil {
+			_ = process.replayWriter.Close()
+		}
 		_ = process.runtime.Close(ctx)
 		return err
 	}
 	if process.customDeckRunner != nil {
 		_ = process.customDeckRunner.Close()
+	}
+	if process.replayWriter != nil {
+		_ = process.replayWriter.Close()
 	}
 	return process.runtime.Close(ctx)
 }
@@ -283,7 +313,7 @@ func LoadGameLogicProcessConfig(path string) (GameLogicProcessConfig, error) {
 		JitterRatio:       config.LegacyGM.Jitter,
 		StableResetAfter:  time.Duration(config.LegacyGM.StableReset),
 	}
-	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}}, nil
+	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}, Replay: ReplayProcessConfig{Root: config.Replay.Root}}, nil
 }
 
 func customDeckProviderFromConfig(config CustomDeckProcessConfig) (CustomDeckProvider, error) {

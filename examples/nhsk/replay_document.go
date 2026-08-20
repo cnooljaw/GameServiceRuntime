@@ -40,6 +40,7 @@ type ReplayStartSnapshot struct {
 	ScoreDenominator int32
 	ReplayMetadata   ReplayMetadata
 	ReplayRules      ReplayRuleSnapshot
+	Rules            NHSKConfig
 	RoundContext     UpdateRoundContextRequest
 	Players          [4]ReplayPlayerSnapshot
 	Hands            [4][]byte
@@ -124,11 +125,33 @@ func (snapshot ReplayStartSnapshot) Valid() bool {
 }
 
 // ReplayDocument is the in-memory replay document under construction for one
-// subgame. It currently contains the Start snapshot and basic gameplay moves;
-// settlement, summary and serialization are added by later replay slices.
+// subgame. It owns immutable start, move and terminal snapshots; only Battle
+// Mailbox handlers may append or finalize it.
 type ReplayDocument struct {
 	start ReplayStartSnapshot
 	moves []ReplayMove
+	end   *replayEndSnapshot
+}
+
+type replayActionSummary struct {
+	counts [6]uint32
+}
+
+type replayCardDetail struct {
+	cardType string
+	cards    []byte
+}
+
+type replayEndSnapshot struct {
+	endedAt          time.Time
+	result           subgameResultSnapshot
+	finalScores      [4]int32
+	players          [4]BattlePlayer
+	moveCount        [4]uint32
+	autoCount        [4]uint32
+	moveMilliseconds [4]uint32
+	actions          [4]replayActionSummary
+	cardDetails      [4][]replayCardDetail
 }
 
 // NewReplayDocument creates a replay document that owns a deep copy of its
@@ -151,11 +174,35 @@ func (document ReplayDocument) Moves() []ReplayMove {
 
 // Clone returns an independent copy of the in-memory replay document.
 func (document ReplayDocument) Clone() ReplayDocument {
-	return ReplayDocument{start: cloneReplayStartSnapshot(document.start), moves: cloneReplayMoves(document.moves)}
+	clone := ReplayDocument{start: cloneReplayStartSnapshot(document.start), moves: cloneReplayMoves(document.moves)}
+	if document.end != nil {
+		end := cloneReplayEndSnapshot(*document.end)
+		clone.end = &end
+	}
+	return clone
 }
 
 func (document *ReplayDocument) appendMove(move ReplayMove) {
 	document.moves = append(document.moves, cloneReplayMove(move))
+}
+
+func (document *ReplayDocument) finalize(end replayEndSnapshot) {
+	cloned := cloneReplayEndSnapshot(end)
+	document.end = &cloned
+}
+
+func cloneReplayEndSnapshot(end replayEndSnapshot) replayEndSnapshot {
+	for seat := range end.cardDetails {
+		if end.cardDetails[seat] == nil {
+			continue
+		}
+		details := make([]replayCardDetail, len(end.cardDetails[seat]))
+		for index, detail := range end.cardDetails[seat] {
+			details[index] = replayCardDetail{cardType: detail.cardType, cards: append([]byte(nil), detail.cards...)}
+		}
+		end.cardDetails[seat] = details
+	}
+	return end
 }
 
 func cloneReplayStartSnapshot(snapshot ReplayStartSnapshot) ReplayStartSnapshot {

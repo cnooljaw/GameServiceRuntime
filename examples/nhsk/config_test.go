@@ -72,6 +72,9 @@ func TestLoadConfigAppliesDefaultsAndEnvironmentOverrides(t *testing.T) {
 	if time.Duration(config.ShutdownTimeout) != 10*time.Second {
 		t.Errorf("shutdown timeout = %v, want 10s", config.ShutdownTimeout)
 	}
+	if config.Replay.Root != "replays" {
+		t.Fatalf("replay defaults = %+v", config.Replay)
+	}
 }
 
 func TestLoadConfigRejectsInvalidConfiguration(t *testing.T) {

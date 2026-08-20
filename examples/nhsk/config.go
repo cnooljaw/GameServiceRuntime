@@ -27,6 +27,7 @@ type appConfig struct {
 	Redis           redisConfig      `json:"redis"`
 	WeChat          weChatConfig     `json:"wechat"`
 	CustomDeck      customDeckConfig `json:"custom_deck"`
+	Replay          replayConfig     `json:"replay"`
 	Logging         loggingConfig    `json:"logging"`
 	ShutdownTimeout configDuration   `json:"shutdown_timeout"`
 }
@@ -75,6 +76,10 @@ type customDeckConfig struct {
 	QueueSize       int            `json:"queue_size"`
 	Workers         int            `json:"workers"`
 	LoadTimeout     configDuration `json:"load_timeout"`
+}
+
+type replayConfig struct {
+	Root string `json:"root"`
 }
 
 type loggingConfig struct {
@@ -134,6 +139,7 @@ func defaultConfig() appConfig {
 			StableReset:       configDuration(connection.StableResetAfter),
 		},
 		Logging: loggingConfig{Level: "info"},
+		Replay:  replayConfig{Root: "replays"},
 	}
 }
 
@@ -158,6 +164,7 @@ func applyEnvironment(config *appConfig) error {
 	overrideString("NHSK_WECHAT_APP_ID", &config.WeChat.AppID)
 	overrideString("NHSK_WECHAT_APP_SECRET", &config.WeChat.AppSecret)
 	overrideString("NHSK_LOG_LEVEL", &config.Logging.Level)
+	overrideString("NHSK_REPLAY_ROOT", &config.Replay.Root)
 
 	if err := overrideInt("NHSK_WORKERS", &config.Node.Workers); err != nil {
 		return err
@@ -334,6 +341,9 @@ func (config appConfig) validate() error {
 	}
 	if config.CustomDeck.LoadTimeout < 0 {
 		return configFieldError("custom_deck.load_timeout", "must not be negative")
+	}
+	if strings.TrimSpace(config.Replay.Root) == "" {
+		return configFieldError("replay.root", "is required")
 	}
 	return nil
 }

@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	nhskBattleTimerCommand gsr.CommandID = 0x0410f003
+	nhskBattleTimerCommand   gsr.CommandID = 0x0410f003
+	applyReplayResultCommand gsr.CommandID = 0x0410f006
 )
 
 const (
@@ -64,6 +65,8 @@ const (
 	NHSKBattlePlaying NHSKBattlePhase = "playing"
 	// NHSKBattleAwaitingSettlement waits for the external settlement result.
 	NHSKBattleAwaitingSettlement NHSKBattlePhase = "awaiting_settlement"
+	// NHSKBattleFinalizingReplay waits for one writer result or local deadline.
+	NHSKBattleFinalizingReplay NHSKBattlePhase = "finalizing_replay"
 	// NHSKBattleFinished is the terminal phase for the example Battle.
 	NHSKBattleFinished NHSKBattlePhase = "finished"
 )
@@ -84,6 +87,10 @@ type NHSKBattleConfig struct {
 	// Clock optionally injects the Battle-owned wall clock. When nil,
 	// NewBattleService uses the process system clock.
 	Clock NHSKClock
+	// ReplaySubmitter is required by the production composition root. Tests may
+	// leave it nil to use deterministic in-memory completion.
+	ReplaySubmitter ReplaySubmitter
+	ReplayTimeout   time.Duration
 }
 
 // NHSKBattleService owns one Battle's state and serializes all game mutations in its Mailbox.
@@ -117,6 +124,8 @@ type NHSKBattleService struct {
 	moveCount            [4]uint32
 	autoCount            [4]uint32
 	moveMilliseconds     [4]uint32
+	actionCounts         [4][6]uint32
+	cardDetails          [4][]replayCardDetail
 	lastPlayedCards      [4][8]byte
 	lastPlayCounts       [4]int8
 	revision             uint64
@@ -141,6 +150,9 @@ type NHSKBattleService struct {
 	currentRound         UpdateRoundContextRequest
 	startedDresses       [4]string
 	replayDocument       ReplayDocument
+	replaySubmitter      ReplaySubmitter
+	replayTimeout        time.Duration
+	replayFinalized      bool
 	random               NHSKRandomSource
 	clock                NHSKClock
 	rules                NHSKConfig
@@ -176,6 +188,9 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	if clock == nil {
 		clock = systemNHSKClock{}
 	}
+	if config.ReplayTimeout <= 0 {
+		config.ReplayTimeout = 5 * time.Second
+	}
 	productID := config.ProductID
 	if productID == 0 {
 		productID = NHSKDescriptor.GameID
@@ -183,11 +198,13 @@ func NewBattleService(config NHSKBattleConfig) (*NHSKBattleService, error) {
 	return &NHSKBattleService{
 		id: config.ID, outputRef: config.OutputRef, matchID: config.MatchID, productID: productID,
 		connectionGeneration: config.ConnectionGeneration, reporter: config.OutputReporter,
-		isNewbie: config.IsNewbie,
-		random:   random,
-		clock:    clock,
-		rules:    DefaultNHSKConfig(),
-		phase:    NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
+		isNewbie:        config.IsNewbie,
+		random:          random,
+		clock:           clock,
+		replaySubmitter: config.ReplaySubmitter,
+		replayTimeout:   config.ReplayTimeout,
+		rules:           DefaultNHSKConfig(),
+		phase:           NHSKBattleAwaitingInit, players: make(map[game.PlayerID]BattlePlayer),
 		hands: make(map[game.PlayerID][]byte), auto: make(map[game.PlayerID]bool), offline: make(map[game.PlayerID]bool), clientReady: make(map[game.PlayerID]bool),
 		preOutSeat:     -1,
 		lastPlayCounts: [4]int8{-1, -1, -1, -1},
@@ -252,6 +269,8 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.snapshotReply(ctx)
 	case nhskBattleTimerCommand:
 		return battle.timer(ctx, command.Payload)
+	case applyReplayResultCommand:
+		return battle.applyReplayResult(ctx, command.Payload)
 	default:
 		return gsr.ErrUnknownCommand
 	}
@@ -405,7 +424,10 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	battle.moveCount = [4]uint32{}
 	battle.autoCount = [4]uint32{}
 	battle.moveMilliseconds = [4]uint32{}
+	battle.actionCounts = [4][6]uint32{}
+	battle.cardDetails = [4][]replayCardDetail{}
 	battle.pendingResult = subgameResultSnapshot{}
+	battle.replayFinalized = false
 	battle.settlementFailed = false
 	for playerID, player := range battle.players {
 		player.IsBreak = false
@@ -451,6 +473,7 @@ func (battle *NHSKBattleService) buildReplayStartSnapshot(startedAt time.Time) R
 	snapshot.ScoreDenominator = battle.scoreDenominator
 	snapshot.ReplayMetadata = battle.replayMetadata
 	snapshot.ReplayRules = battle.replayRules
+	snapshot.Rules = battle.rules
 	snapshot.RoundContext = battle.currentRound
 	snapshot.BankerSeat = uint8(battle.activeSeat)
 	for seat, playerID := range battle.bySeat {
@@ -626,6 +649,7 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Source: source, MoveMilliseconds: moveMilliseconds})
 	battle.moveCount[battle.activeSeat]++
 	battle.moveMilliseconds[battle.activeSeat] += moveMilliseconds
+	battle.recordReplayAction(battle.activeSeat, pattern, request.Cards)
 	if !player.Automated && source != ReplayMoveSourcePlayer {
 		battle.autoCount[battle.activeSeat]++
 	}
@@ -778,10 +802,128 @@ func (battle *NHSKBattleService) completeSettlement(ctx gsr.CommandContext, payl
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameResult, Payload: battle.gameResultPayload(reason, plan.scores, result)}); err != nil {
 		return err
 	}
-	if err := battle.emit(ctx, GameOverOutput{Reason: int32(reason), ReplayName: battle.currentReplayName(), IsGameOver: false}); err != nil {
+	battle.finalizeReplay(result, plan.scores)
+	if err := battle.beginReplayFinalization(ctx); err != nil {
 		return err
 	}
 	return battle.reply(ctx, SettlementCommandResult{Accepted: true})
+}
+
+type replayWriteResult struct {
+	BattleID   game.BattleID
+	GameNum    uint16
+	SubgameNum uint16
+	ReplayName string
+	Error      string
+}
+
+type replayFinalizeDeadline struct {
+	GameNum    uint16
+	SubgameNum uint16
+}
+
+func (battle *NHSKBattleService) beginReplayFinalization(ctx gsr.CommandContext) error {
+	battle.phase = NHSKBattleFinalizingReplay
+	xmlBytes, err := marshalReplayDocumentXML(battle.replayDocument.Clone())
+	if err != nil {
+		battle.observeReplayFailure("serialize")
+		return battle.finishReplay(ctx)
+	}
+	if battle.replaySubmitter == nil {
+		return battle.finishReplay(ctx)
+	}
+	start := battle.replayDocument.start
+	artifact := ReplayArtifact{
+		Target: ctx.Self(), BattleID: battle.id, GameNum: battle.gameNum, SubgameNum: battle.subgameNum,
+		ReplayName: start.ReplayName, RelativePath: start.RelativePath, XML: xmlBytes,
+	}
+	if err := battle.replaySubmitter.SubmitReplay(artifact); err != nil {
+		battle.observeReplayFailure("submit")
+		return battle.finishReplay(ctx)
+	}
+	if battle.service == nil {
+		return battle.finishReplay(ctx)
+	}
+	if _, err := battle.service.After(battle.replayTimeout, nhskBattleTimerCommand, replayFinalizeDeadline{GameNum: battle.gameNum, SubgameNum: battle.subgameNum}); err != nil {
+		battle.observeReplayFailure("timer")
+		return battle.finishReplay(ctx)
+	}
+	return nil
+}
+
+func (battle *NHSKBattleService) applyReplayResult(ctx gsr.CommandContext, payload any) error {
+	result, ok := payload.(replayWriteResult)
+	if !ok || result.BattleID != battle.id || result.GameNum != battle.gameNum || result.SubgameNum != battle.subgameNum || result.ReplayName != battle.currentReplayName() || battle.phase != NHSKBattleFinalizingReplay {
+		return nil
+	}
+	if result.Error != "" {
+		battle.observeReplayFailure("write")
+	}
+	return battle.finishReplay(ctx)
+}
+
+func (battle *NHSKBattleService) observeReplayFailure(cause string) {
+	if battle.service == nil {
+		return
+	}
+	battle.service.Metrics().Inc("nhsk_replay_finalize_failure_total")
+	battle.service.Logger().Warn("NHSK replay finalization failed", "battle_id", battle.id, "game_num", battle.gameNum, "subgame_num", battle.subgameNum, "cause", cause)
+}
+
+func (battle *NHSKBattleService) finishReplay(ctx gsr.CommandContext) error {
+	if battle.phase != NHSKBattleFinalizingReplay || battle.replayFinalized || battle.replayDocument.end == nil {
+		return nil
+	}
+	battle.replayFinalized = true
+	if targets := battle.roundStatPlayers(); len(targets) > 0 {
+		if err := battle.emit(ctx, ClientGameOutput{Targets: targets, Kind: OutputRoundStat, Payload: RoundStatPayload{}}); err != nil {
+			return err
+		}
+	}
+	end := battle.replayDocument.end
+	players := make([]GameOverPlayerData, 4)
+	for seat, player := range end.players {
+		players[seat] = GameOverPlayerData{Score: end.finalScores[seat], Exp: player.Exp, Automated: end.result.automated[seat]}
+	}
+	if err := battle.emit(ctx, GameOverOutput{Reason: int32(end.result.reason), ReplayName: battle.currentReplayName(), IsGameOver: false, Players: players}); err != nil {
+		return err
+	}
+	battle.phase = NHSKBattleFinished
+	return nil
+}
+
+func (battle *NHSKBattleService) finalizeReplay(result subgameResultSnapshot, finalScores [4]int32) {
+	var actions [4]replayActionSummary
+	for seat := range actions {
+		actions[seat].counts = battle.actionCounts[seat]
+	}
+	battle.replayDocument.finalize(replayEndSnapshot{
+		endedAt: battle.clock.Now(), result: result, finalScores: finalScores,
+		players: battle.playersBySeat(), moveCount: battle.moveCount, autoCount: battle.autoCount,
+		moveMilliseconds: battle.moveMilliseconds, actions: actions, cardDetails: battle.cardDetails,
+	})
+}
+
+func (battle *NHSKBattleService) recordReplayAction(seat int, pattern cardPattern, cards []byte) {
+	index := 0
+	if len(cards) > 0 {
+		switch pattern.kind {
+		case cardPatternSingle:
+			index = 1
+		case cardPatternPair:
+			index = 2
+		case cardPatternTriple:
+			index = 3
+		case cardPatternThreeTwo:
+			index = 4
+		case cardPatternBomb:
+			index = 5
+		}
+	}
+	battle.actionCounts[seat][index]++
+	if pattern.kind == cardPatternBomb && len(cards) > 0 {
+		battle.cardDetails[seat] = append(battle.cardDetails[seat], replayCardDetail{cardType: "ZhaDan", cards: append([]byte(nil), cards...)})
+	}
 }
 
 func (battle *NHSKBattleService) gameResultPayload(reason GameOverReason, scores [4]int32, result subgameResultSnapshot) GameResultPayload {
@@ -872,6 +1014,13 @@ func (battle *NHSKBattleService) settlementReject(ctx gsr.CommandContext, err er
 }
 
 func (battle *NHSKBattleService) timer(ctx gsr.CommandContext, payload any) error {
+	if deadline, ok := payload.(replayFinalizeDeadline); ok {
+		if battle.phase == NHSKBattleFinalizingReplay && deadline.GameNum == battle.gameNum && deadline.SubgameNum == battle.subgameNum {
+			battle.observeReplayFailure("timeout")
+			return battle.finishReplay(ctx)
+		}
+		return nil
+	}
 	value, ok := payload.(uint64)
 	if !ok || value != battle.turnRevision || battle.phase != NHSKBattlePlaying {
 		return nil

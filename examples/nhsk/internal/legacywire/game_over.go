@@ -21,14 +21,22 @@ type GameOver struct {
 	IsGameOver     bool
 	YueJuEndReason int32
 	YueJuEndPlayer uint32
+	Players        []GameOverPlayer
+}
+
+// GameOverPlayer is one seat-indexed 9-byte GL→GM terminal player record.
+type GameOverPlayer struct {
+	Score     int32
+	Exp       int32
+	Automated bool
 }
 
 // EncodeGameOver encodes one fixed empty-player-data GAME_OVER frame.
 func EncodeGameOver(value GameOver) ([]byte, error) {
-	if value.BattleID == 0 || value.ReplayName == "" {
+	if value.BattleID == 0 || value.ReplayName == "" || len(value.Players) != 0 && len(value.Players) != 4 {
 		return nil, errors.New("legacywire: invalid GAME_OVER")
 	}
-	data := make([]byte, gameOverFixedSize)
+	data := make([]byte, gameOverFixedSize+len(value.Players)*9)
 	encodeHeader(data, bsHeader{Type: messageGLToGMGameOver, Length: uint32(len(data))})
 	binary.LittleEndian.PutUint16(data[24:26], glHeaderSize)
 	binary.LittleEndian.PutUint32(data[26:30], value.BattleID)
@@ -37,10 +45,19 @@ func EncodeGameOver(value GameOver) ([]byte, error) {
 	if value.IsGameOver {
 		data[118] = 1
 	}
-	// PlayerCount=0; the suffix index is absolute and empty.
+	binary.LittleEndian.PutUint32(data[119:123], uint32(len(value.Players)))
 	binary.LittleEndian.PutUint32(data[123:127], gameOverFixedSize)
-	binary.LittleEndian.PutUint32(data[127:131], 0)
+	binary.LittleEndian.PutUint32(data[127:131], uint32(len(value.Players)*9))
 	binary.LittleEndian.PutUint32(data[131:135], uint32(value.YueJuEndReason))
 	binary.LittleEndian.PutUint32(data[135:139], value.YueJuEndPlayer)
+	offset := gameOverFixedSize
+	for _, player := range value.Players {
+		binary.LittleEndian.PutUint32(data[offset:offset+4], uint32(player.Score))
+		binary.LittleEndian.PutUint32(data[offset+4:offset+8], uint32(player.Exp))
+		if player.Automated {
+			data[offset+8] = 1
+		}
+		offset += 9
+	}
 	return data, nil
 }

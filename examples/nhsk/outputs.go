@@ -262,9 +262,17 @@ type GameOverOutput struct {
 	IsGameOver     bool
 	YueJuEndReason int32
 	YueJuEndPlayer game.PlayerID
+	Players        []GameOverPlayerData
 }
 
 func (GameOverOutput) isNHSKGameOutput() {}
+
+// GameOverPlayerData is one seat-indexed player result sent to GameMaster.
+type GameOverPlayerData struct {
+	Score     int32
+	Exp       int32
+	Automated bool
+}
 
 // SettlementRequestOutput asks the external coordinator to apply one frozen
 // NHSK score-transfer matrix. Its later completion enters the Battle only
