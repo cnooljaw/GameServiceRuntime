@@ -319,7 +319,7 @@ func TestBattleRecordsReplayMoveMillisecondsFromEachActionStart(t *testing.T) {
 	}
 }
 
-func TestEnablingAutoDoesNotResetReplayActionStart(t *testing.T) {
+func TestEnablingAutoImmediatelyUsesOriginalReplayActionStart(t *testing.T) {
 	clock := &nhskTestClock{now: time.Unix(200, 0)}
 	service, _ := newBattleForTest(t, 36, mathrand.New(mathrand.NewSource(3)), clock)
 	ctx := &battleTestCommandContext{}
@@ -329,14 +329,9 @@ func TestEnablingAutoDoesNotResetReplayActionStart(t *testing.T) {
 	if err := service.Handle(ctx, gsr.Command{ID: SetPlayerAutoStateCommand, Payload: SetPlayerAutoStateRequest{Player: player, Enabled: true}}); err != nil {
 		t.Fatal(err)
 	}
-	clock.now = clock.now.Add(time.Second)
-	if err := service.Handle(ctx, gsr.Command{ID: nhskBattleTimerCommand, Payload: service.turnRevision}); err != nil {
-		t.Fatal(err)
-	}
-
 	outCards := replayOutCardMoves(service.replayDocument.Moves())
-	if len(outCards) != 1 || outCards[0].Source != ReplayMoveSourceAuto || outCards[0].MoveMilliseconds != 1200 {
-		t.Fatalf("auto out card = %#v, want auto source at 1200ms", outCards)
+	if len(outCards) != 1 || outCards[0].Source != ReplayMoveSourceAuto || outCards[0].MoveMilliseconds != 200 {
+		t.Fatalf("auto out card = %#v, want immediate auto source at 200ms", outCards)
 	}
 }
 

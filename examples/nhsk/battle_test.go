@@ -803,17 +803,20 @@ func TestBattleReconnectRestoresSceneAndDoesNotLeakHands(t *testing.T) {
 	if service.offline["1"] || service.auto["1"] || !service.clientReady["1"] {
 		t.Fatalf("reconnect state offline=%t auto=%t ready=%t", service.offline["1"], service.auto["1"], service.clientReady["1"])
 	}
-	if len(output.sends) != 3 {
-		t.Fatalf("reconnect output count = %d, want GameInfo/Scene/Ask", len(output.sends))
+	if len(output.sends) != 4 {
+		t.Fatalf("reconnect output count = %d, want Auto/GameInfo/Scene/Ask", len(output.sends))
 	}
-	if _, ok := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput); !ok {
+	if auto := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput); auto.Kind != OutputPlayerAutoState {
+		t.Fatalf("reconnect first output = %#v", auto)
+	}
+	if _, ok := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput); !ok {
 		t.Fatalf("reconnect first output = %#v", output.sends[0])
 	}
-	first := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	first := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
 	if first.Kind != OutputGameInfo {
 		t.Fatalf("reconnect first kind = %s, want %s", first.Kind, OutputGameInfo)
 	}
-	scene := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	scene := output.sends[2].(GameOutputBatch).Outputs[0].(ClientGameOutput)
 	if scene.Kind != OutputGameScene {
 		t.Fatalf("reconnect second kind = %s, want %s", scene.Kind, OutputGameScene)
 	}
@@ -826,7 +829,7 @@ func TestBattleReconnectRestoresSceneAndDoesNotLeakHands(t *testing.T) {
 			t.Fatalf("reconnect leaked hand at seat %d: %x", seat, player.HandCards)
 		}
 	}
-	if ask := output.sends[2].(GameOutputBatch).Outputs[0].(ClientGameOutput); ask.Kind != OutputAskOutCard {
+	if ask := output.sends[3].(GameOutputBatch).Outputs[0].(ClientGameOutput); ask.Kind != OutputAskOutCard {
 		t.Fatalf("reconnect third kind = %s, want %s", ask.Kind, OutputAskOutCard)
 	}
 }
@@ -844,8 +847,8 @@ func TestBattleSceneRequestDoesNotClearOffline(t *testing.T) {
 	if !service.offline["1"] || service.auto["1"] || !service.clientReady["1"] {
 		t.Fatalf("scene state offline=%t auto=%t ready=%t", service.offline["1"], service.auto["1"], service.clientReady["1"])
 	}
-	if len(output.sends) != 3 {
-		t.Fatalf("scene output count = %d, want GameInfo/Scene/Ask", len(output.sends))
+	if len(output.sends) != 4 {
+		t.Fatalf("scene output count = %d, want Auto/GameInfo/Scene/Ask", len(output.sends))
 	}
 }
 
@@ -855,6 +858,74 @@ func TestBattleRoundStatTargetsRequireReadyAndNonExitedPlayers(t *testing.T) {
 	service.players["3"] = BattlePlayer{Player: "3", UserID: 3, SeatID: 2, Exited: true}
 	if got := service.roundStatPlayers(); !reflect.DeepEqual(got, []game.PlayerID{"1", "4"}) {
 		t.Fatalf("round stat targets = %v, want [1 4]", got)
+	}
+}
+
+func TestBattleOrdinaryTimeoutEnablesAutoAndPlaysSmallestSingle(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(500, 0)}
+	rules := DefaultNHSKConfig()
+	rules.MsFirstOutCard = 2 * time.Second
+	service, output := newBattleForTestWithRules(t, 39, mathrand.New(mathrand.NewSource(2)), clock, &rules)
+	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	active := service.bySeat[service.activeSeat]
+	service.hands[active] = []byte{0x12, 0x04, 0x23, 0x13}
+	output.sends = nil
+	deadline := actionDeadline{TurnRevision: service.turnRevision, Source: ReplayMoveSourceTimeout}
+	clock.now = clock.now.Add(2 * time.Second)
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: nhskBattleTimerCommand, Payload: deadline}); err != nil {
+		t.Fatal(err)
+	}
+	if !service.auto[active] || len(service.hands[active]) != 3 {
+		t.Fatalf("timeout state auto=%t hand=%x", service.auto[active], service.hands[active])
+	}
+	moves := replayOutCardMoves(service.replayDocument.Moves())
+	last := moves[len(moves)-1]
+	if last.Source != ReplayMoveSourceTimeout || !reflect.DeepEqual(last.Cards, []byte{0x13}) {
+		t.Fatalf("timeout move = %#v, want smallest logical 3", last)
+	}
+	if len(output.sends) < 2 || output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput).Kind != OutputPlayerAutoState {
+		t.Fatalf("timeout outputs = %#v", output.sends)
+	}
+}
+
+func TestBattleTimeoutAutoDisabledLeavesOpportunityWaiting(t *testing.T) {
+	rules := DefaultNHSKConfig()
+	rules.TimeoutAutoMove = false
+	service, output := newBattleForTestWithRules(t, 40, mathrand.New(mathrand.NewSource(2)), &nhskTestClock{now: time.Unix(1, 0)}, &rules)
+	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	active := service.bySeat[service.activeSeat]
+	before := append([]byte(nil), service.hands[active]...)
+	output.sends = nil
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: nhskBattleTimerCommand, Payload: actionDeadline{TurnRevision: service.turnRevision, Source: ReplayMoveSourceTimeout}}); err != nil {
+		t.Fatal(err)
+	}
+	if service.auto[active] || !reflect.DeepEqual(service.hands[active], before) || len(output.sends) != 0 || !service.deadlineAt.IsZero() {
+		t.Fatalf("disabled timeout auto=%t changedHand=%t outputs=%d deadline=%v", service.auto[active], !reflect.DeepEqual(service.hands[active], before), len(output.sends), service.deadlineAt)
+	}
+}
+
+func TestBattleActivePlayerEnablesAutoImmediatelyWhenDeadlineHasRoom(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(600, 0)}
+	service, output := newBattleForTest(t, 41, mathrand.New(mathrand.NewSource(2)), clock)
+	service.outputRef = gsr.ServiceRef{Node: "test", ID: 2}
+	active := service.bySeat[service.activeSeat]
+	service.hands[active] = []byte{0x04, 0x03}
+	service.deadlineAt = clock.now.Add(time.Second)
+	output.sends = nil
+	ctx := &battleTestCommandContext{}
+	if err := service.Handle(ctx, gsr.Command{ID: SetPlayerAutoStateCommand, Payload: SetPlayerAutoStateRequest{Player: active, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := ctx.reply.(CommandResult); !ok || !result.Accepted {
+		t.Fatalf("reply = %#v", ctx.reply)
+	}
+	if len(service.hands[active]) != 1 || len(output.sends) < 3 {
+		t.Fatalf("active auto hand=%x outputs=%d", service.hands[active], len(output.sends))
+	}
+	first := output.sends[0].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	second := output.sends[1].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	if first.Kind != OutputPlayerAutoState || len(first.Targets) != 4 || second.Kind != OutputPlayerAutoState || !reflect.DeepEqual(second.Targets, []game.PlayerID{active}) {
+		t.Fatalf("auto state outputs = %#v / %#v", first, second)
 	}
 }
 
@@ -998,7 +1069,14 @@ func (c *battleTestCommandContext) Reply(value any) error { c.reply = value; ret
 type battleTestServiceContext struct{}
 
 type recordingBattleTestServiceContext struct {
-	sends []any
+	sends  []any
+	timers []battleTestTimer
+}
+
+type battleTestTimer struct {
+	delay   time.Duration
+	command gsr.CommandID
+	payload any
 }
 
 func (*recordingBattleTestServiceContext) Self() gsr.ServiceRef {
@@ -1011,7 +1089,9 @@ func (c *recordingBattleTestServiceContext) Send(_ gsr.ServiceRef, _ gsr.Command
 func (*recordingBattleTestServiceContext) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
 	return nil, nil
 }
-func (*recordingBattleTestServiceContext) After(time.Duration, gsr.CommandID, any) (gsr.TimerID, error) {
+
+func (c *recordingBattleTestServiceContext) After(delay time.Duration, command gsr.CommandID, payload any) (gsr.TimerID, error) {
+	c.timers = append(c.timers, battleTestTimer{delay: delay, command: command, payload: payload})
 	return 1, nil
 }
 func (*recordingBattleTestServiceContext) Now() time.Time       { return time.Unix(1, 0) }

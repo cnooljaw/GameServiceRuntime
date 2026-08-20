@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -22,6 +23,15 @@ type GameLogicProcessConfig struct {
 	Legacy           LegacyGMConnectionConfig
 	CustomDeck       CustomDeckProcessConfig
 	Replay           ReplayProcessConfig
+	AI               AIProcessConfig
+}
+
+// AIProcessConfig selects the process-owned AI provider. Local is the default
+// and has no external dependency; http enables the old RobotTran adapter.
+type AIProcessConfig struct {
+	Provider string
+	URL      string
+	Timeout  time.Duration
 }
 
 // ReplayProcessConfig configures bounded replay serialization output owned by
@@ -64,6 +74,7 @@ type GameLogicProcess struct {
 	connection       *LegacyGMConnection
 	customDeckRunner *CustomDeckRunner
 	replayWriter     *ReplayWriterRunner
+	aiRunner         *AIRunner
 	closeOnce        bool
 	outputMu         sync.Mutex
 	outputRef        gsr.ServiceRef
@@ -84,26 +95,41 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
+	aiProvider, err := aiProviderFromConfig(config.AI)
+	if err != nil {
+		_ = replayWriter.Close()
+		_ = runtime.Close(context.Background())
+		return nil, err
+	}
+	aiRunner, err := NewAIRunner(runtime, aiProvider)
+	if err != nil {
+		_ = replayWriter.Close()
+		_ = runtime.Close(context.Background())
+		return nil, err
+	}
 	var customDeckRunner *CustomDeckRunner
 	if config.CustomDeck.Enabled {
 		provider, providerErr := customDeckProviderFromConfig(config.CustomDeck)
 		if providerErr != nil {
+			_ = aiRunner.Close()
 			_ = replayWriter.Close()
 			_ = runtime.Close(context.Background())
 			return nil, providerErr
 		}
 		customDeckRunner, err = NewCustomDeckRunner(runtime, provider, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: config.CustomDeck.LoadTimeout})
 		if err != nil {
+			_ = aiRunner.Close()
 			_ = replayWriter.Close()
 			_ = runtime.Close(context.Background())
 			return nil, err
 		}
 	}
-	factory, err := NewBattleFactoryService(runtime, runtime, BattleFactoryConfig{ReplaySubmitter: replayWriter})
+	factory, err := NewBattleFactoryService(runtime, runtime, BattleFactoryConfig{ReplaySubmitter: replayWriter, AISubmitter: aiRunner})
 	if err != nil {
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
@@ -113,6 +139,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
@@ -122,6 +149,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
@@ -131,6 +159,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
@@ -177,6 +206,7 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, fmt.Errorf("nhsk: create Legacy connection: %w", err)
@@ -185,11 +215,12 @@ func NewGameLogicProcess(config GameLogicProcessConfig) (*GameLogicProcess, erro
 		if customDeckRunner != nil {
 			_ = customDeckRunner.Close()
 		}
+		_ = aiRunner.Close()
 		_ = replayWriter.Close()
 		_ = runtime.Close(context.Background())
 		return nil, err
 	}
-	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner, replayWriter: replayWriter}
+	process = &GameLogicProcess{runtime: runtime, hostRef: hostRef, factoryRef: factoryRef, connection: connection, customDeckRunner: customDeckRunner, replayWriter: replayWriter, aiRunner: aiRunner}
 	return process, nil
 }
 
@@ -226,6 +257,9 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 		if process.customDeckRunner != nil {
 			_ = process.customDeckRunner.Close()
 		}
+		if process.aiRunner != nil {
+			_ = process.aiRunner.Close()
+		}
 		if process.replayWriter != nil {
 			_ = process.replayWriter.Close()
 		}
@@ -234,6 +268,9 @@ func (process *GameLogicProcess) Close(ctx context.Context) error {
 	}
 	if process.customDeckRunner != nil {
 		_ = process.customDeckRunner.Close()
+	}
+	if process.aiRunner != nil {
+		_ = process.aiRunner.Close()
 	}
 	if process.replayWriter != nil {
 		_ = process.replayWriter.Close()
@@ -313,7 +350,21 @@ func LoadGameLogicProcessConfig(path string) (GameLogicProcessConfig, error) {
 		JitterRatio:       config.LegacyGM.Jitter,
 		StableResetAfter:  time.Duration(config.LegacyGM.StableReset),
 	}
-	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}, Replay: ReplayProcessConfig{Root: config.Replay.Root}}, nil
+	return GameLogicProcessConfig{NodeID: gsr.NodeID(config.Node.ID), Workers: config.Node.Workers, MaxActiveBattles: config.Node.MaxActiveBattles, Legacy: LegacyGMConnectionConfig{Address: config.LegacyGM.Address, DialTimeout: connection.DialTimeout, OriginTimeout: connection.OriginTimeout, InitialBackoff: connection.InitialBackoff, MaxBackoff: connection.MaxBackoff, BackoffMultiplier: connection.BackoffMultiplier, Jitter: connection.JitterRatio, StableReset: connection.StableResetAfter}, CustomDeck: CustomDeckProcessConfig{Enabled: config.CustomDeck.Enabled, Source: config.CustomDeck.Source, FilePath: config.CustomDeck.FilePath, AllowAnyAccount: config.CustomDeck.AllowAnyAccount, AllowedAccounts: append([]uint32(nil), config.CustomDeck.AllowedAccounts...), QueueSize: config.CustomDeck.QueueSize, Workers: config.CustomDeck.Workers, LoadTimeout: time.Duration(config.CustomDeck.LoadTimeout), Redis: RedisCustomDeckConfig{Address: config.Redis.Address, Password: config.Redis.Password, DB: config.Redis.DB, DialTimeout: connection.DialTimeout}}, Replay: ReplayProcessConfig{Root: config.Replay.Root}, AI: AIProcessConfig{Provider: config.AI.Provider, URL: config.AI.URL, Timeout: time.Duration(config.AI.Timeout)}}, nil
+}
+
+func aiProviderFromConfig(config AIProcessConfig) (AIProvider, error) {
+	provider := strings.ToLower(strings.TrimSpace(config.Provider))
+	if provider == "" || provider == "local" {
+		return LocalAIProvider{}, nil
+	}
+	if provider == "http" {
+		if strings.TrimSpace(config.URL) == "" || config.Timeout <= 0 {
+			return nil, errors.New("nhsk: invalid Legacy HTTP AI config")
+		}
+		return LegacyHTTPAIProvider{URL: config.URL, Client: &http.Client{Timeout: config.Timeout}, GameID: NHSKDescriptor.GameID}, nil
+	}
+	return nil, fmt.Errorf("nhsk: unsupported AI provider %q", config.Provider)
 }
 
 func customDeckProviderFromConfig(config CustomDeckProcessConfig) (CustomDeckProvider, error) {

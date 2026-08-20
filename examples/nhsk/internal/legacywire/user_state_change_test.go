@@ -35,6 +35,13 @@ func TestDecodeUserStateChangePreservesAllStateBits(t *testing.T) {
 	}
 }
 
+func TestEncodeUserStateChangeUsesAckMessageID(t *testing.T) {
+	data := EncodeUserStateChange(1001, true)
+	if len(data) != userStateChangeFrameSize || binary.LittleEndian.Uint32(data[12:16]) != 0x8000720a || binary.LittleEndian.Uint32(data[20:24]) != userStateChangeFrameSize || binary.LittleEndian.Uint32(data[24:28]) != 1001 || binary.LittleEndian.Uint32(data[28:32]) != 1 {
+		t.Fatalf("encoded USER_STATE_CHANGE = %x", data)
+	}
+}
+
 func TestDecodeUserStateChangeRejectsMalformedPayload(t *testing.T) {
 	valid := validUserStateChangeFrame(1001, 1)
 	tests := []struct {

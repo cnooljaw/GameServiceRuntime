@@ -619,9 +619,10 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；发牌、新手/散牌调整、自定义牌堆与逐墩抓分均由 Battle 独立状态完成。对家出完时先结清当前分牌，再按旧 `CalcSuccessResult` 的名次与 `100/105/200` 阈值计算单扣/双扣、胜组和倍数；托管责任按 GameRule 前两项的原乘法公式认定并修正失败组负分。结果转换为类型化 SettlementRequestOutput，Legacy egress 已编码 0x8650 固定体和两段 suffix；ACK 应用后已产生客户端 GAME_RESULT、回放、ROUND_STAT 和 GAME_OVER。完整 AI/超时来源仍待后续切片。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
-- Battle 的最小唯一期限 fencing、托管当前玩家自动最小出牌和 `CompleteSettlement` 终态入口。
+- Battle 的唯一 `ActionDeadline` fencing 已覆盖普通玩家、托管、机器人、外部 AI 与 AI 硬超时；默认本地 AI 不访问网络，可选 Legacy HTTP adapter 精确保留旧 RobotTran JSON/base64 envelope。AI 请求在固定 worker 外执行，结果携带完整小局/行动机会身份投回原 Battle Mailbox；非法或迟到结果不改变当前期限。托管状态仍通过旧 `0x8000720A` 广播/确认，并进入结算与回放来源统计。
+- `CompleteSettlement` 终态入口。
 
-尚未完成的 RFC 契约包括 AI/托管/超时、MATCH_STOP 与 DEL_GAME 屏障、Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、综合结算、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
+尚未完成的 RFC 契约包括 MATCH_STOP 与 DEL_GAME 屏障、Quarantine/诊断、代表性整包 golden、Redis 真实联调以及 MySQL/Auth/Gateway/Agent 后续进程。普通小局的核心牌规、托管/超时/AI、综合结算、客户端 GameResult、完整回放、ROUND_STAT 和四座 GAME_OVER 已接通。实现进度和每次与只读参考目录的核对记录以 `docs/reviews/nhsk-reference-reconciliation.md` 和 `examples/nhsk/README.md` 为准。在剩余第一阶段切片完成前，本例不宣称达到“无损替换旧 GameLogic”的生产验收。
 
 ## 实际作用与后续阶段
 

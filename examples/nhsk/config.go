@@ -27,6 +27,7 @@ type appConfig struct {
 	Redis           redisConfig      `json:"redis"`
 	WeChat          weChatConfig     `json:"wechat"`
 	CustomDeck      customDeckConfig `json:"custom_deck"`
+	AI              aiConfig         `json:"ai"`
 	Replay          replayConfig     `json:"replay"`
 	Logging         loggingConfig    `json:"logging"`
 	ShutdownTimeout configDuration   `json:"shutdown_timeout"`
@@ -80,6 +81,12 @@ type customDeckConfig struct {
 
 type replayConfig struct {
 	Root string `json:"root"`
+}
+
+type aiConfig struct {
+	Provider string         `json:"provider"`
+	URL      string         `json:"url"`
+	Timeout  configDuration `json:"timeout"`
 }
 
 type loggingConfig struct {
@@ -140,6 +147,7 @@ func defaultConfig() appConfig {
 		},
 		Logging: loggingConfig{Level: "info"},
 		Replay:  replayConfig{Root: "replays"},
+		AI:      aiConfig{Provider: "local", Timeout: configDuration(5 * time.Second)},
 	}
 }
 
@@ -165,6 +173,8 @@ func applyEnvironment(config *appConfig) error {
 	overrideString("NHSK_WECHAT_APP_SECRET", &config.WeChat.AppSecret)
 	overrideString("NHSK_LOG_LEVEL", &config.Logging.Level)
 	overrideString("NHSK_REPLAY_ROOT", &config.Replay.Root)
+	overrideString("NHSK_AI_PROVIDER", &config.AI.Provider)
+	overrideString("NHSK_AI_URL", &config.AI.URL)
 
 	if err := overrideInt("NHSK_WORKERS", &config.Node.Workers); err != nil {
 		return err
@@ -191,6 +201,9 @@ func applyEnvironment(config *appConfig) error {
 		return err
 	}
 	if err := overrideDuration("NHSK_GM_STABLE_RESET", &config.LegacyGM.StableReset); err != nil {
+		return err
+	}
+	if err := overrideDuration("NHSK_AI_TIMEOUT", &config.AI.Timeout); err != nil {
 		return err
 	}
 	return overrideDuration("NHSK_SHUTDOWN_TIMEOUT", &config.ShutdownTimeout)
@@ -344,6 +357,16 @@ func (config appConfig) validate() error {
 	}
 	if strings.TrimSpace(config.Replay.Root) == "" {
 		return configFieldError("replay.root", "is required")
+	}
+	aiProvider := strings.ToLower(strings.TrimSpace(config.AI.Provider))
+	if aiProvider != "local" && aiProvider != "http" {
+		return configFieldError("ai.provider", "must be local or http")
+	}
+	if aiProvider == "http" && strings.TrimSpace(config.AI.URL) == "" {
+		return configFieldError("ai.url", "is required for http provider")
+	}
+	if config.AI.Timeout <= 0 {
+		return configFieldError("ai.timeout", "must be positive")
 	}
 	return nil
 }

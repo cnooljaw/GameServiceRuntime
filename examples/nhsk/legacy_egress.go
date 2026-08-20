@@ -187,6 +187,16 @@ func encodeLegacyClientPayload(output ClientGameOutput) ([]byte, error) {
 			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
 		}
 		return encodeLegacyCardSelectionPreview(payload)
+	case OutputPlayerAutoState:
+		payload, ok := output.Payload.(PlayerAutoStatePayload)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s payload %T", errInvalidLegacyGameOutput, output.Kind, output.Payload)
+		}
+		players, err := legacyTargetUserIDs([]game.PlayerID{payload.Player})
+		if err != nil {
+			return nil, err
+		}
+		return legacywire.EncodeUserStateChange(players[0], payload.Enabled), nil
 	default:
 		return nil, fmt.Errorf("%w: output kind %q", errInvalidLegacyGameOutput, output.Kind)
 	}

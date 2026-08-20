@@ -269,12 +269,14 @@ type BattleFactoryService struct {
 	outputGeneration ConnectionGeneration
 	outputReporter   ConnectionFailureReporter
 	replaySubmitter  ReplaySubmitter
+	aiSubmitter      AISubmitter
 }
 
 // BattleFactoryConfig contains process-owned adapters injected into every
 // Battle created by the factory.
 type BattleFactoryConfig struct {
 	ReplaySubmitter ReplaySubmitter
+	AISubmitter     AISubmitter
 }
 
 type factoryBattle struct {
@@ -294,6 +296,7 @@ func NewBattleFactoryService(creator game.ServiceCreator, stopper BattleStopper,
 	factory := &BattleFactoryService{creator: creator, stopper: stopper}
 	if len(configs) == 1 {
 		factory.replaySubmitter = configs[0].ReplaySubmitter
+		factory.aiSubmitter = configs[0].AISubmitter
 	}
 	return factory, nil
 }
@@ -326,7 +329,7 @@ func (factory *BattleFactoryService) Handle(_ gsr.CommandContext, command gsr.Co
 		if outputGeneration != request.Request.ConnectionGeneration {
 			outputRef, outputGeneration, outputReporter = gsr.ServiceRef{}, 0, nil
 		}
-		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, ReplaySubmitter: factory.replaySubmitter})
+		battle, err := NewBattleService(NHSKBattleConfig{ID: request.Request.BattleID, OutputRef: outputRef, IsNewbie: request.Request.IsNewbie, ConnectionGeneration: outputGeneration, OutputReporter: outputReporter, ReplaySubmitter: factory.replaySubmitter, AISubmitter: factory.aiSubmitter})
 		if err == nil {
 			var ref gsr.ServiceRef
 			ref, err = factory.creator.CreateService(gsr.ServiceSpec{Name: gsr.ServiceName(fmt.Sprintf("nhsk-battle/%d", request.Request.BattleID)), Service: battle})

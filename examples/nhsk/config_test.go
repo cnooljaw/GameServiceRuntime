@@ -75,6 +75,9 @@ func TestLoadConfigAppliesDefaultsAndEnvironmentOverrides(t *testing.T) {
 	if config.Replay.Root != "replays" {
 		t.Fatalf("replay defaults = %+v", config.Replay)
 	}
+	if config.AI.Provider != "local" || time.Duration(config.AI.Timeout) != 5*time.Second {
+		t.Fatalf("AI defaults = %+v", config.AI)
+	}
 }
 
 func TestLoadConfigRejectsInvalidConfiguration(t *testing.T) {
@@ -98,6 +101,7 @@ func TestLoadConfigRejectsInvalidConfiguration(t *testing.T) {
 		{name: "zero stable reset", mutate: `"stable_reset": "0s"`, wantText: "legacy_gm.stable_reset"},
 		{name: "zero shutdown timeout", mutate: `"shutdown_timeout": "0s"`, wantText: "shutdown_timeout"},
 		{name: "invalid log level", mutate: `"level": "verbose"`, wantText: "logging.level"},
+		{name: "invalid AI provider", mutate: `"provider": "grpc"`, wantText: "ai.provider"},
 	}
 
 	for _, test := range tests {
@@ -310,6 +314,7 @@ const validConfigJSON = `{
 	"mysql": {"enabled": false},
 	"redis": {"enabled": false},
 	"wechat": {"enabled": false},
+	"ai": {"provider": "local", "url": "", "timeout": "5s"},
 	"logging": {"level": "info"},
 	"shutdown_timeout": "10s"
 }`
@@ -342,6 +347,8 @@ func validReplacementFor(replacement string) string {
 		return `"shutdown_timeout": "10s"`
 	case strings.Contains(replacement, `"level"`):
 		return `"level": "info"`
+	case strings.Contains(replacement, `"provider"`):
+		return `"provider": "local"`
 	default:
 		panic("unsupported replacement: " + replacement)
 	}

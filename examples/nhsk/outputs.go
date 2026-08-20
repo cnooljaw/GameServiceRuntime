@@ -36,6 +36,8 @@ const (
 	OutputOutCardRejection OutputKind = "out_card_rejection"
 	// OutputCardSelectionPreview publishes one non-authoritative card selection.
 	OutputCardSelectionPreview OutputKind = "card_selection_preview"
+	// OutputPlayerAutoState publishes one player's current托管 state.
+	OutputPlayerAutoState OutputKind = "player_auto_state"
 )
 
 // OutCardRejectionReason identifies why one human out-card request was rejected.
@@ -231,6 +233,15 @@ type CardSelectionPreviewPayload struct {
 }
 
 func (CardSelectionPreviewPayload) isNHSKOutputPayload() {}
+
+// PlayerAutoStatePayload is one player托管 state notification or directed
+// confirmation.
+type PlayerAutoStatePayload struct {
+	Player  game.PlayerID
+	Enabled bool
+}
+
+func (PlayerAutoStatePayload) isNHSKOutputPayload() {}
 
 // GameOutput is the closed set of outputs produced by NHSK Battle logic.
 type GameOutput interface {

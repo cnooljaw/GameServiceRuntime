@@ -43,6 +43,11 @@
   "replay": {
     "root": "replays"
   },
+  "ai": {
+    "provider": "local",
+    "url": "",
+    "timeout": "5s"
+  },
   "logging": {
     "level": "info"
   },

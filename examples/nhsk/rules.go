@@ -39,8 +39,8 @@ func DefaultNHSKConfig() NHSKConfig {
 	return NHSKConfig{
 		MsFirstOutCard:            10 * time.Second,
 		MsOutCard:                 10 * time.Second,
-		MsOutCardRobot:            0,
-		MsAITimeout:               0,
+		MsOutCardRobot:            time.Second,
+		MsAITimeout:               6 * time.Second,
 		TimeoutAutoMove:           true,
 		RobotLevel:                2,
 		AutoSettlementMinCount:    -1,

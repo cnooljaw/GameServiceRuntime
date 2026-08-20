@@ -10,10 +10,23 @@ const userStateChangeFrameSize = headerSize + 4 + 4
 
 var errInvalidUserStateChange = errors.New("legacywire: invalid USER_STATE_CHANGE request")
 
+const messageAckMask uint32 = 0x80000000
+
 // UserStateChangeRequest is one decoded Legacy USER_STATE_CHANGE request.
 type UserStateChangeRequest struct {
 	UserID uint32
 	State  uint32
+}
+
+// EncodeUserStateChange encodes the server-to-client ACK form of 0x720A.
+func EncodeUserStateChange(userID uint32, enabled bool) []byte {
+	data := make([]byte, userStateChangeFrameSize)
+	encodeHeader(data, bsHeader{Type: messageAckMask | messageGameUserStateChange, Length: userStateChangeFrameSize})
+	binary.LittleEndian.PutUint32(data[headerSize:headerSize+4], userID)
+	if enabled {
+		binary.LittleEndian.PutUint32(data[headerSize+4:userStateChangeFrameSize], 1)
+	}
+	return data
 }
 
 // DecodeUserStateChange decodes one exact Legacy 0x720A USER_STATE_CHANGE packet.

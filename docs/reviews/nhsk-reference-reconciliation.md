@@ -1096,6 +1096,26 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-047、D-079、D-082～D-086、D-093；TODO CARD-023、026、043、052～060。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务目录未修改。 |
 
+### 4.54 NHSK 托管、单期限与外部 AI 边界
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将普通超时、主动托管、真实机器人和离线托管统一为一个 `TurnRevision` 下的唯一有效 `ActionDeadline`；通过进程拥有的 `AIRunner/AIProvider` 接入默认本地 AI 和可选旧 RobotTran HTTP 兼容。 |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`ai.go`、`ai_legacy.go`、`rules.go`、`process.go`、`outputs.go`、`legacy_egress.go`、`internal/legacywire/user_state_change.go`；`battle_test.go`、`ai_test.go`、`ai_legacy_test.go` 与 wire 测试覆盖自动行动、无限等待、状态广播、不可变请求、AI 硬期限/最小延迟、来源计数和精确二进制 envelope。 |
+| 参考入口 | `nhsk/game/timers.go:OnTimerOutCard/OnTimerOutCardRobot/OnTimerOutCardAI`、`flow_core.go:DoAskOutCard/DoOutCard`、`messages.go:SendMsgAskAIOutCard/buildRobotAskMoveWithScenePacket/buildGameScenePacket`、`interface.go:OnAIMsg/parseAIMoveData`、`second_batch.go:OnMsgUserStateChange`；协议来自 `protocol/game`、`baison_middle/protocol`。 |
+| Legacy MessageID | 玩家托管状态继续使用 ACK 位 `0x8000720A`；RobotTran 请求保持 `0x8581` envelope，内含 `0x7612` AI Scene 和 `0x7603` Ask，响应 move 只接受 `0x7701`。客户端 gameplay MessageID 未重新定义。 |
+| 输入与校验 | AI request 深拷贝手牌和历史动作，保存精确 ServiceRef、BattleID、小局号、User/Seat、TurnRevision、VerifyCode 和 StartedAt。响应 Seat 必须匹配；候选再次经过同一手牌、牌型、领出/压制校验。错误、非法、错局或迟到结果不取消硬期限，不记录场景/手牌日志。 |
+| 权威状态变化 | Battle 仍是唯一玩法状态 owner；runner/provider 只计算候选并投递结果 Command。普通首次超时进入托管，人工动作/重连/场景恢复取消托管；真实 Automated 玩家不累计 AutoCount，离线托管 AI 和超时回退计入。 |
+| Timer/Timeline | 普通玩家用首手/普通期限；本地托管/机器人使用 `MsOutCardRobot=1s`；外部 AI 使用 `MsAITimeout=6s` 硬期限。离线 AI 早到时旧硬期限以 TurnRevision 失效，只建立剩余 1s 的替换期限；不复制参考并行双 Timer。`TimeoutAutoMove=false` 到期后无期限等待。 |
+| 输出目标与顺序 | 托管状态变化先广播给当前活跃玩家，主动设置另向请求者确认；动作仍走统一 OutCardInfo/TurnEnd/Ask 流。AI runner 不直接产生 GameOutput。 |
+| 生命周期结果 | 进程默认 Local provider，示例不依赖外部 AI；可选 `ai.provider=http` 使用带 timeout 的标准库客户端。固定 128 队列、单 worker 在 Close 时取消并等待真实返回，Factory 将同一 submitter 注入每个 Battle。 |
+| 已一致 | 旧本地自动领出最小单张/跟牌过、首次超时托管、人工/重连取消、RobotTran 的 `game_id+data` JSON、`0x8581` MatchKey/Suffix/Scene/Ask 固定布局和响应 Seat/Suffix/OutCard 解码均已实现并测试。 |
+| 有意偏差 | 参考会同时启动 OutCard 与 Robot/AI Timer；新实现按已确认 RFC 只保留一个有效期限。旧代码在 Game goroutine/TurnEngine 与 HTTP 回调间推进；新实现 provider 只在外部固定 worker 运行，所有提交回到 Battle Mailbox。默认不访问生产 RobotTran。 |
+| 发现遗漏 | 本切片未发现新的玩法遗漏；HTTP 真实生产地址和可用性属于部署配置，不作为离线测试依赖。Quarantine 对 provider 降级的观测随诊断切片完成。 |
+| 结论 | 托管、超时、AI 候选与单期限语义 **已按 RFC 完成**；相对参考的双 Timer 差异为明确且已测试的有意偏差。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-026、D-045、D-090；TODO CARD-032、033、034、038。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录业务代码未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：
