@@ -1,6 +1,6 @@
 # GSR 待办列表
 
-> 更新时间：2026-07-27
+> 更新时间：2026-08-20
 >
 > 作用：记录已实现里程碑的工程欠账和收口项；尚未开始的新能力仍以 `RFC-0500` 为准。
 
@@ -62,43 +62,45 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 
 本阶段采用渐进替换：先原位替换 GameLogic，再替换 GameMaster，最后替换 Agent。当前只冻结第一步，不要求旧 GameMaster、Agent 或客户端改协议。执行顺序以 [`RFC-0500` 的 Phase 14](rfcs/RFC-0500-Roadmap.md#phase-14棋牌游戏生产脚手架与完整示例) 为准，详细底稿见 [`2026-07-27 棋牌游戏生产脚手架与示例计划`](superpowers/plans/2026-07-27-gsr-card-game-scaffold.md)。
 
+第一步的仓库内实现和自动化门禁已经完成；真实旧 GameMaster 的测试/预发布联调单列为 `CARD-065`，不把外部发布验证伪装成仓库内已完成事项。GameMaster、Agent、Auth、Login、Gateway 和通用 MySQL/Redis 工具仍是后续阶段。
+
 | 编号 | 状态 | 事项 | 完成标准 |
 |---|---|---|---|
-| CARD-001 | 已确认待实现 | 冻结渐进替换目标 | 第一阶段只替换 GameLogic，保留旧 GameMaster/Agent/客户端和双向 TCP；以后依次替换 GameMaster、Agent。`nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core` 是不修改业务源码、不直接依赖的只读知识来源；允许维护 `.codegraph/` 索引元数据。每个切片完成后必须按参考核对门禁记录一致、遗漏或有意偏差。 |
+| CARD-001 | 已完成 | 冻结渐进替换目标 | 第一阶段只替换 GameLogic，保留旧 GameMaster/Agent/客户端和双向 TCP；以后依次替换 GameMaster、Agent。`nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core` 是不修改业务源码、不直接依赖的知识来源；允许维护 `.codegraph/` 索引元数据。全部实现切片均已记录参考核对结论。 |
 | CARD-017 | 已完成 | 收敛最小 ServiceRef 与业务版本模型 | `ServiceRef` 保持 `{NodeID, ServiceID}`；ServiceID 在单个 Runtime 进程内单调分配且不复用，节点重启后允许重新编号。断线或重启后丢弃旧 Ref 与名字缓存，长期 Service 重新解析，临时 Service 由业务重建；Core 不增加 RuntimeEpoch、随机 ID 起点或跨重启旧地址防串代保证。已删除 BattleEpoch，未增加通用 BattleRevision；保留 TimelineRevision 及未来玩法拥有的 TurnRevision、VerifyCode、小局身份等窄 fencing，诊断使用 Command Record Sequence。公开契约门禁和节点同号重连重新 query 测试已覆盖。 |
-| CARD-018 | 进行中 | 统一 Legacy 与 Cluster 玩法入口 | Legacy TCP 与 Cluster Send/Call 都转换为同一套类型化 Command，进入同一个 Battle Mailbox。当前已完成 relay、GM 控制面、Host Resolve、Battle Mailbox、代际 OutputService、普通/MATCH_STOP 终局和 DEL_GAME 正常停止屏障；只剩隔离状态收口。 |
-| CARD-019 | 已确认待实现 | 保持最小 Send/Call 语义 | `Send` 成功只表示进入 Mailbox，需要当前业务结果时使用 `Call`。普通 NHSK 玩法 Command 不增加 RequestID、幂等表、payload 摘要或结果缓存，依靠 Mailbox、状态和领域 Revision 判断有效性。Call 超时不取消已入箱 Command，也不自动重发；调用方查询权威 Snapshot 后决定下一步。Session 只关联 Reply。结算、钱包、受控创建和隔离释放等真实可重试流程按各自契约使用 RequestID、OperationID 或 receipt。Runtime/Transport 错误与稳定业务拒绝分层表达。 |
-| CARD-020 | 进行中 | 保持 Legacy 重连并提供只读 Snapshot | 当前已完成 `0x7208/0x720D` 固定布局解码与映射、Reconnect/Scene 的 Offline/托管副作用差异、ClientReady 资格表、`GameInfo -> GameScene -> 当前 AskOutCard` 最小恢复线序，以及请求者出完牌时显示固定对家手牌。仍需补齐完整 Scene 的 GameRecords/亮牌阶段输出和 golden；Cluster `GetBattleSnapshot` 仍是独立纯查询，不改状态、不输出。无效 Legacy 请求保持静默；隔离 Battle 不执行副作用或伪造输出。 |
-| CARD-021 | 进行中 | 建立 NHSK 切换范围门禁 | 已建立能力矩阵、Legacy MessageID 矩阵和逐切片参考核对记录；当前已补齐双向 origin、普通 relay、GM 控制 codec、NEW_GAME ACK、代际输出、强制结束 GAME_OVER→NOTICE、ROUND_STAT 空投影、Reconnect/Scene 恢复、ClientReady 资格、对家出完牌/SHOW_CARDS、结算矩阵与 Flag 门禁、基础牌型比较、当前墩抓分与 TurnEnd 线序测试。剩余门禁是 ROUND_STAT 结算时序、带玩家数据的完整 GAME_OVER/综合结算、全规则与断线隔离的代表性整包 golden。 |
-| CARD-022 | 进行中 | 隔离自定义牌堆数据源 | 已实现外部 `ProvideCustomDeck` Command、Battle 在 Preparing 接收并按 BattleID/局号 fencing，本地文件/Redis 兼容 bridge、宽松旧 grammar、账号白名单、可配置有界 `CustomDeckRunner`、失败回退和自定义发牌。Redis adapter 仍使用标准库 RESP GET，保持 `game:makecard:<ProductID>` 优先、空值回退 `<GameID>`；后续仍需真实 Redis 联调与完整 Legacy Deal/Replay golden。 |
+| CARD-018 | 已完成 | 统一 Legacy 与 Cluster 玩法入口 | Legacy TCP 与 Cluster Send/Call 都转换为同一套类型化 Command，进入同一个 Battle Mailbox。当前连接代际缓存终态创建操作返回的派生 BattleRef，不让 Host 成为逐帧中转；普通、终局、删除和隔离状态均已收口。 |
+| CARD-019 | 已完成 | 保持最小 Send/Call 语义 | `Send` 成功只表示进入 Mailbox，需要当前业务结果时使用 `Call`。普通 NHSK 玩法 Command 不增加 RequestID、幂等表、payload 摘要或结果缓存；Call 超时不取消已入箱 Command，也不自动重发。受控创建与隔离释放只使用各自真实需要的 OperationID/receipt。 |
+| CARD-020 | 已完成 | 保持 Legacy 重连并提供只读 Snapshot | `0x7208/0x720D`、Reconnect/Scene 不同副作用、完整请求者视角 GameScene、当前 Ask、对家亮牌和结果阶段 ShowCards 已覆盖并有 golden。Cluster `GetBattleSnapshot` 是独立纯查询。目标部署无证据的跨局 GameRecords 已按 RFC 放弃，不再列为缺口。 |
+| CARD-021 | 已完成 | 建立 NHSK 切换范围门禁 | 能力矩阵、Legacy MessageID 矩阵、逐切片参考核对和整包 golden 已覆盖双向 origin、控制面、三层 relay、开局、动作、恢复、综合结算、ROUND_STAT、GAME_OVER、NOTICE、删除与隔离。真实旧 GM 联调单列为 CARD-065 部署门禁。 |
+| CARD-022 | 已完成 | 隔离自定义牌堆数据源 | 外部参数化 `ProvideCustomDeck` API 是规范入口；本地文件/Redis 仅为最外围兼容 bridge。宽松旧 grammar、白名单、有界 runner、失败回退、发牌/回放一致性与真实 Redis GET 集成均已通过。通用 Redis 工具模块仍属于后续 CARD-005。 |
 | CARD-023 | 已完成 | 兼容并隔离本地回放落盘 | 已保留完整 NHSK 回放 XML、名称和 `FuPan/<date>/<hour>` 目录规则。综合结算响应后先广播客户端 GameResult，再冻结文档并进入 `FinalizingReplay`；进程持有的有界 writer 在 Battle 外执行可检查错误的 `MkdirAll/Open/Write/Close`，不增加原子改名、fsync 或自动重试。成功、失败或超时后才产生 ROUND_STAT 与 GameOver；完整 Ref 和小局身份拒绝错配、重复及迟到结果。只有文件系统根目录可配，回放上传继续放弃。DEL_GAME 不等待在途 I/O 的屏障由 CARD-028 收口。 |
-| CARD-024 | 进行中 | 隔离 Battle 随机数与时间 | NHSK Battle 已注入独立 PRNG 与 `NHSKClock`；生产 seed 只来自 `crypto/rand`，读取失败则创建失败，不使用全局随机或时间降级；测试可注入固定 seed/fake Clock，普通洗牌、庄家抽取、期限起点、场景剩余时间、Ask→合法动作毫秒数和回放结束时间已只使用 Battle 依赖。诊断材料时间仍待隔离切片；旧回放 XML 不增加字段。 |
-| CARD-025 | 进行中 | 归一化实际可达的 NHSK 规则 | Legacy `INIT_GAME` 已解码连续 `BaseRule/GameRule/MatchName` suffix；当前只把 GameRule 的最小机器人出牌次数、比例和单牌换牌数量投影到不可变 `NHSKConfig`，出牌期限保留参考默认并允许直接 Cluster 配置。缺失、空值或坏值保持默认，多余字段忽略。偏置洗牌及其他已放弃能力不建立字段、handler 或占位接口。普通散牌、`NEW_GAME.IsNewbie` 新手调整和自定义牌堆优先级已接入；仍需更完整的期限矩阵和其他独立 provider。 |
+| CARD-024 | 已完成 | 隔离 Battle 随机数与时间 | NHSK Battle 使用独立 PRNG 与 `NHSKClock`；生产 seed 只来自 `crypto/rand`，失败即拒绝创建。洗牌、庄家、期限、动作耗时、回放和诊断材料都使用注入依赖，固定 seed/fake Clock 与失败路径已覆盖。 |
+| CARD-025 | 已完成 | 归一化实际可达的 NHSK 规则 | Legacy INIT 一次性投影可达 BaseRule/GameRule 到不可变 `NHSKConfig` 和回放快照；缺失/坏值保持默认，多余字段丢弃。期限矩阵、本地/HTTP AI provider、新手、散牌和自定义牌堆优先级均已接入；无消费者的原始规则与能力不保留。 |
 | CARD-026 | 已完成 | 建立综合结算单飞状态机 | Legacy `0x8650` 两段 suffix、整包原子门禁、Flag 和失败 Dissolve 均已完成；writer 结果以完整小局身份 fencing，错配、重复、迟到、MATCH_STOP 替换和 DEL_GAME 屏障均不重复输出。 |
 | CARD-060 | 已完成 | 统一综合结算双入口 | Legacy BSAck Send 与 Cluster Send/Call 共用同一 CompleteSettlement 矩阵门禁。已删除无 wire 依据的早期 `Scores[4]` fallback；MATCH_STOP 可废止在途结算并跳过外部请求。 |
-| CARD-027 | 已确认待实现 | 保持 GM 两阶段推进下一小局 | 第一阶段 Battle 完成结算、回放和 `GAME_OVER` 后只进入 `SubgameFinished`。旧 GM 决定是否继续及展示等待；每次以 `UPDATE_GAME -> PrepareSubgame` 冻结 `GameNum/SubGameNum` 并进入 `Preparing`，再由 `COMMAND START -> StartSubgame` 进入 `Playing`。可选 `START_NEW_GAME -> UpdateRoundContext` 只更新下一小局回放的 SecRoundTotal/SecRoundUsed/RoomInfo，不改变阶段。Legacy 和 Cluster 共用这些 Command，不增加合并 API。结算后的 `COMMAND CONTINUE` 继续兼容 no-op，Cluster 不公开无意义接口。Battle 不自行开始下一局或释放实例。 |
-| CARD-029 | 已确认待实现 | 建立 AwaitingInit 与 NHSK 开局门禁 | `NEW_GAME ACK` 只在 Battle Service 创建、Host 绑定完整 Ref 后成功，Battle 仍处于 `AwaitingInit`。INIT 一次性冻结业务配置；相同重复 no-op，冲突告警拒绝但不隔离，INIT 前消息不缓存。`UPDATE_PLAYER` 可重复 upsert；START 前必须有四个不同非零 UserID 和 `0..3` 四个不重复座位。乱序、缺少玩家、旧局号或重复 START 不进入 Playing。 |
-| CARD-030 | 已确认待实现 | 原子更新玩家并删除伪路由状态 | INIT 后各存活阶段接受 UPDATE_PLAYER；整批校验后原子 upsert，坏 UserID/座位或批内冲突整批拒绝，省略玩家不删除。Preparing 前后可按真实 GM 路径换座；StartSubgame 至本局完成冻结 UserID/SeatID，局中结构变更整批拒绝但不隔离。CltID 只供回放 Platform，CntID 解码后丢弃，二者不参与 ClientGameOutput 路由。PLAYER_EXIT_GAME 只标记 Exited，后续更新可重新进入。Flag、PlayerFlag、ScoreChangeReason、ScoreChange、ForceExit 只解码兼容；StartSubgame 清空破产/封顶，本局综合结算 ACK 再赋值。 |
+| CARD-027 | 已完成 | 保持 GM 两阶段推进下一小局 | `PrepareSubgame -> StartSubgame`、SubgameFinished 等待 GM、UpdateRoundContext 仅影响下一局回放，以及无意义 CONTINUE 不扩展为 Cluster API 均已实现并测试。 |
+| CARD-029 | 已完成 | 建立 AwaitingInit 与 NHSK 开局门禁 | ACK 只在 Active Ref 可用后成功；INIT 幂等/冲突、INIT 前拒绝、四人四座完整性、Exited 门禁、乱序和重复 START 均已覆盖。 |
+| CARD-030 | 已完成 | 原子更新玩家并删除伪路由状态 | UPDATE_PLAYER 原子 upsert、局中座位冻结、CltID 回放用途、CntID 丢弃、退出/重新进入，以及无效 Flag/PlayerFlag/ScoreChange 字段删除均已实现。最终破产/封顶只由综合结算 ACK 设置。 |
 | CARD-031 | 已完成 | 复刻 NHSK 核心牌规与结算 | 牌型、发牌、自定义牌堆、逐墩抓分、托管/AI 来源、对家出完和 MATCH_STOP 本地收尾已完成；终局按参考 `100/105/200` 分支计算名次、单双扣、胜组、倍数和结算矩阵。 |
-| CARD-032 | 进行中 | 固化操作 fencing 与输出线序 | 已实现 VerifyCode 3/5/7、开局 GameInfo→四份私有 Deal→Ask，以及玩家/托管/超时/AI 共用牌规校验；坏 AI 候选和迟到结果保持当前硬期限，合法动作无成功 ACK，三家过牌后保持 TurnEnd→下一 Ask。仍需代表性整包 golden 收口。 |
+| CARD-032 | 已完成 | 固化操作 fencing 与输出线序 | VerifyCode 3/5/7、唯一行动期限、玩家/托管/超时/AI 共用牌规、坏候选与迟到 fencing、无成功 ACK、TurnEnd→下一 Ask，以及代表性整包 golden 均已完成。 |
 | CARD-033 | 已完成 | 保持 NHSK 托管与超时语义 | 每个 TurnRevision 只有一个有效行动期限。本地自动领出最小单张、跟牌直接过；首次普通超时在 TimeoutAutoMove=true 时广播进入托管并立即操作，false 时清除期限等待人工动作。人工动作/重连/场景恢复取消托管；主动托管当前操作人在期限余量大于 100ms 时立即替换为自动动作，否则沿用即将到期 Command。机器人/离线托管可经进程拥有的 AI runner 请求，合法离线 AI 结果若早于 1s 最小延迟则用唯一替换期限等待；6s 硬超时回退本地行动。默认 Local provider 不访问网络，可选 Legacy HTTP provider 精确兼容旧 RobotTran JSON/base64 二进制契约。 |
-| CARD-034 | 进行中 | 最小化 BaseRule 归一化 | INIT 独立字段权威；BaseRule 的 `OfflineAutoUsesAI`、`TimeoutAutoMove`、`RobotLevel` 已在 Legacy adapter 投影到不可变 `NHSKConfig`，缺失/坏值沿用 false、true、进程默认 2。其余 GM-owned 或已放弃索引不建字段；GL 结算展示延迟不迁移，不与 GM 等待叠加。原始规则只留脱敏诊断摘要仍待补。 |
-| CARD-035 | 已确认待实现 | 兼容宽松 CARD_ACTION 预览 | PreviewCardSelection 只允许当前操作玩家在 WaitingForAction 使用，广播 UserID 与最多 26 张客户端选牌，不修改权威状态。按原行为不校验手牌归属、重复、牌型或压牌，允许空选择；真正 OUT_CARD 继续完整校验。能力默认开启，不实现无效 BaseRule 开关。 |
-| CARD-036 | 进行中 | 新手发牌兼容切片 | 已保留 `NEW_GAME.IsNewbie` 并由 Host 传入 Battle；无可用自定义牌堆时，Battle 在普通确定性洗牌后按座位顺序选择首个非 `Automated` 玩家，执行旧 `RandCardListByNewPlayer` 的三张/四张重试，全自动玩家跳过；固定 seed 测试锁定四手牌结果。自定义牌堆可用时优先并绕过新手调整。未引入 Nacos、每座偏牌配置或通用偏洗牌。 |
-| CARD-037 | 已确认待实现 | 普通发牌散牌调整 | GameRule 第四项归一化为默认 4 的 SingleCountToSwap，<=0 关闭；仅普通随机发牌执行。固定 seed 锁定旧 SwapSingleCard 的顺序和四家结果，并校验总牌集合与每座数量；不把算法下沉到 Runtime 或通用模板。 |
+| CARD-034 | 已完成 | 最小化 BaseRule 归一化 | INIT 独立字段权威；仅投影 `OfflineAutoUsesAI`、`TimeoutAutoMove`、`RobotLevel` 与回放实际需要项。原始串在投影后丢弃，类型化 INIT Record 已满足诊断，不再补无消费者摘要。 |
+| CARD-035 | 已完成 | 兼容宽松 CARD_ACTION 预览 | PreviewCardSelection 保留参考的宽松视觉预览语义；真正 OUT_CARD 继续完整校验。状态、输出和 wire golden 已覆盖。 |
+| CARD-036 | 已完成 | 新手发牌兼容切片 | `IsNewbie`、首个非机器人、旧三/四张重试、自定义牌堆优先和固定 seed 四手结果均已覆盖；未恢复 Nacos 或通用偏洗牌。 |
+| CARD-037 | 已完成 | 普通发牌散牌调整 | `SingleCountToSwap` 的默认/关闭、参考交换顺序、固定 seed 完整牌序、104 张多重集合和每座 26 张均已覆盖，算法只属于 NHSK。 |
 | CARD-038 | 已完成 | 托管结算认定与负分修正 | 已按合法玩家/托管/普通超时/AI/AI 超时来源累计 MoveCount/AutoCount/MoveMS，真实 Automated 玩家不计托管次数。GameRule 前两项保留 -1、单项/双项和原乘法公式；成功结算按参考把单个托管失败队员的搭档负分转移给托管者，SettlementRequest、客户端 GameResult 与回放 Summary 共用认定。 |
 | CARD-039 | 已完成 | DRESS 回放元数据 | Legacy/Cluster UpdatePlayerDress Send 通过 Battle Mailbox 覆盖已有玩家的不透明装扮字符串；空值允许，无 Call/Reply、客户端输出或 gameplay Revision。START 按顺序冻结四座最新值到当前小局，START 后更新只影响下一局。 |
 | CARD-040 | 已完成 | 道具成功事实回放 | `0x7218 BROADCAST_USE_PROP` 已精确解码两段 suffix 并映射为 RecordPropUse Send；核对外层 UserID、SenderID 和 Battle 玩家后，仅在 Playing/AwaitingSettlement 原样追加旧 Prop Move。TargetIDs 顺序、重复值和空列表保留；无库存/权限、玩法效果、Reply、输出或 Revision。 |
-| CARD-041 | 已确认待实现 | GAME_MSG 内层 allowlist | 仅解码离线、重连、场景、道具广播，以及 0x7402 中 OUT_CARD、CARD_ACTION、USER_STATE_CHANGE；未知 ID 丢弃告警。正常输出统一走 0x8644。不得实现未工作的 0x7200 输入、0x8655 输出、投票或骰子分支。 |
+| CARD-041 | 已完成 | GAME_MSG 内层 allowlist | 已只保留离线、重连、场景、道具与三种 relay 输入；未知 ID 拒绝，输出统一走 0x8644，未工作的 0x7200/0x8655、投票和骰子未实现。 |
 | CARD-042 | 已确认放弃 | PLAYER_LIMIT 与空玩家信息入口 | 不实现错误嵌套且旧 GL 实际忽略的 PLAYER_LIMIT，也不迁移无调用点的 OnMsgUpdatePlayerInfo。旧 GM 输入按未知 allowlist ID 丢弃告警；未来限制能力由 GM 重新定义。 |
 | CARD-043 | 已完成 | 小局生命周期输出兼容 | 开局严格输出 GAME_START→GAME_STARTED→GameInfo→四份私有 Deal→Ask；普通和 MATCH_STOP 终局均在客户端结果和回放后发送空 ROUND_STAT 与四座 GAME_OVER，MATCH_STOP 再发送 NOTICE_ROUND_OVER。不实现无调用点的 GAME_END。 |
-| CARD-061 | 已确认待实现 | 删除回放名累计与无用 Reason 状态 | 每小局只冻结当前 ReplayName，供 GAME_STARTED、文件和同局 GAME_OVER 共用；下一局替换，不建立 replayNames 列表或历史拼接。Legacy GAME_OVER 继续编码既定 Reason，但不进入额外领域状态或控制流；不替旧 GM 补偿整场回放索引。 |
-| CARD-062 | 已确认待实现 | 统一玩法投递资格并收紧 START | 所有 ClientGameOutput 只过滤不存在或 Exited 的目标，忽略 ClientReady，不暴露 force/non-force 两套领域 API；ROUND_STAT 单独要求 ClientReady。START 除四座完整外要求四人均非 Exited，异常稳定拒绝且可由 UPDATE_PLAYER 修正后重试。 |
-| CARD-063 | 已确认待实现 | 逐用户展开 Legacy ClientGameOutput | Battle 冻结按座位排序的目标列表和单份 payload；Legacy adapter 为每个目标编码独立 `0x8644 + 0x7400`，双层 UserID 相同，GameInnerID/MatchID/ProductID 有值，CntTID/CltTID/Reserved2 为零，不使用 UserID=0 广播。Cluster 由 SessionRegistry 按 UserID 路由。 |
-| CARD-064 | 已确认待实现 | 冻结 NHSK CommandID 命名空间 | 公开 Host/Battle/玩法/结算 Command 分配 `0x041001xx..0x041004xx`，runner 结果使用包内 `0x0410f0xx`。Legacy bridge 只用显式 MessageID→CommandID 表，不复用或算术转换旧编号。 |
+| CARD-061 | 已完成 | 删除回放名累计与无用 Reason 状态 | 每小局只冻结当前 ReplayName，GAME_STARTED/文件/GAME_OVER 共用；未建立累计列表或无用 Reason 领域状态。 |
+| CARD-062 | 已完成 | 统一玩法投递资格并收紧 START | 玩法输出只过滤不存在/Exited；ROUND_STAT 单独要求 ClientReady；START 要求四人均未退出，失败可经 UPDATE_PLAYER 修正后重试。 |
+| CARD-063 | 已完成 | 逐用户展开 Legacy ClientGameOutput | Battle 目标按座位冻结，adapter 为每个目标生成独立 `0x8644+0x7400`，双层 UserID/身份和零字段均有整包 golden；不使用 UserID=0 广播。 |
+| CARD-064 | 已完成 | 冻结 NHSK CommandID 命名空间 | 公开命名空间与包内 runner 区间已冻结，Legacy 显式映射且不复用/换算 MessageID。 |
 | CARD-044 | 已完成 | MATCH_STOP 替换在途玩法或结算 | Playing/AwaitingSettlement 收到 MATCH_STOP 时递增 TurnRevision、取消行动并废止 0x8650，按 Success 展示牌、本地倍数结算并跳过外部结算；其他阶段 no-op。线序为 ShowCards→GameResult→回放→ROUND_STAT→GAME_OVER→NOTICE；紧随 DEL_GAME 时屏障只保留此前已提交输出。 |
 | CARD-045 | 已确认放弃 | 固定六张牌 TestMode | 不实现所有环境均关闭且无 wire 入口的 test_mode_enabled/TestMode/applyTestModeHands。固定 seed 覆盖随机确定性，完整指定牌局使用测试注入的 CustomDeckProvider；不建立生产测试牌开关或第三种发牌优先级。 |
-| CARD-046 | 已确认待实现 | 收紧 NHSKConfig owner 边界 | 删除只加载未消费的 MsDeal/MsContinueDelay/TableMultiplier，以及已放弃的 MsShowCard/MsCommentate/TestMode 和恒真 RecordUserAction。NHSKConfig 只留玩法实际读取值；AI 地址、回放根目录、自定义牌堆数据源/白名单分别归外围 provider/runner 配置，Battle 只接收类型化依赖和结果。无效 replay_enabled 按 CARD-059 删除。 |
+| CARD-046 | 已完成 | 收紧 NHSKConfig owner 边界 | 无消费者字段和假开关已删除；AI、回放、自定义牌堆配置分别归外围 provider/runner，Battle 只接收类型化依赖和结果。 |
 | CARD-047 | 已完成 | INIT 单一来源归一化 | Legacy codec 已完整解码固定体与四个 suffix；Battle 只冻结 BattleIdentity、进度上限、Fee/ScoreBase/Denominator、ReplayMetadata、ReplayRuleSnapshot 与 NHSKConfig。默认 Rules 与显式默认值归一化为同一 INIT，整份重复请求幂等，任一冲突字段拒绝。未消费 MatchKey/CreateTime 不进入领域状态。 |
 | CARD-048 | 已完成 | 单次冻结小局开始时间 | StartSubgame 只读一次 Battle Clock；同一 SubgameStartedAt 生成 Unix StartTimestamp 来源、旧式 ReplayUID、UTC+8 ReplayName 日期/时间和 FuPan 日期/小时目录。RoundUniCode 原样冻结；不增加碰撞或相互一致性校验。 |
 | CARD-049 | 已确认放弃 | NEW_GAME IsNewNacos | codec 为旧 wire/golden 解码该位，但不传入 Host/Battle/Cluster/诊断。旧 GL 实际未把它写入 Round，Nacos 绑定也是空方法，不补造功能。 |
@@ -113,7 +115,8 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | CARD-058 | 已完成 | 分离 ReplayName 与 ReplayUID | START 分别冻结 NHSK ReplayName 与 Unix秒+CreatorID ReplayUID；GAME_STARTED、文件和 GAME_OVER 复用名称，完整 XML Info 与客户端 FuPanUID[64] 复用 UID。两者不互相推导，不增加防碰撞机制。 |
 | CARD-059 | 已完成 | 删除无效回放开关 | 未实现 replay_enabled/Enabled 或 Noop writer；生产组合根始终装配有界 FileReplayWriter，测试可注入 ReplaySubmitter。只有根目录可配，FuPan 子目录和 NHSK 前缀固定；单局失败不熔断，下一局继续尝试。 |
 | CARD-028 | 已完成 | 以 DEL_GAME 停止屏障回收正常 Battle | 正常 Battle 的 Host 精确 Ref 先进入 Stopping；固定 runner Call 同一 Battle 的 Mailbox 屏障与诊断快照，屏障递增 TurnRevision、清除 deadline、禁止输出并 fence迟到结果，再 Runtime Stop。成功后才删除绑定；Stop timeout 转入 Quarantined。隔离条目的 DEL_GAME 只累计外部结束观察，不 Stop 或释放。 |
-| CARD-012 | 进行中 | 原位替换 GameLogic | 已实现 NHSK 进程组合根、单条主动 GM 连接、完整主要控制/玩法 wire、Host/Battle/GameOutput、核心牌规、托管/AI、综合结算、回放、终局、停止屏障和隔离诊断。剩余代表性连接整包 golden、100,000 次 churn 与真实旧 GM 联调门禁完成后才能声明原位替换验收。 |
+| CARD-012 | 已完成 | 原位替换 GameLogic 的仓库内实现 | NHSK 进程组合根、单条主动 GM 连接、完整控制/玩法 wire、Host/Battle/GameOutput、牌规、托管/AI、综合结算、回放、停止屏障、隔离诊断、代表性连接 golden、100,000 次 churn 和真实 Redis 兼容测试均已完成。 |
+| CARD-065 | 待外部验证 | 真实旧 GameMaster 部署联调 | 在测试/预发布环境把旧 GM 的 GameLogic 地址切到新进程，跑通至少一局正常结算、一局 MATCH_STOP/DEL_GAME、一次断线重连和一份回放比对；这是发布门禁，不以仓库内 net.Pipe 测试冒充完成。 |
 | CARD-013 | 已完成 | 隔离并保留 Battle 缺陷现场 | Battle 边界在委派前复制完整输入、成功后更新最后稳定 Snapshot；Handler/Timer panic 和不变量失败先上报证据再由 Core 注销实例，Stop timeout 使用删除前捕获转入隔离。Host 保留编号/Ref/容量，GM 断线、同号创建和 DEL_GAME 都不能覆盖；DEL_GAME 只记录首末时间、次数和代际。固定 runner 补入 Runtime Inspection，本地 exporter 以 fsync+rename 发布六类材料和 SHA-256 receipt；队列满/失败可通过节点本地 Unix CLI 重试。只有精确 receipt 可释放，材料清理由独立显式操作完成。健康状态可报告 Degraded。Core 不抢占仍未返回的 Go Handler；SlowCommandThreshold/Inspect 负责观测，避免引入无法安全停止的 watchdog goroutine。 |
 | CARD-014 | 已完成 | 每个出牌机会只保留一个行动期限 | 每个 `TurnRevision` 只有一个有效 `ActionDeadline`。普通、托管/机器人和外部 AI 使用各自已确认期限；离线 AI 早到时以剩余最小延迟替换硬期限。旧 Revision 无副作用，Timer Command panic 由统一 Battle 隔离边界处理。当前 GM 不发送 PAUSE，首版未实现暂停。 |
 | CARD-015 | 已完成 | 隔离 Legacy 外部 AI | 固定 `AIRunner` 装配默认 Local provider 与可选 Legacy HTTP RobotTran adapter；请求冻结完整 Ref/Seat/Turn/VerifyCode/起点并深拷贝隐藏信息，响应候选回到同一 Mailbox 复核。HTTP/队列/格式/候选失败不隔离且不改变硬期限，日志不包含请求响应或手牌。 |
@@ -124,7 +127,7 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 | CARD-005 | 待规划 | 提供 Redis 工具模块 | 首版只提供配置、连接、健康检查、超时、关闭和真实 Redis 集成测试，不定义业务 key 或 SessionRegistry，不成为示例启动依赖。 |
 | CARD-006 | 待规划 | 扩展第三方认证 | 定义稳定 `AuthProvider` seam、错误分类和凭据脱敏；实现微信 provider 与显式开发配置启用的 `account + shared token` provider，不提供注册流程；以 fake provider 验证其他平台无需修改 Login/Gateway/Core。 |
 | CARD-007 | 待规划 | 冻结并实现 Agent 边界 | 每个已登录玩家会话对应一个 Agent；Gateway 拥有 socket，Agent 拥有会话路由和重连窗口，PlayerService 拥有玩家长期状态，BattleService 拥有牌局状态。无牌局离线保留 2 分钟；牌局中保留到终局后 2 分钟，绝对上限 10 分钟；新会话代际替换旧连接。 |
-| CARD-011 | 待规划 | 兼容 Command 与 Legacy TCP 调用 | 入站分层兼容客户端 `0x7402 + Suffix`、Agent 补 `GameHeader`、GameMaster 再补 `0x8605 GLHeader`；外层 GameInnerId/UserId 是权威路由身份，内层重复身份只在 Legacy adapter 核对，随后丢弃并转成规范化 Command，Battle 不感知多层 envelope。出站兼容 GameLogic 的 `0x8644 GLHeader + BSREQ_GS2GC_RELAY_HEADER + Suffix`，GameMaster 将 Relay header 与 Suffix 发给 Agent。新实现不依赖旧 module，只以本地最小 codec 和参考 `.bin` golden 兼容；嵌套长度精确且无尾部字节，不建立通用 Serial RPC。`0x7701`、`0x7702` 均映射为 `Send`，不产生同步 `Reply`。 |
+| CARD-011 | 已完成 | 兼容 Command 与 Legacy TCP 调用 | 三层入站、两层出站、冗余身份边界、本地最小 codec、完整长度和 MessageID golden 均已实现；`0x7701/0x7702` 映射 Send，同一类型化 Command 也可由 Cluster Send/Call 进入。 |
 | CARD-008 | 待规划 | 补齐棋牌游戏通用模板 | 根据首个玩法验证 Match、Lobby、Table/Seat、Turn、Ready、托管、断线重连、结算等状态归属；只把至少两个真实玩法共同需要的能力提升为通用模板。 |
 | CARD-009 | 待规划 | 交付完整可运行的宁海双扣示例 | 在独立可部署的 Cluster 节点中跑通微信或开发认证、Gateway 认证、Agent 建立、4 人入桌、发牌、出牌/过牌、抓分、单扣/双扣结算和断线重连；首版权威状态保存在 Service 内存，不承诺进程崩溃恢复。行为知识来自只读的 `nhsk`，容器知识来自 `gamelogic`/`gamecore`，外围协议知识来自 `protocol`。 |
 | CARD-010 | 待规划 | 建立本地依赖与端到端门禁 | 提供可重复启动的 MySQL/Redis 测试环境、schema migration、seed、健康检查和端到端命令；全量 `go test`、`go vet`、race、泄漏与故障场景通过。 |

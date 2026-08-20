@@ -235,6 +235,8 @@ type CreateBattleOperation struct {
 
 `ConnectionGeneration=0` 表示普通 Cluster 创建。非零值只允许本节点 Runtime 根代表 Legacy adapter 提交；普通 Service 或远程节点不能通过伪造非零代际获得 Legacy 同号替换能力。Factory 的输出绑定、解绑和断代停止私有 Command 同样只接受本节点 Runtime 根来源。
 
+第一阶段的生产流量只由非零 ConnectionGeneration 的 Legacy 创建绑定当代 `GameOutputService`。Cluster 调用者可以解析并直接 Send/Call 该 Battle，业务输出仍通过创建代际返回旧 GM。`ConnectionGeneration=0` 的独立 Cluster 创建不猜测输出目的地，当前只用于验证 Host/Battle API 与业务 Reply；替换 GameMaster 时必须由新的组合根显式装配类型化输出 Service，不能把第一阶段的 Legacy 输出绑定隐式扩展为新协调层契约。
+
 `ResolveBattle` 只返回 Active 条目的当前 Ref。Creating、Stopping、Quarantined 和不存在条目分别返回稳定错误。Cluster 调用者解析后直接向 Battle Ref `Send`/`Call`，Host 不代理玩法 Command。
 
 Legacy bridge 不为每个玩法 frame 同步 Call Host。创建操作完成并准备发送成功 ACK 时，终态 `CreateBattleOperation` 携带 Active Ref；bridge 只把它缓存为当前连接代际的派生路由。进入 Stopping、隔离、同号替换或连接断代时必须先使相应缓存失效；若 Runtime 已先注销缺陷实例，保存的旧 Ref 也只能稳定投递失败，绝不解析为新实例。缓存缺失、BattleID→Ref 绑定不匹配或连接代际不匹配的消息直接拒绝并计量，不猜测 ServiceID，也不逐帧回退 Call Host。BattleID→Ref 的权威映射始终只在 Host。

@@ -31,11 +31,11 @@
 
 参考目录的业务源码、配置和资源保持只读；`.codegraph/` 分析元数据不属于业务修改。
 
-## 3. 切换范围基线
+## 3. 实现前切换范围基线（历史快照）
 
-以下是实现前的第一轮核对。`待实现` 不代表已有代码。
+以下保留实现前的第一轮核对，用于追溯切片顺序；表中的 `待实现` 是当时状态，不是当前欠账。当前完成状态见第 4 节最终切片和 [`docs/TODO.md`](../TODO.md)。
 
-| 功能切片 | 参考入口/证据 | 核对项 | 当前结论 | RFC/决策 | 备注 |
+| 功能切片 | 参考入口/证据 | 核对项 | 实现前结论 | RFC/决策 | 备注 |
 |---|---|---|---|---|---|
 | NHSK 公开 Command 与 owner | 既有 Legacy 消息矩阵、GL controller、GM Round/Game 调用链、NHSK 输入输出入口 | Host/Battle/玩法/结算分段；显式 MessageID 映射；Send/Call/Reply；类型化输出边界 | 待实现（契约已核对） | RFC-0410、D-097 | 没有发现迁移范围内的新入口；RoundContext/Dress/Offline/Prop 保持 Send-only，Host 异步结果不冒充 Battle 业务结果，废弃消息不分配 CommandID |
 | GM 主连接、origin、身份与坏帧 | `NewBSProtocol`、GM `GameController`、双方 `ConnectedEvent`、`BSProtocol.UnpackDetect`、controller callbacks、GM `PushGameMsg` | 单连接全双工、双向 origin、嵌套精确长度、8 KiB 上限、外/内身份、未知 ID、坏 body/suffix | 待整包 golden | D-036、D-037、D-049、D-050 | 24 字节 Header 已冻结；冗余身份仅在 adapter 核对，不进入 Battle；完整坏帧局部丢弃 |
@@ -1240,6 +1240,27 @@
 | 结论 | 自定义牌堆 Redis 兼容桥真实联调 **已完成**。 |
 | RFC/决策 | RFC-0410、RFC-0500、D-058；TODO CARD-022。 |
 | 备注 | 参考业务目录未修改。 |
+
+### 4.61 第一阶段最终文档与契约审计
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 汇总第一阶段实际代码结构、旧 TCP 调用、新 Cluster 调用、状态所有权、玩法线序、运维方式和发布门禁；逐项复核 RFC、TODO、能力矩阵与实现是否互相矛盾。 |
+| GSR 文件/测试 | `examples/nhsk/README.md`、`docs/rfcs/RFC-0410-Example-NHSK-GameLogic.md`、`docs/TODO.md`、`docs/reviews/nhsk-capability-matrix.md`、本记录；最终仓库门禁执行 `go test ./...`、`go vet ./...`、`go test -race ./...` 与 `git diff --check`。 |
+| 参考入口 | 前 60 个切片已经覆盖七个参考目录的连接、控制、玩法、结算、回放和生命周期入口；本切片不重新解释历史证据。 |
+| 参考测试/配置/录包 | 双向 origin、NEW_GAME/ACK、控制、relay、玩法输出、结算和终局已有完整字节 golden；真实旧 GM 只能在测试/预发布环境验证，单列为外部门禁。 |
+| Legacy MessageID | 没有新增、删除或换算 MessageID；README 链接唯一 MessageID 矩阵，不复制第二套编号表。 |
+| 输入与校验 | 明确 Legacy 创建的 Battle 绑定当代输出；Cluster 可直达同一 Battle。generation=0 的独立创建不猜输出目的地，只验证 Host/Battle API 与 Reply，未来新 GM 组合根必须显式提供类型化输出 owner。 |
+| 权威状态变化 | 文档不增加状态；Host、Battle、Connection、Output 与外围 runner 的所有权按 RFC 汇总。MySQL/Redis 继续不是牌局权威状态。 |
+| Timer/Timeline | 文档明确一个行动机会只有一个有效 ActionDeadline，AI 最小延迟只是同一期限的替换；未恢复 TimerGameOver 或双 Timer 竞争。 |
+| 输出目标与顺序 | README 分别记录 Legacy envelope、类型化输出、正常结算、MATCH_STOP、回放和 GAME_OVER 线序；Cluster Reply 不冒充客户端输出。 |
+| 生命周期结果 | 仓库内实现以自动化门禁收口；真实旧 GM 正常局、MATCH_STOP/DEL_GAME、断线和回放对比仍是发布前 `CARD-065`，不阻塞代码层完成状态。 |
+| 已一致 | README 中的 Legacy 数据流、编号、创建 ACK、玩法行为、终局和删除职责均可追溯到前述参考核对。 |
+| 有意偏差 | Service/Command/Mailbox、唯一 ActionDeadline、参数化自定义牌堆 API、隔离诊断和不复制死功能均引用既有 RFC/决策，不把旧容器结构重新带回示例。 |
+| 发现遗漏 | 未发现新的仓库内功能或 wire 缺口；只剩真实部署环境才能完成的联调证据。 |
+| 结论 | 第一阶段仓库内代码、契约、参考核对和使用文档 **已收口**；外部门禁与以后 GM/Agent/Auth 阶段已明确分离。 |
+| RFC/决策 | RFC-0410、RFC-0500；TODO CARD-012、CARD-065。 |
+| 备注 | 参考业务源码、配置和资源未修改。 |
 
 ## 5. 切片追加模板
 

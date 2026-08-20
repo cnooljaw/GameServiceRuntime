@@ -265,8 +265,7 @@ type GameStartedOutput struct {
 func (GameStartedOutput) isNHSKGameOutput() {}
 
 // GameOverOutput tells the old GameMaster that one NHSK subgame has reached
-// its terminal lifecycle boundary. Player detail remains owned by settlement
-// adapters and is intentionally empty in this minimal example.
+// its terminal lifecycle boundary with the four seat-indexed player results.
 type GameOverOutput struct {
 	Reason         int32
 	ReplayName     string

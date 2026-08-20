@@ -11,9 +11,9 @@ const (
 	gameOverFixedSize            = 139
 )
 
-// GameOver is the minimal old GameLogic→GameMaster terminal notification.
-// The optional player suffix is intentionally omitted until the settlement
-// adapter owns the reference PlayerData projection.
+// GameOver is the old GameLogic→GameMaster terminal notification.
+// Players is either empty for the reference force-stop shape or contains the
+// four seat-indexed settlement records used by the normal terminal path.
 type GameOver struct {
 	BattleID       uint32
 	Reason         int32
@@ -31,7 +31,7 @@ type GameOverPlayer struct {
 	Automated bool
 }
 
-// EncodeGameOver encodes one fixed empty-player-data GAME_OVER frame.
+// EncodeGameOver encodes one GAME_OVER frame and its optional player suffix.
 func EncodeGameOver(value GameOver) ([]byte, error) {
 	if value.BattleID == 0 || value.ReplayName == "" || len(value.Players) != 0 && len(value.Players) != 4 {
 		return nil, errors.New("legacywire: invalid GAME_OVER")

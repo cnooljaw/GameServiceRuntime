@@ -1,6 +1,6 @@
 # 宁海双扣 GameLogic 替换能力证据矩阵
 
-> 状态：第一轮源码复核，2026-07-28
+> 状态：迁移范围已冻结并完成仓库内实现，2026-08-20
 >
 > 本文只记录参考证据和迁移范围，不是第二份公开契约。发生冲突时，以
 > `docs/rfcs/` 为准。具体切片实现后的逐项一致性检查记录在
@@ -37,7 +37,7 @@
 
 | 能力 | 参考所有者 | 证据 | 迁移裁决 |
 |---|---|---|---|
-| GameLogic 主动连接 GM、双向 origin、单连接全双工 | `gamelogic`、`gamemaster`、`nbgame_core` | `NewBSProtocol(BS_CONNECTIONTYPE_GAME_LOGIC)` 的 `ConnectedEvent`；GM 按 origin 创建 `GameController`；GM controller 和 GL pusher 共用连接 | 必须兼容；精确字节仍待 golden |
+| GameLogic 主动连接 GM、双向 origin、单连接全双工 | `gamelogic`、`gamemaster`、`nbgame_core` | `NewBSProtocol(BS_CONNECTIONTYPE_GAME_LOGIC)` 的 `ConnectedEvent`；GM 按 origin 创建 `GameController`；GM controller 和 GL pusher 共用连接 | 必须兼容；双向 origin 与代表性连接整包 golden 已完成 |
 | 创建 Battle | 旧 `GameMasterController`、Round manager | controller 注册 `BS_MSG_GM2GL_NEW_GAME`；旧 GM 真实发送；`GameInnerId` 建立 Round 索引 | 必须兼容 |
 | NEW_GAME IsNewNacos | GM、旧 GL | wire 有字段，但 GL handler 未传入 RoundInitConfig；Round 默认 false，BindNacosFile 为空 | 放弃；D-076 只解码保 wire |
 | START_NEW_GAME 回放上下文 | GM、旧 BaseGame replay | 只在已存在 Round 再次 CreateGame 时发送；GL 保存 Total/Used/RoomInfo，下一次 replayAttributeInitialize 读取 | 必须兼容；D-077 作为 pending RoundContext，不作为启动门禁 |
