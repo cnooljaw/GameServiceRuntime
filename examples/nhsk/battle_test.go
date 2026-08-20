@@ -123,7 +123,7 @@ func TestNewBattleServiceFailsWhenRandomSeedUnavailable(t *testing.T) {
 	}
 }
 
-func TestBattleUsesInjectedClockForDeadlineAndRemainingTime(t *testing.T) {
+func TestBattleUsesInjectedClockForDeadlineAndSceneRemainingTime(t *testing.T) {
 	clock := &nhskTestClock{now: time.Unix(100, 500*int64(time.Millisecond))}
 	service, _ := newBattleForTest(t, 28, mathrand.New(mathrand.NewSource(3)), clock)
 	wantDeadline := clock.now.Add(DefaultNHSKConfig().MsFirstOutCard)
@@ -140,6 +140,85 @@ func TestBattleUsesInjectedClockForDeadlineAndRemainingTime(t *testing.T) {
 	clock.now = wantDeadline
 	if got := service.remainingActionMilliseconds(); got != 0 {
 		t.Fatalf("remaining at deadline = %dms, want 0", got)
+	}
+}
+
+func TestBattleStartEmitsReferenceOpeningSequenceAndStartsActionAtAsk(t *testing.T) {
+	clock := &steppingNHSKClock{now: time.Unix(300, 0), step: 10 * time.Millisecond}
+	rules := DefaultNHSKConfig()
+	rules.MsFirstOutCard = 2 * time.Second
+	rules.MsOutCard = 3 * time.Second
+	service, err := NewBattleService(NHSKBattleConfig{
+		ID: 37, OutputRef: gsr.ServiceRef{Node: "test", ID: 2}, MatchID: 1, ProductID: NHSKDescriptor.GameID,
+		ConnectionGeneration: 1, Random: mathrand.New(mathrand.NewSource(3)), Clock: clock,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := &recordingBattleTestServiceContext{}
+	if err := service.Init(output); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &battleTestCommandContext{}
+	commands := []gsr.Command{
+		{ID: InitializeBattleCommand, Payload: InitializeBattleRequest{Identity: BattleIdentity{BattleID: 37, ProductID: NHSKDescriptor.GameID, MatchID: 1}, Rules: &rules}},
+		{ID: UpdatePlayersCommand, Payload: UpdatePlayersRequest{Players: []BattlePlayer{{Player: "1", UserID: 1, SeatID: 0}, {Player: "2", UserID: 2, SeatID: 1}, {Player: "3", UserID: 3, SeatID: 2}, {Player: "4", UserID: 4, SeatID: 3}}}},
+		{ID: PrepareSubgameCommand, Payload: PrepareSubgameRequest{GameNum: 1, SubgameNum: 1}},
+		{ID: StartSubgameCommand, Payload: struct{}{}},
+	}
+	for _, command := range commands {
+		if err := service.Handle(ctx, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(output.sends) != 8 {
+		t.Fatalf("opening output count = %d, want 8: %#v", len(output.sends), output.sends)
+	}
+	wantKinds := []any{OutputGameStart, GameStartedOutput{}, OutputGameInfo, OutputDeal, OutputDeal, OutputDeal, OutputDeal, OutputAskOutCard}
+	for index, sent := range output.sends {
+		batch := sent.(GameOutputBatch)
+		if len(batch.Outputs) != 1 {
+			t.Fatalf("opening batch %d outputs = %#v", index, batch.Outputs)
+		}
+		switch want := wantKinds[index].(type) {
+		case OutputKind:
+			client, ok := batch.Outputs[0].(ClientGameOutput)
+			if !ok || client.Kind != want {
+				t.Fatalf("opening output %d = %#v, want %s", index, batch.Outputs[0], want)
+			}
+		case GameStartedOutput:
+			if _, ok := batch.Outputs[0].(GameStartedOutput); !ok {
+				t.Fatalf("opening output %d = %#v, want GameStartedOutput", index, batch.Outputs[0])
+			}
+		}
+	}
+	for seat := 0; seat < 4; seat++ {
+		deal := output.sends[3+seat].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+		payload := deal.Payload.(DealPayload)
+		player := service.bySeat[seat]
+		if !reflect.DeepEqual(deal.Targets, []game.PlayerID{player}) || payload.Players != service.bySeat || payload.SeatID != uint8(seat) || !reflect.DeepEqual(payload.Cards[:], service.hands[player]) {
+			t.Fatalf("deal seat %d = targets=%v payload=%#v hand=%x", seat, deal.Targets, payload, service.hands[player])
+		}
+	}
+	ask := output.sends[7].(GameOutputBatch).Outputs[0].(ClientGameOutput)
+	askPayload := ask.Payload.(AskOutCardPayload)
+	if !reflect.DeepEqual(ask.Targets, []game.PlayerID{"1", "2", "3", "4"}) || askPayload.ActivePlayer != service.bySeat[service.activeSeat] || askPayload.VerifyCode != 3 || askPayload.ActionMilliseconds != 3000 {
+		t.Fatalf("opening ask = targets=%v payload=%#v", ask.Targets, askPayload)
+	}
+	if got, want := service.replayDocument.StartSnapshot().StartedAt, time.Unix(300, 0); !got.Equal(want) {
+		t.Fatalf("subgame start = %v, want %v", got, want)
+	}
+	if got, want := service.deadlineAt, time.Unix(300, 0).Add(2010*time.Millisecond); !got.Equal(want) {
+		t.Fatalf("first deadline = %v, want %v", got, want)
+	}
+	player := service.bySeat[service.activeSeat]
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: player, Cards: []byte{service.hands[player][0]}, VerifyCode: service.verifyCode}}); err != nil {
+		t.Fatal(err)
+	}
+	outCards := replayOutCardMoves(service.replayDocument.Moves())
+	if len(outCards) != 1 || outCards[0].MoveMilliseconds != 10 {
+		t.Fatalf("first action replay milliseconds = %#v, want 10", outCards)
 	}
 }
 
@@ -834,6 +913,17 @@ type nhskTestClock struct {
 }
 
 func (clock *nhskTestClock) Now() time.Time { return clock.now }
+
+type steppingNHSKClock struct {
+	now  time.Time
+	step time.Duration
+}
+
+func (clock *steppingNHSKClock) Now() time.Time {
+	now := clock.now
+	clock.now = clock.now.Add(clock.step)
+	return now
+}
 
 type battleTestCommandContext struct{ reply any }
 

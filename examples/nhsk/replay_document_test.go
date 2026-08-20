@@ -223,3 +223,77 @@ func TestBattleRecordsReplayMovesInReferenceOrder(t *testing.T) {
 		t.Fatalf("turn end move = %#v", moves[7])
 	}
 }
+
+func TestBattleRecordsReplayMoveMillisecondsFromEachActionStart(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(100, 0)}
+	service, _ := newBattleForTest(t, 35, mathrand.New(mathrand.NewSource(3)), clock)
+	ctx := &battleTestCommandContext{}
+
+	firstPlayer := service.bySeat[service.activeSeat]
+	clock.now = clock.now.Add(400 * time.Millisecond)
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: firstPlayer, Cards: []byte{service.hands[firstPlayer][0]}, VerifyCode: service.verifyCode + 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := ctx.reply.(ActionResult); !ok || result.Accepted {
+		t.Fatalf("stale play reply = %#v, want rejection", ctx.reply)
+	}
+
+	clock.now = clock.now.Add(834 * time.Millisecond)
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: firstPlayer, Cards: []byte{service.hands[firstPlayer][0]}, VerifyCode: service.verifyCode}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := ctx.reply.(ActionResult); !ok || !result.Accepted {
+		t.Fatalf("first play reply = %#v, want accepted", ctx.reply)
+	}
+	if service.verifyCode != 5 {
+		t.Fatalf("verify code after first play = %d, want 5", service.verifyCode)
+	}
+
+	secondPlayer := service.bySeat[service.activeSeat]
+	clock.now = clock.now.Add(750 * time.Millisecond)
+	if err := service.Handle(ctx, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: secondPlayer, VerifyCode: service.verifyCode}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := ctx.reply.(ActionResult); !ok || !result.Accepted {
+		t.Fatalf("second play reply = %#v, want accepted", ctx.reply)
+	}
+	if service.verifyCode != 7 {
+		t.Fatalf("verify code after second play = %d, want 7", service.verifyCode)
+	}
+
+	outCards := replayOutCardMoves(service.replayDocument.Moves())
+	if len(outCards) != 2 || outCards[0].MoveMilliseconds != 1234 || outCards[1].MoveMilliseconds != 750 {
+		t.Fatalf("out card milliseconds = %#v, want [1234 750]", outCards)
+	}
+}
+
+func TestEnablingAutoDoesNotResetReplayActionStart(t *testing.T) {
+	clock := &nhskTestClock{now: time.Unix(200, 0)}
+	service, _ := newBattleForTest(t, 36, mathrand.New(mathrand.NewSource(3)), clock)
+	ctx := &battleTestCommandContext{}
+	player := service.bySeat[service.activeSeat]
+
+	clock.now = clock.now.Add(200 * time.Millisecond)
+	if err := service.Handle(ctx, gsr.Command{ID: SetPlayerAutoStateCommand, Payload: SetPlayerAutoStateRequest{Player: player, Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	if err := service.Handle(ctx, gsr.Command{ID: nhskBattleTimerCommand, Payload: service.turnRevision}); err != nil {
+		t.Fatal(err)
+	}
+
+	outCards := replayOutCardMoves(service.replayDocument.Moves())
+	if len(outCards) != 1 || outCards[0].Source != ReplayMoveSourceAuto || outCards[0].MoveMilliseconds != 1200 {
+		t.Fatalf("auto out card = %#v, want auto source at 1200ms", outCards)
+	}
+}
+
+func replayOutCardMoves(moves []ReplayMove) []ReplayMove {
+	outCards := make([]ReplayMove, 0, len(moves))
+	for _, move := range moves {
+		if move.Kind == ReplayMoveOutCard {
+			outCards = append(outCards, move)
+		}
+	}
+	return outCards
+}

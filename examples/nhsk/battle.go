@@ -118,6 +118,7 @@ type NHSKBattleService struct {
 	lastPlayCounts       [4]int8
 	revision             uint64
 	turnRevision         uint64
+	actionStartedAt      time.Time
 	deadlineAt           time.Time
 	gameNum              uint16
 	subgameNum           uint16
@@ -359,15 +360,7 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 	}
 	battle.activeSeat = bankerSeat
 	battle.verifyCode = 1
-	battle.turnRevision++
-	deadline := battle.rules.firstOutCardTimeout()
 	startedAt := battle.clock.Now()
-	battle.deadlineAt = startedAt.Add(deadline)
-	if battle.service != nil {
-		if _, err := battle.service.After(deadline, nhskBattleTimerCommand, battle.turnRevision); err != nil {
-			return err
-		}
-	}
 	battle.resetTrick()
 	battle.finished = [4]bool{}
 	battle.ranks = [4]uint8{}
@@ -385,6 +378,18 @@ func (battle *NHSKBattleService) start(ctx gsr.CommandContext, payload any) erro
 		return err
 	}
 	if err := battle.emit(ctx, GameStartedOutput{ReplayName: replayStart.ReplayName}); err != nil {
+		return err
+	}
+	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputGameInfo, Payload: battle.gameInfoPayload()}); err != nil {
+		return err
+	}
+	players := battle.bySeat
+	for seat, player := range players {
+		if err := battle.emit(ctx, ClientGameOutput{Targets: []game.PlayerID{player}, Kind: OutputDeal, Payload: DealPayload{Players: players, SeatID: uint8(seat), Cards: toFixedCards(battle.hands[player])}}); err != nil {
+			return err
+		}
+	}
+	if err := battle.startAction(ctx, battle.rules.firstOutCardTimeout()); err != nil {
 		return err
 	}
 	return battle.reply(ctx, CommandResult{Accepted: true})
@@ -547,6 +552,7 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 	if !valid || (len(request.Cards) > 0 && len(battle.lastCards) > 0 && compareCardSets(request.Cards, battle.lastCards) <= 0) {
 		return battle.actionReject(ctx, request.Player, "card_type")
 	}
+	moveMilliseconds := battle.currentActionMilliseconds()
 	battle.removeCards(request.Player, request.Cards)
 	if len(request.Cards) > 0 {
 		battle.lastCards = append(battle.lastCards[:0], request.Cards...)
@@ -569,7 +575,7 @@ func (battle *NHSKBattleService) play(ctx gsr.CommandContext, payload any) error
 	if battle.auto[request.Player] {
 		source = ReplayMoveSourceAuto
 	}
-	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Source: source})
+	battle.replayDocument.appendMove(ReplayMove{Kind: ReplayMoveOutCard, SeatID: uint8(battle.activeSeat), UserID: player.UserID, Cards: request.Cards, CardType: replayCardTypeName(pattern, len(request.Cards)), Source: source, MoveMilliseconds: moveMilliseconds})
 	battle.revision++
 	if err := battle.emit(ctx, ClientGameOutput{Targets: battle.activePlayers(), Kind: OutputOutCardInfo, Payload: OutCardInfoPayload{Player: request.Player, Cards: toFixedEight(request.Cards), CardCount: uint8(len(request.Cards))}}); err != nil {
 		return err
@@ -863,7 +869,7 @@ func (battle *NHSKBattleService) gameInfoPayload() GameInfoPayload {
 }
 
 func (battle *NHSKBattleService) askOutCardPayload() AskOutCardPayload {
-	return AskOutCardPayload{ActivePlayer: battle.bySeat[battle.activeSeat], VerifyCode: battle.verifyCode, ActionMilliseconds: battle.remainingActionMilliseconds()}
+	return AskOutCardPayload{ActivePlayer: battle.bySeat[battle.activeSeat], VerifyCode: battle.verifyCode, ActionMilliseconds: uint32(battle.rules.outCardTimeout() / time.Millisecond)}
 }
 
 func (battle *NHSKBattleService) remainingActionMilliseconds() uint32 {
@@ -876,6 +882,17 @@ func (battle *NHSKBattleService) remainingActionMilliseconds() uint32 {
 		return 0
 	}
 	return uint32(remaining / time.Millisecond)
+}
+
+func (battle *NHSKBattleService) currentActionMilliseconds() uint32 {
+	if battle.actionStartedAt.IsZero() {
+		return 0
+	}
+	elapsed := battle.clock.Now().Sub(battle.actionStartedAt)
+	if elapsed <= 0 {
+		return 0
+	}
+	return uint32(elapsed / time.Millisecond)
 }
 
 func (battle *NHSKBattleService) replayName() string {
@@ -911,12 +928,17 @@ func (battle *NHSKBattleService) advanceTurn(ctx gsr.CommandContext) error {
 }
 
 func (battle *NHSKBattleService) startTurn(ctx gsr.CommandContext) error {
-	battle.verifyCode++
+	return battle.startAction(ctx, battle.rules.outCardTimeout())
+}
+
+func (battle *NHSKBattleService) startAction(ctx gsr.CommandContext, timeout time.Duration) error {
+	battle.verifyCode += 2
 	battle.turnRevision++
+	startedAt := battle.clock.Now()
+	battle.actionStartedAt = startedAt
 	if battle.service != nil {
-		deadline := battle.rules.outCardTimeout()
-		battle.deadlineAt = battle.clock.Now().Add(deadline)
-		if _, err := battle.service.After(deadline, nhskBattleTimerCommand, battle.turnRevision); err != nil {
+		battle.deadlineAt = startedAt.Add(timeout)
+		if _, err := battle.service.After(timeout, nhskBattleTimerCommand, battle.turnRevision); err != nil {
 			return err
 		}
 	} else {

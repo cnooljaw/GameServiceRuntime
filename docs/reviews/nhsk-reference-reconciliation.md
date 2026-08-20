@@ -991,6 +991,27 @@
 | RFC/决策 | RFC-0410、RFC-0500、D-056、D-066、D-077、D-081；TODO CARD-052～059。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录只读，未修改业务源文件。 |
 
+### 4.49 NHSK 开局行动机会与回放动作耗时
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 补齐每小局 `GAME_START -> GAME_STARTED -> GameInfo -> 四份私有 Deal -> AskOutCard`，把 VerifyCode、首手 Timeline 和回放 MoveMilliseconds 统一绑定到显式行动机会。 |
+| GSR 文件/测试 | `examples/nhsk/battle.go`、`battle_test.go`、`replay_document_test.go`；测试覆盖八段开局输出、Seat0..3 私有牌、最终手牌复用、VerifyCode 3/5/7、首手期限与 Ask 提示时长分离、非法动作不重置耗时、下一 Ask 重置起点及中途启用托管不重置。 |
+| 参考入口 | `gamelogic/internal/game/game.go:startGame` 先发 GAME_START/GAME_STARTED 再调用玩法；`nhsk/game/flow_core.go:DoGameStart/DoDeal/DoAskOutCard/DoOutCard` 依次发 GameInfo、四份 Deal、Ask，Ask 时 `VertifyCode += 2` 并设置 `LastActionAt`，合法动作以 `time.Since(LastActionAt)` 记录回放；`nhsk/game/messages.go:SendMsgAskOutCard` 的 `SecRemain` 取玩家允许时长而非动态 deadline 剩余值。 |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go` 覆盖开局、私有 Deal、Ask 的 VerifyCode/SecRemain、首手与普通 Timer，以及旧回放 move 毫秒输入；GSR 既有 Legacy egress golden 已分别锁定 `0x7205/0x7601/0x7602/0x7603/0x8654` wire。 |
+| Legacy MessageID | 客户端依次收到通用 `0x7205 GAME_START`、NHSK `0x7601 GAME_INFO`、四份 `0x7602 DEAL`、`0x7603 ASK_OUT_CARD`；GM 在 GAME_START 后先收到 `0x8654 GAME_STARTED`。全部继续由 `0x8644 + 0x7400` 客户端 relay 或既有 GL→GM 控制包编码。 |
+| 输入与校验 | START 仍要求已初始化、Preparing 且四座完整；每份 Deal 仅投递给对应座位。只有通过当前玩家、VerifyCode、数量、牌型和压牌校验的 PlayCards 才读取动作结束时间并写 MoveMilliseconds；坏动作不修改行动起点、期限、VerifyCode 或回放。Exited START 门禁仍由 CARD-062 完成。 |
+| 权威状态变化 | Battle 在每次 Ask 前将 VerifyCode 增加 2、递增 TurnRevision，并以独立 `actionStartedAt` 保存该行动机会起点；ReplayStartSnapshot 的 SubgameStartedAt 与 Ask 起点是两个不同事实。合法 OutCard/过牌只在 Mailbox 内计算一次 elapsed 并写入 ReplayMove，不维护重复累计状态。 |
+| Timer/Timeline | 首个 Ask 使用 `MsFirstOutCard` 建立唯一 ActionDeadline，后续 Ask 使用 `MsOutCard`；Ask payload 的 ActionMilliseconds 始终是普通 `MsOutCard` 兼容值。主动启用托管可以缩短当前 deadline，但不会重置原 Ask 起点；下一 Ask 才同时替换 deadline 和 actionStartedAt。 |
+| 输出目标与顺序 | GAME_START、GameInfo、Ask 面向按 SeatID 排列的未退出玩家；Deal 固定 Seat0..3 顺序且每份仅一个目标。四份 Deal 的 Cards 与同局 Replay Deal 来自 Battle 已提交的同一最终手牌，不重新发牌或读取 provider。 |
+| 生命周期结果 | START 成功后 Battle 已处于可接收第一个 VerifyCode=3 动作的 Playing 状态；后续出牌推进形成 5/7...。本切片不改变终局、结算、回放落盘或 Battle Stop。 |
+| 已一致 | 旧外围与玩法开局顺序、四座私有 Deal、VerifyCode 加 2、首手/普通期限分离、SecRemain 非动态剩余值及 Ask→合法动作耗时均已实现；参考目录未修改。 |
+| 有意偏差 | 旧实现通过 BaseGame、TurnEngine goroutine 和 `time.Now/time.Since` 串接流程；新实现全部在同一 Battle Mailbox 中提交，并只读取注入的 `NHSKClock`。已放弃的惩罚能力不建立 per-player 出牌时长，Ask 使用冻结 `NHSKConfig.MsOutCard`。 |
+| 发现遗漏 | 外部 AI、普通超时与 AI 超时的来源动作仍待对应玩法切片接入；MoveMilliseconds 尚未进入 XML，终局 Summary/CardDetail、回放 writer、Exited START 门禁和完整终局线序仍待后续 CARD。 |
+| 结论 | 开局可见线序、首个行动 fencing 和回放动作时间事实 **已一致**；XML 与终局收敛 **发现遗漏，留待后续切片**。 |
+| RFC/决策 | RFC-0410、RFC-0500、D-026、D-070、D-075、D-081、D-095、D-096；TODO CARD-024、032、043、054、057、062。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考目录仅作知识来源，未修改业务代码。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

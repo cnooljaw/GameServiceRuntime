@@ -24,8 +24,9 @@
 - 旧 GM 控制面 `NEW_GAME/INIT_GAME/UPDATE_PLAYER/COMMAND/UPDATE_GAME/START_NEW_GAME/DRESS/PLAYER_EXIT/DEL_GAME/0x80008650` 的固定 codec、`INIT_GAME` 连续规则 suffix 解码、Host/Battle 映射和 `NEW_GAME` 成功/失败 ACK；控制消息与 Cluster Command 进入同一 Mailbox。
 - `GameDescriptor` 固定本组合根为 `GameID=82/宁海双扣`；Legacy `NEW_GAME` 收到其他玩法 ID 时在 adapter 边界直接失败 ACK，不创建 Battle，Cluster 调用者从 NHSK Host 进入时不再重复传 GameID。
 - `START_NEW_GAME` 的 RoundContext 与 `DRESS` 已在 Battle Mailbox 中保留：`START` 冻结当前小局的 `SecRoundTotal/SecRoundUsed/RoomInfo` 和四座 Dress，之后收到的更新只作用于下一局，不产生客户端输出。
-- `StartSubgame` 已冻结一份 Battle-owned 的 `ReplayDocument` 起始快照：使用同一次 `NHSKClock` 读取记录起始时间，深拷贝 BattleIdentity、RoundContext、四座玩家（含 Nickname/InitScore/CltID→Platform/Dress/Automated）和最终发牌手牌。当前只提供内存快照，尚未接入 ReplayUID、规范文件名/目录、规范 Moves 序列化、Summary/CardDetail、XML 或 writer。
-- 回放内存事件已接入 Battle：起始只建立一个包含四手最终牌的 `Deal`，出牌按旧顺序追加 `CurrentPoint -> OutCard`，过牌只追加 `OutCard`，一墩结束追加 `CatchPoint -> TurnEnd`；事件和牌区返回均为深拷贝。当前尚未接入 MoveMilliseconds、终局 Summary/CardDetail、XML 或 writer。
+- `StartSubgame` 已按 `GAME_START -> GAME_STARTED -> GameInfo -> Seat0..3 私有 Deal -> AskOutCard` 提交完整开局线序；首个 VerifyCode 为 3，后续按 5/7 递增。四份 Deal 与回放 Deal 复用同一批 Battle 最终手牌，`ASK_OUT_CARD.SecRemain` 保持旧语义发送普通允许出牌毫秒数，首手 Timeline 可独立使用 `MsFirstOutCard`。
+- `StartSubgame` 已冻结一份 Battle-owned 的 `ReplayDocument` 起始快照：单次读取 `NHSKClock` 记录小局开始时间，深拷贝 BattleIdentity、RoundContext、四座玩家（含 Nickname/InitScore/CltID→Platform/Dress/Automated）和最终发牌手牌；首个 Ask 再单独读取行动起点。当前只提供内存快照，尚未接入 ReplayUID、规范文件名/目录、规范 Moves 序列化、Summary/CardDetail、XML 或 writer。
+- 回放内存事件已接入 Battle：起始只建立一个包含四手最终牌的 `Deal`，出牌按旧顺序追加 `CurrentPoint -> OutCard`，过牌只追加 `OutCard`，一墩结束追加 `CatchPoint -> TurnEnd`；OutCard 的 `MoveMilliseconds` 由注入 Clock 计算 Ask→合法动作耗时，非法动作和中途启用托管不重置起点。事件和牌区返回均为深拷贝；终局 Summary/CardDetail、XML 和 writer 尚未接入。
 - 旧 `0x80008650` 综合结算的 `ResultDetail(12 字节)` 与 `PlayerData(20 字节)` 后缀已由 Legacy adapter 类型化解码并映射到 `CompleteSettlement`；Battle 对四名玩家、TeamID、正分交易和重复有向键执行整包原子校验，并按 `Flag` 的 `0x100/0x200` 应用 `IsSeal/IsBreak`。`PlayerData.Score/Exp` 与 `ResultType` 仍只作兼容字段。
 - 强制结束小局按旧 GameLogic 的顺序发送最小 `GAME_OVER (0x8641)`，再发送 `NOTICE_ROUND_OVER (0x864e)`；正常 `CompleteSettlement` 只发送 `GAME_OVER`。
 - 每个连接代际动态创建 `GameOutputService`；GM 断线时 Factory 通过有界生命周期队列停止该代际普通 Battle，新连接不会接收旧代际输出。
