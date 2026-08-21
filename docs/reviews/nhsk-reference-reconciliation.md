@@ -1300,9 +1300,26 @@
 | 已一致 | 104 张双副牌、每座 26 张、支持牌型、A/2 逻辑点数、三家过牌结束一墩、最后出牌者抓分、固定对家两人均出完即结束以及单双扣计算均与参考入口一致。 |
 | 有意偏差 | GSR 用显式 BattlePhase、Mailbox、TurnRevision 和异步回放收尾替代旧 TurnEngine、多 Timer 回调和对象内 goroutine；均为 RFC-0410 已接受差异，本次只把既有裁决解释清楚。 |
 | 发现遗漏 | 未发现新的核心玩法或文档遗漏。 |
-| 结论 | 核心玩法说明已由当前源码和旧参考双向复核；外围创建、连接和 Host 细节留在后续专门章节，不再占用主流程。 |
+| 结论 | Battle 核心玩法说明已由当前源码和旧参考双向复核；完整主流程还必须包含 Host 生命周期，已由 4.64 修正补充。 |
 | RFC/决策 | RFC-0410、D-017、D-024、D-033、D-035、D-045、D-066、D-067。 |
 | 备注 | 参考目录只读核对，未修改原业务源码、配置或资源。 |
+
+### 4.64 Host 与 Battle 完整主流程文档修正
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 修正 README 把主流程收窄成 Battle 内部玩法的表达：外围接入仍独立成章，但完整业务主线必须同时覆盖 Host 管理整桌生命周期和 Battle 管理一桌玩法。 |
+| GSR 文件/测试 | `examples/nhsk/README.md`；以 `host.go`、`battle.go`、`process.go`、`legacy_connection.go` 和既有 Host/Battle 集成测试复核，没有修改运行时代码。 |
+| 输入与路由 | Legacy adapter 或 Cluster 调用方先向 Host 创建/解析 Battle，取得完整 `BattleRef` 后直接向 Battle Send/Call；Host 不转发每次玩法 Command。 |
+| 权威状态变化 | Host 串行拥有索引、容量、Operation、Stopping/Quarantined；Battle 串行拥有玩家、小局、牌、Timeline、结算和回放事实，两者不复制彼此状态。 |
+| 生命周期结果 | 创建与整桌删除经过 Host→Factory→Battle；初始化、开局、行动、结算及下一小局直接进入同一个 Battle。Finished 不释放 Service，DEL_GAME 才释放 Host 索引和容量。 |
+| 外围边界 | 连接、Legacy header/MessageID、新 Cluster 接入和输出编码继续在独立章节说明，不与 Host/Battle 的领域职责混写，也不从完整主流程中删除。 |
+| 已一致 | 创建成功后直投 Battle、同一 Battle 复用下一小局、DEL_GAME 才停止整桌，与当前 Host/Battle 实现和既有测试一致。 |
+| 有意偏差 | 无新增设计偏差；本次只修正文档层级和叙述范围。 |
+| 发现遗漏 | 上一版把“重点解释 Battle 核心”错误收窄为“不写 Host 主流程”，本切片已经补回。 |
+| 结论 | README 现在分为完整 Host+Battle 主流程、Battle 核心玩法、Legacy/Cluster 外围接入三层。 |
+| RFC/决策 | RFC-0410、RFC-0500。 |
+| 备注 | 参考目录未修改。 |
 
 ## 5. 切片追加模板
 

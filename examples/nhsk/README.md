@@ -93,9 +93,94 @@ GSR 不保证多个外部任务按照提交顺序完成，也不靠 worker 完�
 
 唯一需要保持 Legacy 输入先后关系的自定义牌堆兼容路径由连接 owner 在 `UPDATE_GAME` 处有界等待 provider，并保证 `ProvideCustomDeck` 已经入箱后才读取紧随其后的 START；它不发生在 Battle Service Handler 中。新的 Cluster 调用者应直接传入参数化 catalog，不复制这段 Redis 中介兼容流程。
 
-## 核心玩法主流程
+## 一桌完整主流程：Host 与 Battle
 
-外围只做一件事：把 Legacy TCP 或 Cluster 请求翻译成类型化 Command，送进某一桌 `NHSKBattleService`。从第一条初始化到结算完成，所有权威玩法状态都由这个 Battle 的一个 Mailbox 串行维护。
+外围接入负责把旧 TCP 或新 Cluster 请求翻译成类型化 Command；进入 GSR 以后，一桌的完整主流程由 `NHSKHostService` 和 `NHSKBattleService` 共同组成：
+
+- Host 管“这桌是否存在、当前实例在哪里、占用多少容量、正在创建还是停止、是否被隔离”。
+- Battle 管“这桌有哪些玩家、当前是哪一小局、轮到谁、手里有什么牌、怎样结算”。
+- 创建完成后，普通玩法 Command 直接发给完整 `BattleRef`，不再让 Host 转发每一次出牌。
+- 结束一小局只改变 Battle 阶段；删除整桌才重新回到 Host，由 Host 停止实例并释放编号和容量。
+
+```mermaid
+sequenceDiagram
+    participant Caller as "Legacy Adapter / Cluster 调用方"
+    participant Host as NHSKHostService
+    participant Factory as BattleFactoryService
+    participant Battle as NHSKBattleService
+    participant Output as GameOutputService
+    participant Runner as Core Runner
+
+    Caller->>Host: BeginCreateBattle(BattleID)
+    Host->>Host: 冻结 Creating Operation 与容量槽
+    Host->>Factory: 请求创建 Battle
+    Factory->>Battle: Runtime.CreateService
+    Factory-->>Host: 创建结果（完整 BattleRef）
+    Host->>Host: 登记 Active BattleID → BattleRef
+    Host-->>Caller: Completed(OperationID, BattleRef)
+
+    Caller->>Battle: InitializeBattle
+    Caller->>Battle: UpdatePlayers
+    Caller->>Battle: PrepareSubgame
+    Caller->>Battle: StartSubgame
+    Battle->>Battle: 发牌并进入 Playing
+    Battle->>Output: GAME_START / DEAL / ASK_OUT_CARD
+
+    loop 当前小局的每次行动
+        Caller->>Battle: PlayCards / Auto / Reconnect / Scene
+        Battle->>Battle: 校验并串行提交玩法状态
+        Battle->>Output: 类型化玩法输出
+        opt AI、回放或其他阻塞工作
+            Battle->>Runner: Submit 不可变任务
+            Runner-->>Battle: 结果 Command
+            Battle->>Battle: 核对阶段与业务 fencing
+        end
+    end
+
+    Battle->>Output: 综合结算请求
+    Caller->>Battle: CompleteSettlement
+    Battle->>Output: GAME_RESULT
+    Battle->>Runner: 提交不可变回放文档
+    Runner-->>Battle: 回放完成或失败 Command
+    Battle->>Output: ROUND_STAT / GAME_OVER
+    Battle->>Battle: 进入 Finished，可准备下一小局
+
+    alt 继续同一桌
+        Caller->>Battle: PrepareSubgame / StartSubgame
+    else 删除整桌
+        Caller->>Host: RequestDeleteBattle(BattleID, Ref)
+        Host->>Host: Active → Stopping，建立删除 Operation
+        Host->>Factory: 停止精确 BattleRef
+        Factory->>Battle: Runtime Stop / Close
+        Factory-->>Host: 停止结果
+        Host->>Host: 删除索引并释放容量槽
+        Host-->>Caller: 删除 Operation 终态
+    end
+```
+
+### Host 创建并交出一桌
+
+调用方先向 Host 请求创建，而不是直接调用 `Runtime.CreateService`。Host 在自己的 Mailbox 中检查 `BattleID`、容量和现有条目，建立带 `OperationID` 的 `Creating` 事实；Factory 在生命周期执行器中完成实际创建，再把完整 `BattleRef` 作为结果 Command 送回 Host。
+
+只有 Host 已经把条目转成 `Active`，调用方也拿到完整 `BattleRef`，创建 Operation 才算成功。此后调用方缓存或持有这个 Ref，初始化、开局、出牌、重连、结算和 Snapshot 都直接 `Send`/`Call` Battle。Host 不是玩法代理，也不会成为所有出牌的串行瓶颈。
+
+### Battle 运行小局，Host 保持索引
+
+Battle 从 `AwaitingInit` 开始，依次接收初始化、玩家、准备和开局 Command。进入 `Playing` 后，它在自己的 Mailbox 中维护全部权威玩法状态。Host 此时只保留 `BattleID -> BattleRef`、连接代际和容量事实，不复制玩家、手牌或小局阶段。
+
+一小局完成后 Battle 经 `AwaitingSettlement -> FinalizingReplay -> Finished` 收敛。`Finished` 仍是同一个存活的 Service；继续游戏时调用方直接向它发送下一组 `PrepareSubgame -> StartSubgame`，无需让 Host 删除再创建，也不会产生新的 `BattleRef`。
+
+### 删除和隔离重新回到 Host
+
+`DEL_GAME` 删除的是整桌，因此重新进入 Host 生命周期。Host 先把 Active 条目转成 `Stopping` 并建立删除 Operation，Factory 再停止精确 Ref。只有 Stop/Close 确认结束后，Host 才移除索引、释放容量槽，使同一个 `BattleID` 可以再次创建。
+
+如果 Battle 因代码缺陷或停止失败被隔离，Host 将它登记为 `Quarantined`，继续占用容量，但不把这个异常状态塞回 Battle 玩法阶段。诊断和人工释放也通过 Host 处理；其他 Battle 不受影响。
+
+这条主流程不依赖调用方来自旧 TCP 还是新 Cluster。两种外围模式只在“怎样得到 Host/Battle Command、怎样发送输出”上不同，进入 Host 和 Battle 后使用同一套生命周期与玩法实现。
+
+## Battle 核心玩法
+
+从第一条初始化到结算完成，所有权威玩法状态都由同一个 `NHSKBattleService` Mailbox 串行维护。
 
 阅读核心代码时可以先抓住三个入口：
 
