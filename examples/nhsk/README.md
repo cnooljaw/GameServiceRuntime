@@ -47,6 +47,48 @@ flowchart LR
 
 MySQL 和 Redis 都不是牌局权威状态。当前权威状态在 Service 内存中，进程崩溃后不承诺恢复旧 Battle。
 
+### 为什么外围 runner 不是 Service
+
+Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；外围 runner 只负责执行 HTTP、Redis、文件系统或 Runtime 生命周期等可能阻塞的工作。runner 拥有的是固定 worker、有限队列、取消和关闭能力，不拥有牌局状态，也不需要通过 ServiceRef 被业务寻址。把它再包装成 Service 不会消除阻塞：若在 Handler 内执行 I/O，会占住该 Service 的 Mailbox 和 Runtime worker；若 Handler 再启动 goroutine，最终仍需要相同的队列、取消、回收和结果投递机制，只是额外增加一层无业务价值的 Service。
+
+因此边界固定为：
+
+- Service 在 Handler 内先记录 pending 阶段或业务身份，再把深拷贝的不可变任务提交给 runner。
+- runner 只执行外部工作，不读取或修改 Service 状态，不保存 `ServiceContext`。
+- runner 完成后把结果包装成 Command，发送到任务中冻结的精确 ServiceRef。
+- 只有目标 Service 再次在 Mailbox Handler 中核对结果并修改权威状态。
+- 进程组合根拥有 runner；`Close` 会取消任务、停止接收并等待固定 worker 真实返回。
+
+如果某项外围能力以后拥有需要串行维护的权威状态、独立 Command API、跨节点寻址或业务调度策略，可以增加一个协调 Service；真正阻塞的 provider/I/O 部分仍留在 runner。例如未来可以由 `AIService` 管理额度和路由，再由 `AIProviderRunner` 执行 HTTP 请求。
+
+### runner 如何不阻塞 Mailbox
+
+Service 调用的 `Submit...` 不是执行任务，而是一次有界、非阻塞的队列提交：它只校验输入、深拷贝必要数据，并用带 `default` 的 channel `select` 尝试入队。成功表示 runner 已接收任务；队列已满或已经关闭会立即返回稳定错误，不等待空位。真正的 HTTP、Redis、文件写入和 Runtime Create/Stop 都在固定 worker 中执行。
+
+这保证的是“Handler 不发生无上限等待”，不是宣称提交调用耗时为零。提交路径不得进行网络/磁盘 I/O，也不得等待外部结果。提交失败由当前 Handler 立即按该业务的降级规则处理，例如 AI 保留硬超时回退、回放进入失败收敛、生命周期创建返回失败、诊断保留可人工重试状态。
+
+结果可能在原 Handler 返回前就被 runner 发送回来，但它只能排入 Mailbox，不能重入当前 Handler；同一 Service 的下一次 `Handle` 必须等当前 Handler 返回后才能执行。
+
+### 异步完成如何保证正确时序
+
+GSR 不保证多个外部任务按照提交顺序完成，也不靠 worker 完成顺序维护业务正确性。正确性分成三层：
+
+1. **提交顺序**：Service Mailbox 串行执行，在提交前先冻结当前 pending 状态、OperationID 或小局/行动身份。
+2. **结果入序**：runner 只能通过 `Send` 把结果作为新 Command 排回 Mailbox，不能并发修改 Service。
+3. **应用资格**：Handler 用“精确 ServiceRef + 当前阶段 + 业务 fencing”判断结果是否仍属于当前事实；不匹配的迟到、重复或乱序结果直接忽略，不能回滚新状态。
+
+| 外部工作 | 结果返回时复核 | 迟到或乱序处理 |
+|---|---|---|
+| AI | BattleID、GameNum、SubgameNum、TurnRevision、VerifyCode、行动开始时间、座位和玩家 | 任一不一致即忽略；硬期限继续提供本地回退 |
+| 回放落盘 | BattleID、GameNum、SubgameNum、ReplayName、`FinalizingReplay` 阶段 | 超时已收敛或下一小局的旧结果无副作用 |
+| 自定义牌堆 | 精确 BattleRef、BattleID、GameNum、SubgameNum、`Preparing` 阶段 | START 后到达的牌堆不能覆盖已经发出的牌 |
+| Battle 创建/停止 | OperationID、BattleID、ConnectionGeneration、Factory 当前 pending/binding 和完整 Ref | 失配创建结果转为 orphan Stop；失配停止结果不能删除新绑定 |
+| 隔离诊断 | BattleID、完整 Ref、当前 Quarantined 记录和最终 receipt | 旧实例或错误 receipt 不能释放当前隔离项，可显式重试导出 |
+
+需要等待外部结果才能继续的业务，不在 Handler 内同步等待，而是进入显式中间阶段并继续处理 Mailbox。例如回放进入 `FinalizingReplay`，只接受匹配的 writer 结果或超时 Timer Command；其他不允许的状态迁移稳定拒绝。这样 Mailbox 始终可运行，同时业务状态机明确表达“正在等待什么”。
+
+唯一需要保持 Legacy 输入先后关系的自定义牌堆兼容路径由连接 owner 在 `UPDATE_GAME` 处有界等待 provider，并保证 `ProvideCustomDeck` 已经入箱后才读取紧随其后的 START；它不发生在 Battle Service Handler 中。新的 Cluster 调用者应直接传入参数化 catalog，不复制这段 Redis 中介兼容流程。
+
 ## 代码结构
 
 ```text
