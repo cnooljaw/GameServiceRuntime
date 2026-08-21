@@ -93,6 +93,185 @@ GSR 不保证多个外部任务按照提交顺序完成，也不靠 worker 完�
 
 唯一需要保持 Legacy 输入先后关系的自定义牌堆兼容路径由连接 owner 在 `UPDATE_GAME` 处有界等待 provider，并保证 `ProvideCustomDeck` 已经入箱后才读取紧随其后的 START；它不发生在 Battle Service Handler 中。新的 Cluster 调用者应直接传入参数化 catalog，不复制这段 Redis 中介兼容流程。
 
+## 主流程：从进程启动到一桌回收
+
+下面先描述当前第一阶段最重要的 Legacy 正常路径。新 Cluster 调用模式只替换“连接、解包和寻址”部分，创建完成后同样直接向同一个 `NHSKBattleService` 发送类型化 Command，玩法和输出逻辑不分叉。
+
+```mermaid
+sequenceDiagram
+    participant Main as GameLogic 进程
+    participant GM as 旧 GameMaster
+    participant Conn as LegacyGMConnection
+    participant Host as NHSKHostService
+    participant Factory as BattleFactoryService
+    participant Battle as NHSKBattleService
+    participant Output as GameOutputService
+    participant Runner as Core Runner
+
+    Main->>Main: 加载配置并创建 Runtime、Runner、Factory、Host
+    Main->>Conn: 启动连接 owner
+    Conn->>GM: TCP 连接 + origin=107
+    GM-->>Conn: origin=100
+    Conn->>Output: 为本 ConnectionGeneration 创建输出 Service
+    Conn->>Factory: 绑定当前输出 ServiceRef
+
+    GM->>Conn: NEW_GAME(BattleID)
+    Conn->>Host: BeginCreateBattle
+    Host->>Factory: 异步创建 Battle Service
+    Factory-->>Host: 完整 BattleRef
+    Host-->>Conn: CreateBattleOperation Completed
+    Conn->>Conn: 缓存 BattleID -> BattleRef
+    Conn-->>GM: NEW_GAME ACK 成功
+
+    GM->>Conn: INIT / UPDATE_PLAYER
+    Conn->>Battle: Initialize / UpdatePlayers
+    GM->>Conn: UPDATE_GAME / START
+    Conn->>Battle: PrepareSubgame / StartSubgame
+    Battle->>Output: GAME_START、GAME_INFO、DEAL、ASK_OUT_CARD
+    Output->>Conn: GameOutputBatch
+    Conn-->>GM: 0x8644 Legacy 输出帧
+
+    loop 每次行动
+        GM->>Conn: 0x8605 + 玩家玩法消息
+        Conn->>Battle: PlayCards / Auto / Reconnect 等 Command
+        Battle->>Battle: 校验、修改手牌、推进 Timeline
+        Battle->>Output: 定向或广播 GameOutput
+        opt 托管、离线 AI 或外围 I/O
+            Battle->>Runner: Submit 不可变任务
+            Runner-->>Battle: RunnerResult Command
+            Battle->>Battle: 核对当前阶段和窄 fencing
+        end
+    end
+
+    Battle->>Output: 综合结算请求 0x8650
+    GM->>Conn: 0x80008650 结算 ACK
+    Conn->>Battle: CompleteSettlement
+    Battle->>Output: GAME_RESULT
+    Battle->>Runner: 提交回放文件写入
+    Runner-->>Battle: 回放完成 Command
+    Battle->>Output: ROUND_STAT + GAME_OVER
+
+    GM->>Conn: DEL_GAME
+    Conn->>Conn: 先删除当前代际路由缓存
+    Conn->>Host: RequestDeleteBattle
+    Host->>Factory: 停止精确 BattleRef
+    Factory->>Battle: Runtime Stop / Close
+    Factory-->>Host: 删除 Operation 完成
+```
+
+### 1. 进程组合与启动
+
+`cmd/gamelogic/main.go` 读取 JSON 配置，调用 `NewGameLogicProcess`，然后用进程信号控制 `Run`。组合根按以下顺序创建对象：
+
+1. 创建一个 GSR `Runtime`。
+2. 创建诊断、回放、AI，以及可选自定义牌堆 Core Runner 领域适配器。
+3. 创建具名 `.nhsk-battle-factory`，负责在 Runtime 中创建和停止 Battle Service。
+4. 创建具名 `.nhsk-game-host`，保存 Battle 索引、容量、Operation 和隔离记录。
+5. 创建唯一的 `LegacyGMConnection` 和本地诊断 Unix socket；此时还没有任何 Battle。
+
+进程收到 `SIGINT` 或 `SIGTERM` 后，先停止 Legacy 连接，避免继续接收新输入；再关闭诊断入口和 Runner，最后关闭 Runtime 及全部 Service。Runner 或 Service 只有在真实执行返回后才算关闭。
+
+### 2. 建立当前连接代际
+
+`LegacyGMConnection` 主动拨号旧 GameMaster，完成 `origin=107 -> origin=100` 握手。每次成功连接产生新的 `ConnectionGeneration`，并创建一个只属于该代际的 `GameOutputService`，再把输出 Ref 绑定给 Factory。
+
+连接代际同时限定两类外围能力：
+
+- 输入侧的 `BattleID -> BattleRef` 路由缓存只对当前连接有效。
+- 输出侧只允许仍绑定的 `GameOutputService` 向当前 socket 写数据。
+
+因此旧连接迟到的输入或输出不能穿透到新连接。连接失败时进程持续退避重连，不重启 Runtime。
+
+### 3. NEW_GAME 创建一桌
+
+旧 GM 发送 `NEW_GAME(0x86c1)` 后，连接 adapter 将 `GameInnerID` 直接作为当前阶段的 `BattleID`，调用 Host 开始创建：
+
+```text
+LegacyGMConnection
+  -> NHSKHostService：冻结 Creating Operation 和容量槽
+  -> BattleFactoryService：在 Mailbox 外执行 Runtime.CreateService
+  -> NHSKBattleService：以 AwaitingInit 状态进入 Runtime
+  -> NHSKHostService：登记 Active BattleID -> BattleRef
+  -> LegacyGMConnection：缓存当前代际路由
+  -> GameMaster：发送成功 ACK
+```
+
+只有创建 Operation 到达终态、Host 已登记完整 `BattleRef`、连接也成功缓存路由后，才向 GM 回复成功。这样 ACK 之后紧随而来的 INIT 或玩法包不会遇到“桌号存在但 Service 尚未可达”的半成品状态。
+
+普通创建遇到仍活动的同号 Battle 返回占用错误。只有 Legacy 同号 `NEW_GAME` 兼容路径会记录告警、完整停止旧 Ref 后再用同一 `BattleID` 创建新 Ref；它不是公开 Cluster API。
+
+### 4. 初始化并开始小局
+
+创建后的 Battle 初始阶段是 `AwaitingInit`。旧 GM 后续消息通过当前连接缓存直接投递，不再逐帧查询 Host：
+
+```text
+INIT_GAME       -> InitializeBattle：冻结 ProductID、MatchID、RoundID 和规则
+UPDATE_PLAYER   -> UpdatePlayers：建立四个玩家与固定座位
+UPDATE_GAME     -> PrepareSubgame：进入 Preparing，冻结 GameNum/SubgameNum
+自定义牌堆      -> ProvideCustomDeck：可选，只能在同一 Preparing 小局内生效
+COMMAND START   -> StartSubgame：发牌并进入 Playing
+```
+
+START 后 Battle 依次产生 `GAME_START`、`GAME_INFO`、每名玩家自己的 `DEAL` 和第一条 `ASK_OUT_CARD`。这些都先是协议无关的 `GameOutput`，由 `GameOutputService` 交给连接 adapter 编码成旧 `0x8644` TCP 帧。
+
+### 5. 行动循环
+
+客户端动作仍按“客户端 → Agent → GameMaster → GameLogic”到达。`LegacyGMConnection` 只负责拆除 `GLHeader + BSHeader + GameHeader`，校验路由字段并把 MessageID 映射为 Command；合法性和状态变化只在 Battle Mailbox 中执行。
+
+每次行动的业务顺序是：
+
+1. 核对当前阶段、行动玩家和 `VerifyCode`。
+2. 校验牌属于当前手牌、没有重复、牌型合法，并在需要时能够压过上家；空牌表示过牌，但首出不能过。
+3. 修改手牌、桌面牌、抓分牌、排名和回放事实。
+4. 产生 `OUT_CARD_INFO`、一墩结束或亮牌等输出。
+5. 增加 `TurnRevision`，为下一位玩家设置唯一当前行动期限并发送新的 `ASK_OUT_CARD`。
+
+托管、本地自动和外部 AI 最终也调用同一个 `playWithSource`，不会绕过出牌校验。AI 请求由 Core Runner 执行；返回时必须同时匹配 BattleID、GameNum、SubgameNum、TurnRevision、VerifyCode、行动开始时间、座位和玩家，迟到结果直接忽略。Timer 同样携带 `TurnRevision`，所以被后续行动取代的旧期限没有副作用。
+
+重连不创建新 Battle。`USER_RECONNECT` 更新在线事实并恢复必要推送，`GAME_SCENE` 只生成请求者视角的当前权威场景；两者仍进入同一个 Battle Mailbox。
+
+### 6. 结算、回放和下一小局
+
+固定对家的两名玩家都出完后，Battle 进入 `AwaitingSettlement`，停止行动期限，展示剩余手牌并向 GM 输出一次 `0x8650` 综合结算请求。GM 返回 `0x80008650` 后，Battle 校验四名玩家、TeamID 和交易矩阵，应用最终分数并输出 `GAME_RESULT`。
+
+随后 Battle 进入 `FinalizingReplay`：不可变 XML 文档交给 Replay Runner 落盘，Battle Mailbox 继续可运行。匹配的写入结果或回放超时 Command 会收敛该阶段，并按原线序输出 `ROUND_STAT` 和 `GAME_OVER`，最后进入 `Finished`。
+
+`GAME_RESULT`、`GAME_OVER` 或单次小局结束都不会停止 Battle Service。旧 GM 可以继续发送下一组 `UPDATE_GAME -> START`，复用同一桌和玩家关系；只有 `DEL_GAME` 才进入整桌停止流程。
+
+### 7. DEL_GAME 与异常路径
+
+正常删除时，连接先移除当前代际的路由缓存，避免停止期间继续向旧 Ref 投递；Host 再建立删除 Operation，由 Factory 穿过 Battle 的删除屏障并调用 Runtime Stop。停止完成后 Host 才释放索引和容量槽，`BattleID` 以后可以重新分配。
+
+GM 连接断开时，当前代际的输出绑定和全部路由缓存立即失效；该连接关联的 Creating、Active、Stopping Battle 走异常停止，新连接只接收新局。已经 `Quarantined` 的 Battle 保留，等待诊断取证和人工凭 receipt 局部释放。
+
+单个 Battle 发生代码缺陷时只隔离该桌并继续占用容量槽。节点健康状态变为 Degraded，但其他桌和新建桌仍可运行，直到 `Active + Quarantined` 达到配置上限。框架不会自动回收缺陷现场，也不会因为一桌异常整体回切进程。
+
+### 8. 新 Cluster 调用从哪里接入
+
+新调用方不需要构造 Legacy header。它通过 `.nhsk-game-host` 创建或解析一次 Battle，取得完整 `BattleRef` 后直接 `Send`/`Call` Battle Command：
+
+```text
+Cluster 调用方 -> Host：BeginCreate / ResolveBattle
+Cluster 调用方 <- Host：完整 BattleRef
+Cluster 调用方 -> BattleRef：Initialize / Prepare / Start / Play / Snapshot ...
+```
+
+Cluster 和 Legacy 的差别只到 adapter 与路由层为止。进入 Mailbox 后使用相同 Command、相同阶段、相同规则、相同 Timer 和相同 `GameOutput` 类型；不能增加一套“Cluster 专用玩法逻辑”。
+
+第一阶段有两种 Cluster 用法需要区分：
+
+- Resolve 由旧 GM 创建的非零 ConnectionGeneration Battle，再直接 Send/Call；它的类型化输出仍回到创建该桌的当前 Legacy 连接。
+- 使用 `ConnectionGeneration=0` 独立创建 Battle；它用于验证 Host/Battle API、规则和 Reply，当前组合根没有为它装配输出目的地，不能宣称已经可以独立承载客户端流量。以后替换 GM 时由新的协调层显式装配类型化输出 Service。
+
+主流程中几个容易混淆的编号保持以下含义：
+
+| 名称 | 含义 | 生命周期 |
+|---|---|---|
+| `GameID` | 玩法类型，例如宁海双扣与宁海麻将是不同 GameID | 配置级稳定 |
+| `BattleID` | 当前节点内同时进行的一桌编号；第一阶段直接等于旧 `GameInnerID` | DEL_GAME 完全停止后可复用 |
+| `GameNum/SubgameNum` | 同一 Battle 内某次小局身份，用于准备、结算、回放和异步结果核对 | 下一小局更新 |
+| `ServiceRef` | Runtime 中当前 Battle Service 实例的地址 | 实例停止后失效，不能仅凭 BattleID 猜测 |
+
 ## 代码结构
 
 ```text
