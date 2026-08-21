@@ -38,8 +38,7 @@
 ## Skills
 
 - 实现或评审 Runtime 时，先读取 `skills/gsr-runtime/SKILL.md`。
-- 设计 Service、adapter、模块边界时使用 `deep-module-design`。
-- 实现计划前使用 `create-plan`；创建或修改项目 Skill 时使用 `skill-creator`。
+- 创建或修改项目 Skill 时使用 `skill-creator`。
 - 代码评审使用 `two-axis-code-review`。
 - 依赖或影响分析优先使用已初始化的 CodeGraph，并以源码和测试复核图查询结果。
 
