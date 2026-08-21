@@ -1321,6 +1321,24 @@
 | RFC/决策 | RFC-0410、RFC-0500。 |
 | 备注 | 参考目录未修改。 |
 
+### 4.65 GSR 综合能力说明
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 在示例 README 中增加 GSR 能力索引，说明宁海双扣如何综合使用 Runtime、Service、ServiceName、ServiceRef、Command、Mailbox、Scheduler、Send/Call/Reply、Source、Timer、生命周期、Runner、背压、日志指标、Inspection 和失败隔离。 |
+| GSR 文件/测试 | 以 `runtime` 的 RFC-0100 至 RFC-0193 契约为准，结合 `process.go`、`host.go`、`battle.go`、`ai.go`、`replay_writer.go`、`custom_deck.go`、`quarantine.go` 及对应测试复核。 |
+| 业务作用 | 通过 NEW_GAME、一次出牌、AI/回放任务、DEL_GAME 和单桌 panic 五条真实路径说明多个 GSR 原语如何组合，而不是只列 API 名称。 |
+| 权威状态变化 | 文档保持 Host 与 Battle 的 Mailbox owner 不变；Runner、Timer、Inspection、Logger 和 Metrics 均不成为第二份玩法状态。 |
+| 生命周期结果 | 动态 Battle 使用 Runtime Create/Stop/Close；Factory 的多阶段创建/停止补偿仍是业务生命周期执行器，不误写成 Core Runner 自动提供的事务。 |
+| Cluster 边界 | 明确当前组合根只创建本地 Runtime，没有 Cluster Transport 或 NHSK Cluster Codec；类型化 Command API 可供后续远程组合复用，但当前不能宣称已承载远程 Cluster 流量。 |
+| 未使用能力 | 明确列出 ResolveRemote、Discovery、ServiceGroup、Router、Drain、Controller、NodeAgent、Snapshot 恢复、Supervisor、Runner.Await 和上游 Login/Gateway/Room/Wallet 当前均未使用。 |
+| 已一致 | 所列能力均有当前源码或测试使用证据；异步结果仍通过 Command 入箱并由业务 fencing 判断应用资格。 |
+| 有意偏差 | 无新增设计偏差；该节只把既有 Runtime/Business 边界解释为可学习的综合示例。 |
+| 发现遗漏 | 无运行时代码遗漏；此前 README 没有集中说明示例覆盖的 GSR 能力和未覆盖边界，本切片已补齐。 |
+| 结论 | 示例现在既能说明宁海双扣业务，也能作为 GSR Core 能力组合的阅读入口，同时不夸大未装配的 Tooling 和远程 Cluster 能力。 |
+| RFC/决策 | RFC-0100、0110、0120、0130、0150、0160、0170、0180、0192、0193、0410；D-001 至 D-005、D-020、D-024。 |
+| 备注 | CodeGraph 已同步并确认索引最新，最终结论以源码、测试和 RFC 复核。参考目录未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

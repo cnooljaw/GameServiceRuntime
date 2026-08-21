@@ -47,6 +47,53 @@ flowchart LR
 
 MySQL 和 Redis 都不是牌局权威状态。当前权威状态在 Service 内存中，进程崩溃后不承诺恢复旧 Battle。
 
+## 这个综合示例使用了哪些 GSR 能力
+
+宁海双扣不是把旧代码换一种目录摆放，而是把一套真实 GameLogic 拆到 GSR 的运行模型上。下面列出的都是当前实现已经使用的能力；每一项都能在正常牌局、异常路径或测试中找到实际作用。
+
+| GSR 能力 | 在宁海双扣中的使用方式 | 带来的保证 |
+|---|---|---|
+| `Runtime` 与固定 Scheduler | `GameLogicProcess` 创建一个 Runtime，并通过 `Workers` 配置固定执行许可；Host、Factory、Output 和所有 Battle 共用它 | 不为每桌创建线程；大量 Battle 由有界执行资源调度 |
+| `Service` / `ServiceSpec` | Host、Factory、每桌 Battle、每个连接代际的 Output 都是 Service | 每种长期状态都有明确 owner、Handler 和生命周期 |
+| `ServiceName` | `.nhsk-game-host`、`.nhsk-battle-factory` 是稳定具名服务；动态 Battle 使用 `nhsk-battle/<BattleID>` 便于观测 | 名字用于 bootstrap 和诊断，不把固定数字 ID 写进业务 |
+| `ServiceRef` | Host 保存 `BattleID -> BattleRef`；调用方取得 Ref 后直接访问 Battle；Service 之间只保存 Ref | 业务编号与运行实例地址分离，停止后的旧 Ref 不会变成对象指针旁路 |
+| `Command` 与单一 `Handle` | Legacy MessageID 和新 Cluster API 都映射为同一组类型化 Command；Host/Battle 在 `Handle` 中分发 | 协议入口最终汇合为一套业务实现，未知 Command 稳定拒绝 |
+| Mailbox 串行 | Host 串行修改索引和 Operation；Battle 串行修改玩家、手牌、Timeline、结算和回放事实 | 同一 Service 内不用业务锁，不会同时执行两个状态迁移 |
+| `Send` | Legacy 输入、玩法广播、Runner 结果和多数内部通知使用 Send | 调用方不需要当前返回值时只负责投递，不制造同步调用链 |
+| `Call` / `Reply` | Cluster 调用取得动作结果和 Snapshot；Host 查询创建 Operation；删除执行器 Call Battle 删除屏障和诊断捕获 | 需要当前结果时有明确 Reply、超时和迟到 Reply 语义；Reply 不替代异步客户端输出 |
+| `CommandContext.Source()` | Factory 校验内部 Command 必须来自 Host、本节点 Runtime 根或精确 Battle Ref | 内部生命周期能力不能仅靠伪造 payload 调用 |
+| `ServiceContext.After` | Battle 为出牌机会和回放收尾投递未来 Timer Command | Timer 不执行玩法回调；到期动作仍回到同一 Mailbox 串行处理 |
+| Service 生命周期 | Factory 使用 `CreateService` 动态创建每桌 Battle，删除屏障后使用 `Stop`；进程退出最终 `Runtime.Close` | Create、Handle、Stop、Close 有统一接受边界，停止时 Runtime 清理 Mailbox、Timer 和注册信息 |
+| Core `Runner.Submit` | AI HTTP、回放写盘、自定义牌堆读取和诊断导出在固定 worker、有限队列中执行，结果以 Command 返回 | 阻塞 I/O 不占住 Battle Mailbox；任务可取消、可关闭并等待真实返回 |
+| 背压与稳定错误 | Mailbox 满、Runner 队列满、Service 已关闭、Call 超时等错误由调用处显式处理 | 超载不会悄悄变成无限 goroutine 或无限内存队列 |
+| Logger 与 Metrics | Service 通过 Context 记录 AI、回放、协议丢弃、隔离等指标和结构化日志 | 业务观测复用 Runtime 上下文，不维护另一套全局可变统计对象 |
+| `Runtime.Inspect()` | 健康检查读取 Metrics；诊断导出保存 Runtime、Service、Mailbox、Timer、任务和 Runner 的只读快照 | 观测不直接读取或修改 Service 私有状态，异常现场可以随 Battle 证据一起保存 |
+| Runtime 失败边界 + 业务隔离 | Battle decorator 在 Handler 边界记录最近稳定 Snapshot、Command 序列和 panic；Runtime 将失败实例变为不可继续处理，Host 保存 Quarantined 条目 | 单桌代码缺陷不会继续污染状态，也不要求整个节点退出；释放策略仍由 NHSK 业务层决定 |
+
+### 这些能力怎样组成一条业务链
+
+`NEW_GAME` 同时展示了 Service 寻址、Mailbox、Call/Reply 和生命周期：请求先进入 Host Mailbox，Host 冻结 Operation，再让 Factory 在 Handler 外创建 Battle；创建结果作为 Command 回到 Host，最终向调用方交出 `BattleRef`。
+
+一次出牌展示了 Command、Mailbox、Timer 和异步输出：输入以 Send 或 Call 进入 Battle，Battle 在一个 Handler 中完成合法性校验和状态提交，再向 Output Service 发送结果，并用 `After` 安排下一次行动期限。
+
+一次 AI 或回放任务展示了 Runner 的正确用法：Battle 先冻结 TurnRevision、ReplayName 或阶段，再 `Submit` 不可变任务；Runner 完成顺序不可信，结果必须重新进入 Mailbox，并由 Battle 判断是否仍有资格应用。
+
+一次 `DEL_GAME` 展示了跨 Service 协作与停止边界：Host 建立 Stopping Operation，Factory 先 Call Battle 的删除屏障，随后 Stop 精确 `BattleRef`，最后把结果 Send 回 Host；Host 只在停止完成后释放编号和容量。
+
+单桌 panic 展示了 Runtime 失败语义与业务策略的分层：Runtime 保证失败 Service 不再继续正常处理，NHSK 的隔离边界负责收集牌局证据，Host 决定保留容量和等待人工 receipt。Core 不内置“棋牌游戏隔离”概念。
+
+### 当前没有使用的 GSR 能力
+
+这个示例覆盖面很广，但不应因此宣称用到了整个 GSR：
+
+- 当前 `GameLogicProcess` 只创建本地 Runtime，没有装配 Cluster Transport 和 NHSK Cluster Codec。公开 Command 和 `ServiceRef` 契约可以被未来远程 Cluster 调用复用，但当前进程并未实际监听 GSR 集群端口。
+- 没有使用 `ResolveRemote`、Discovery、ServiceGroup、Router、Drain、Controller 或 NodeAgent；第一阶段仍由旧 GameMaster 和当前连接代际决定路由。
+- 没有使用 Snapshot Store 恢复或 Supervisor 自动重建。进程崩溃后旧 Battle 不恢复；单桌缺陷选择保留隔离证据。
+- 没有使用 Core `Runner.Await`。AI、回放、自定义牌堆和诊断都要求等待期间 Battle 继续处理 Mailbox，因此统一使用 `Submit`。
+- 没有使用 GSR 的 Login、Gateway、Room、PlayerService 或 Wallet 模板。本阶段冻结这些上游职责，只替换旧 GameLogic。
+
+因此，这个例子主要验证的是：**Service/ServiceRef/Command、Mailbox/Scheduler、Send/Call/Reply、Timer、生命周期、Runner、Inspection 和失败隔离，能否共同承载一套可兼容旧系统的完整棋牌游戏 GameLogic。**
+
 ### 为什么 Runner 不是 Service
 
 Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；Core Runner 只负责执行 HTTP、Redis、文件系统等可能阻塞的工作。Runner 拥有固定 worker、有限队列、取消、关闭和 Inspection，不拥有牌局状态，也不需要通过 ServiceRef 被业务寻址。把它包装成 Service 不会消除阻塞：在 Handler 内执行 I/O 会占住 Mailbox；Handler 自己启动 goroutine 又会重复实现同一套队列和生命周期。
