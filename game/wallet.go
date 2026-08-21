@@ -74,11 +74,17 @@ func (s *WalletService) Handle(commandContext gsr.CommandContext, command gsr.Co
 		}
 		return reply(commandContext, Balance{Player: query.Player, Currency: query.Currency, Amount: s.balances[query.Currency][query.Player]})
 	case commandApplyLedgerResult:
-		result, ok := command.Payload.(ledgerResult)
+		runnerResult, ok := command.Payload.(gsr.RunnerResult[ledgerResult])
 		if !ok {
 			return ErrInvalidSettlement
 		}
-		return s.apply(commandContext, result)
+		if commandContext.Source() != (gsr.ServiceRef{Node: s.runnerNode}) {
+			return ErrUnauthorized
+		}
+		if runnerResult.Err != nil {
+			return nil
+		}
+		return s.apply(commandContext, runnerResult.Value)
 	case commandRecoverSettlement:
 		requestID, ok := command.Payload.(RequestID)
 		if !ok || validateRequestID(requestID) != nil {

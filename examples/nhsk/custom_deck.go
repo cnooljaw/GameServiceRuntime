@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
@@ -15,11 +14,12 @@ import (
 )
 
 const (
-	customDeckCardCount          = 104
-	customDeckSeatCount          = 4
-	defaultCustomDeckQueueSize   = 128
-	defaultCustomDeckWorkers     = 1
-	defaultCustomDeckLoadTimeout = 5 * time.Second
+	customDeckCardCount                            = 104
+	customDeckSeatCount                            = 4
+	defaultCustomDeckQueueSize                     = 128
+	defaultCustomDeckWorkers                       = 1
+	defaultCustomDeckLoadTimeout                   = 5 * time.Second
+	applyCustomDeckLoadResultCommand gsr.CommandID = 0x0410f01c
 )
 
 var (
@@ -197,22 +197,21 @@ type CustomDeckRunnerConfig struct {
 	LoadTimeout     time.Duration
 }
 
-// CustomDeckRunner owns the only goroutines used by legacy custom-deck I/O.
-// Workers never mutate Battle state; they send the public ProvideCustomDeck
-// Command to the target ServiceRef after external conversion succeeds.
+// CustomDeckRunner adapts legacy custom-deck I/O to the Runtime-owned Core Runner.
 type CustomDeckRunner struct {
-	runtime   game.CommandRuntime
-	provider  CustomDeckProvider
-	config    CustomDeckRunnerConfig
-	queue     chan CustomDeckLoadRequest
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	closeOnce sync.Once
+	runtime  *gsr.Runtime
+	provider CustomDeckProvider
+	config   CustomDeckRunnerConfig
+	core     *gsr.Runner[CustomDeckLoadRequest, customDeckLoadResult]
+}
+
+type customDeckLoadResult struct {
+	Provision ProvideCustomDeckRequest
+	Available bool
 }
 
 // NewCustomDeckRunner creates and starts a bounded provider runner.
-func NewCustomDeckRunner(runtime game.CommandRuntime, provider CustomDeckProvider, config CustomDeckRunnerConfig) (*CustomDeckRunner, error) {
+func NewCustomDeckRunner(runtime *gsr.Runtime, provider CustomDeckProvider, config CustomDeckRunnerConfig) (*CustomDeckRunner, error) {
 	if runtime == nil || provider == nil {
 		return nil, errInvalidCustomDeckRequest
 	}
@@ -226,13 +225,21 @@ func NewCustomDeckRunner(runtime game.CommandRuntime, provider CustomDeckProvide
 		config.LoadTimeout = defaultCustomDeckLoadTimeout
 	}
 	config.AllowedAccounts = append([]uint32(nil), config.AllowedAccounts...)
-	ctx, cancel := context.WithCancel(context.Background())
-	runner := &CustomDeckRunner{runtime: runtime, provider: provider, config: config, queue: make(chan CustomDeckLoadRequest, config.QueueSize), ctx: ctx, cancel: cancel}
-	runner.wg.Add(config.Workers)
-	for index := 0; index < config.Workers; index++ {
-		go runner.worker()
+	core, err := gsr.NewRunner(runtime, gsr.RunnerConfig{Name: "nhsk-custom-deck", Workers: config.Workers, QueueSize: config.QueueSize}, func(ctx context.Context, request CustomDeckLoadRequest) (customDeckLoadResult, error) {
+		loadContext, cancel := context.WithTimeout(ctx, config.LoadTimeout)
+		catalog, loadErr := provider.Load(loadContext, request.Lookup)
+		cancel()
+		result := customDeckLoadResult{}
+		if catalog.valid() {
+			result.Available = true
+			result.Provision = ProvideCustomDeckRequest{BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, Catalog: catalog.clone()}
+		}
+		return result, loadErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return runner, nil
+	return &CustomDeckRunner{runtime: runtime, provider: provider, config: config, core: core}, nil
 }
 
 // SubmitCustomDeck submits one non-blocking legacy compatibility load. Queue
@@ -246,14 +253,14 @@ func (runner *CustomDeckRunner) SubmitCustomDeck(request CustomDeckLoadRequest) 
 	if !runner.config.Enabled || !runner.authorized(request.Lookup.UserIDs) {
 		return nil
 	}
-	select {
-	case <-runner.ctx.Done():
-		return context.Canceled
-	case runner.queue <- request:
-		return nil
-	default:
+	err := runner.core.Submit(context.Background(), request.Target, applyCustomDeckLoadResultCommand, request)
+	if errors.Is(err, gsr.ErrRunnerQueueFull) {
 		return errCustomDeckQueueFull
 	}
+	if errors.Is(err, gsr.ErrRunnerClosed) {
+		return context.Canceled
+	}
+	return err
 }
 
 // LoadAndProvide performs one bounded Legacy compatibility load and sends the
@@ -288,11 +295,7 @@ func (runner *CustomDeckRunner) Close() error {
 	if runner == nil {
 		return nil
 	}
-	runner.closeOnce.Do(func() {
-		runner.cancel()
-		runner.wg.Wait()
-	})
-	return nil
+	return runner.core.Close(context.Background())
 }
 
 func (runner *CustomDeckRunner) authorized(userIDs []uint32) bool {
@@ -313,29 +316,6 @@ func (runner *CustomDeckRunner) authorized(userIDs []uint32) bool {
 		}
 	}
 	return false
-}
-
-func (runner *CustomDeckRunner) worker() {
-	defer runner.wg.Done()
-	for {
-		select {
-		case <-runner.ctx.Done():
-			return
-		case request := <-runner.queue:
-			loadCtx, cancel := context.WithTimeout(runner.ctx, runner.config.LoadTimeout)
-			catalog, err := runner.provider.Load(loadCtx, request.Lookup)
-			cancel()
-			if runner.ctx.Err() != nil {
-				return
-			}
-			if err != nil || !catalog.valid() {
-				continue
-			}
-			if runner.sendResult(request, catalog) != nil {
-				return
-			}
-		}
-	}
 }
 
 func (runner *CustomDeckRunner) sendResult(request CustomDeckLoadRequest, catalog CustomDeckCatalog) error {

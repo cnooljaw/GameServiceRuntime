@@ -288,11 +288,6 @@ type LedgerExecutor interface {
 	Submit(LedgerTask) error
 }
 
-// LedgerRuntime is the narrow Runtime capability held by LedgerRunner.
-type LedgerRuntime interface {
-	Send(gsr.ServiceRef, gsr.CommandID, any) error
-}
-
 // LedgerRunnerConfig configures the composition-root-owned LedgerRunner.
 type LedgerRunnerConfig struct {
 	Store     LedgerStore

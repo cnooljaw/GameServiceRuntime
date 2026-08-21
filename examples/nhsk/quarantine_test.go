@@ -153,7 +153,7 @@ func TestDiagnosticRunnerQueueFullRetryAndExactReceiptRelease(t *testing.T) {
 	}
 
 	receipt := DiagnosticReceipt{ReceiptID: "receipt-71", BattleID: 71, Ref: ref, Digest: strings.Repeat("a", 64), Directory: t.TempDir(), CreatedAt: time.Unix(600, 0)}
-	if err := fixture.runtime.Send(fixture.host, applyDiagnosticExportResultCommand, diagnosticExportResult{BattleID: 71, Ref: ref, Receipt: receipt}); err != nil {
+	if err := fixture.runtime.Send(fixture.host, applyDiagnosticExportResultCommand, gsr.RunnerResult[diagnosticExportResult]{Value: diagnosticExportResult{BattleID: 71, Ref: ref, Receipt: receipt}}); err != nil {
 		t.Fatal(err)
 	}
 	admin := NewQuarantineAdmin(fixture.runtime, fixture.host, "")
@@ -228,7 +228,13 @@ func TestFactoryStopTimeoutQuarantinesInsteadOfReleasingBattleID(t *testing.T) {
 func TestDiagnosticRunnerBoundsQueueAndReportsExporterResult(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	runtime := &diagnosticRunnerTestRuntime{results: make(chan diagnosticExportResult, 3)}
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	receiver := &diagnosticRunnerResultService{results: make(chan diagnosticExportResult, 3)}
+	host, err := runtime.CreateService(gsr.ServiceSpec{Service: receiver})
+	if err != nil {
+		t.Fatal(err)
+	}
 	exporter := diagnosticExporterFunc(func(context.Context, DiagnosticArtifact) (DiagnosticReceipt, error) {
 		select {
 		case <-started:
@@ -243,6 +249,7 @@ func TestDiagnosticRunnerBoundsQueueAndReportsExporterResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifact := testDiagnosticArtifact()
+	artifact.Host = host
 	if err := runner.SubmitDiagnostic(artifact); err != nil {
 		t.Fatal(err)
 	}
@@ -262,11 +269,11 @@ func TestDiagnosticRunnerBoundsQueueAndReportsExporterResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case result := <-runtime.results:
+	case result := <-receiver.results:
 		if result.Receipt.ReceiptID != "ok" || result.BattleID != 61 {
 			t.Fatalf("result = %#v", result)
 		}
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("runner did not report result")
 	}
 }
@@ -325,7 +332,7 @@ type quarantineHostFixture struct {
 	factory gsr.ServiceRef
 }
 
-type diagnosticRunnerTestRuntime struct {
+type diagnosticRunnerResultService struct {
 	results chan diagnosticExportResult
 }
 
@@ -333,21 +340,20 @@ type timeoutBattleStopper struct{ *gsr.Runtime }
 
 func (*timeoutBattleStopper) Stop(context.Context, gsr.ServiceRef) error { return gsr.ErrStopTimeout }
 
-func (runtime *diagnosticRunnerTestRuntime) Send(_ gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if command != applyDiagnosticExportResultCommand {
+func (*diagnosticRunnerResultService) Init(gsr.ServiceContext) error { return nil }
+func (service *diagnosticRunnerResultService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID != applyDiagnosticExportResultCommand {
 		return errors.New("unexpected command")
 	}
-	runtime.results <- payload.(diagnosticExportResult)
+	result, ok := command.Payload.(gsr.RunnerResult[diagnosticExportResult])
+	if !ok || result.Err != nil {
+		return errors.New("unexpected diagnostic runner payload")
+	}
+	service.results <- result.Value
 	return nil
 }
-
-func (*diagnosticRunnerTestRuntime) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
-	return nil, errors.New("unexpected Call")
-}
-
-func (*diagnosticRunnerTestRuntime) Inspect() gsr.RuntimeInspection {
-	return gsr.RuntimeInspection{CapturedAt: time.Unix(700, 0), Node: "node-a", Status: gsr.RuntimeRunning}
-}
+func (*diagnosticRunnerResultService) Stop(context.Context) error { return nil }
+func (*diagnosticRunnerResultService) Close() error               { return nil }
 
 type diagnosticExporterFunc func(context.Context, DiagnosticArtifact) (DiagnosticReceipt, error)
 

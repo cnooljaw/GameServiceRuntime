@@ -37,6 +37,7 @@ type RuntimeInspection struct {
 	Node         NodeID
 	Status       RuntimeStatus
 	Services     []ServiceInspection
+	Runners      []RunnerInspection
 	Tasks        []RuntimeTaskInspection
 	PendingCalls int
 	Timers       int
@@ -49,6 +50,20 @@ type ServiceInspection struct {
 	Name         ServiceName
 	Status       ServiceStatus
 	MailboxDepth int
+}
+
+// RunnerInspection describes one Runtime-owned Runner without exposing its workers or queue.
+type RunnerInspection struct {
+	Name           RunnerName
+	Status         RunnerStatus
+	Workers        int
+	QueueDepth     int
+	Active         int
+	Submitted      uint64
+	Completed      uint64
+	Failed         uint64
+	Rejected       uint64
+	DeliveryFailed uint64
 }
 
 // RuntimeTaskInspection describes one active Runtime-owned execution task.
@@ -96,6 +111,7 @@ func (r *Runtime) Inspect() RuntimeInspection {
 		Node:         r.node,
 		Status:       publicRuntimeStatus(r.state.Load()),
 		Services:     services,
+		Runners:      r.runners.inspections(),
 		Tasks:        tasks,
 		PendingCalls: r.pending.count(),
 		Timers:       r.timers.count(),

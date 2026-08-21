@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
 	gsr "github.com/lijiawang/GameServiceRuntime/runtime"
@@ -71,21 +70,14 @@ type ReplayWriterRunnerConfig struct {
 	Workers   int
 }
 
-// ReplayWriterRunner owns fixed external I/O workers and reports completion to
+// ReplayWriterRunner adapts replay I/O to the Runtime-owned Core Runner and reports completion to
 // the exact Battle ServiceRef carried by each artifact.
 type ReplayWriterRunner struct {
-	runtime   game.CommandRuntime
-	writer    ReplayArtifactWriter
-	queue     chan ReplayArtifact
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	lifecycle sync.RWMutex
+	core *gsr.Runner[ReplayArtifact, replayWriteResult]
 }
 
 // NewReplayWriterRunner starts a bounded replay writer runner.
-func NewReplayWriterRunner(runtime game.CommandRuntime, writer ReplayArtifactWriter, config ReplayWriterRunnerConfig) (*ReplayWriterRunner, error) {
+func NewReplayWriterRunner(runtime *gsr.Runtime, writer ReplayArtifactWriter, config ReplayWriterRunnerConfig) (*ReplayWriterRunner, error) {
 	if runtime == nil || writer == nil {
 		return nil, errInvalidReplayWrite
 	}
@@ -95,13 +87,18 @@ func NewReplayWriterRunner(runtime game.CommandRuntime, writer ReplayArtifactWri
 	if config.Workers <= 0 {
 		config.Workers = 1
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	runner := &ReplayWriterRunner{runtime: runtime, writer: writer, queue: make(chan ReplayArtifact, config.QueueSize), ctx: ctx, cancel: cancel}
-	runner.wg.Add(config.Workers)
-	for index := 0; index < config.Workers; index++ {
-		go runner.worker()
+	core, err := gsr.NewRunner(runtime, gsr.RunnerConfig{Name: "nhsk-replay", Workers: config.Workers, QueueSize: config.QueueSize}, func(ctx context.Context, artifact ReplayArtifact) (replayWriteResult, error) {
+		writeErr := writer.WriteReplay(ctx, artifact)
+		result := replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
+		if writeErr != nil {
+			result.Error = writeErr.Error()
+		}
+		return result, writeErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return runner, nil
+	return &ReplayWriterRunner{core: core}, nil
 }
 
 // SubmitReplay copies and queues one artifact without blocking the caller.
@@ -109,17 +106,15 @@ func (runner *ReplayWriterRunner) SubmitReplay(artifact ReplayArtifact) error {
 	if runner == nil || !validReplayArtifact(artifact) {
 		return errInvalidReplayWrite
 	}
-	runner.lifecycle.RLock()
-	defer runner.lifecycle.RUnlock()
 	artifact.XML = append([]byte(nil), artifact.XML...)
-	select {
-	case <-runner.ctx.Done():
-		return context.Canceled
-	case runner.queue <- artifact:
-		return nil
-	default:
+	err := runner.core.Submit(context.Background(), artifact.Target, applyReplayResultCommand, artifact)
+	if errors.Is(err, gsr.ErrRunnerQueueFull) {
 		return errReplayQueueFull
 	}
+	if errors.Is(err, gsr.ErrRunnerClosed) {
+		return context.Canceled
+	}
+	return err
 }
 
 // Close cancels queued writes and waits for active workers to return.
@@ -127,33 +122,7 @@ func (runner *ReplayWriterRunner) Close() error {
 	if runner == nil {
 		return nil
 	}
-	runner.closeOnce.Do(func() {
-		runner.lifecycle.Lock()
-		defer runner.lifecycle.Unlock()
-		runner.cancel()
-		runner.wg.Wait()
-	})
-	return nil
-}
-
-func (runner *ReplayWriterRunner) worker() {
-	defer runner.wg.Done()
-	for {
-		select {
-		case <-runner.ctx.Done():
-			return
-		case artifact := <-runner.queue:
-			if runner.ctx.Err() != nil {
-				return
-			}
-			err := runner.writer.WriteReplay(runner.ctx, artifact)
-			result := replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
-			if err != nil {
-				result.Error = err.Error()
-			}
-			_ = runner.runtime.Send(artifact.Target, applyReplayResultCommand, result)
-		}
-	}
+	return runner.core.Close(context.Background())
 }
 
 func validReplayArtifact(artifact ReplayArtifact) bool {

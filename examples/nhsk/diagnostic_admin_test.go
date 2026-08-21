@@ -20,7 +20,7 @@ func TestDiagnosticAdminSocketListsAndPreciselyReleasesQuarantine(t *testing.T) 
 	if err := fixture.runtime.Send(fixture.factory, reportBattleQuarantinedCommand, battleQuarantineReport{BattleID: 81, Ref: ref, ConnectionGeneration: 14, Evidence: testDiagnosticArtifact().Evidence}); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.runtime.Send(fixture.host, applyDiagnosticExportResultCommand, diagnosticExportResult{BattleID: 81, Ref: ref, Receipt: receipt}); err != nil {
+	if err := fixture.runtime.Send(fixture.host, applyDiagnosticExportResultCommand, gsr.RunnerResult[diagnosticExportResult]{Value: diagnosticExportResult{BattleID: 81, Ref: ref, Receipt: receipt}}); err != nil {
 		t.Fatal(err)
 	}
 

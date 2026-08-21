@@ -182,18 +182,18 @@ func readRESPTestCommand(reader *bufio.Reader) ([]string, error) {
 
 func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 	provider := &countingCustomDeckProvider{catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 0}}}}
-	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
+	runtime, receiver, target := newCustomDeckRunnerTestRuntime(t)
 	runner, err := NewCustomDeckRunner(runtime, provider, CustomDeckRunnerConfig{Enabled: true, AllowedAccounts: []uint32{2}, QueueSize: 1, Workers: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close() })
-	request := CustomDeckLoadRequest{Target: gsr.ServiceRef{Node: "test", ID: 1}, BattleID: 403, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{GameID: NHSKDescriptor.GameID, ProductID: NHSKDescriptor.GameID, UserIDs: []uint32{9}}}
+	request := CustomDeckLoadRequest{Target: target, BattleID: 403, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{GameID: NHSKDescriptor.GameID, ProductID: NHSKDescriptor.GameID, UserIDs: []uint32{9}}}
 	if err := runner.SubmitCustomDeck(request); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case result := <-runtime.sent:
+	case result := <-receiver.sent:
 		t.Fatalf("unauthorized provision = %#v", result)
 	case <-time.After(20 * time.Millisecond):
 	}
@@ -205,7 +205,7 @@ func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case result := <-runtime.sent:
+	case result := <-receiver.sent:
 		if result.BattleID != 403 || len(result.Catalog.Decks) != 1 {
 			t.Fatalf("authorized provision = %#v", result)
 		}
@@ -218,35 +218,35 @@ func TestCustomDeckRunnerAppliesAuthorizationBeforeProvider(t *testing.T) {
 }
 
 func TestCustomDeckRunnerTimeoutFallsBackWithoutBlockingBattle(t *testing.T) {
-	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
+	runtime, receiver, target := newCustomDeckRunnerTestRuntime(t)
 	runner, err := NewCustomDeckRunner(runtime, blockingCustomDeckProvider{}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: true, LoadTimeout: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close() })
-	if err := runner.SubmitCustomDeck(CustomDeckLoadRequest{Target: gsr.ServiceRef{Node: "test", ID: 1}, BattleID: 404, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{UserIDs: []uint32{1}}}); err != nil {
+	if err := runner.SubmitCustomDeck(CustomDeckLoadRequest{Target: target, BattleID: 404, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{UserIDs: []uint32{1}}}); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case result := <-runtime.sent:
+	case result := <-receiver.sent:
 		t.Fatalf("timeout provision = %#v", result)
 	case <-time.After(50 * time.Millisecond):
 	}
 }
 
 func TestCustomDeckRunnerLoadAndProvideUsesPublicCommand(t *testing.T) {
-	runtime := &customDeckRecordingRuntime{sent: make(chan ProvideCustomDeckRequest, 1)}
+	runtime, receiver, target := newCustomDeckRunnerTestRuntime(t)
 	runner, err := NewCustomDeckRunner(runtime, &countingCustomDeckProvider{catalog: CustomDeckCatalog{Decks: []CustomDeck{{Cards: sequentialCustomDeckBytes(), BankerSeat: 1}}}}, CustomDeckRunnerConfig{Enabled: true, AllowAnyAccount: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = runner.Close() })
-	request := CustomDeckLoadRequest{Target: gsr.ServiceRef{Node: "test", ID: 1}, BattleID: 405, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{UserIDs: []uint32{1}}}
+	request := CustomDeckLoadRequest{Target: target, BattleID: 405, GameNum: 1, SubgameNum: 1, Lookup: CustomDeckLookup{UserIDs: []uint32{1}}}
 	if err := runner.LoadAndProvide(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case provision := <-runtime.sent:
+	case provision := <-receiver.sent:
 		if provision.BattleID != request.BattleID || provision.GameNum != request.GameNum || provision.SubgameNum != request.SubgameNum || len(provision.Catalog.Decks) != 1 {
 			t.Fatalf("provision = %#v", provision)
 		}
@@ -374,20 +374,41 @@ func (provider *countingCustomDeckProvider) Load(context.Context, CustomDeckLook
 	return provider.catalog, nil
 }
 
-type customDeckRecordingRuntime struct {
+type customDeckRecordingService struct {
 	sent chan ProvideCustomDeckRequest
 }
 
-func (runtime *customDeckRecordingRuntime) Send(_ gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if command != ProvideCustomDeckCommand {
+func (*customDeckRecordingService) Init(gsr.ServiceContext) error { return nil }
+func (service *customDeckRecordingService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID == ProvideCustomDeckCommand {
+		service.sent <- command.Payload.(ProvideCustomDeckRequest)
+		return nil
+	}
+	if command.ID != applyCustomDeckLoadResultCommand {
 		return errInvalidCustomDeckRequest
 	}
-	runtime.sent <- payload.(ProvideCustomDeckRequest)
+	result, ok := command.Payload.(gsr.RunnerResult[customDeckLoadResult])
+	if !ok {
+		return errInvalidCustomDeckRequest
+	}
+	if result.Err == nil && result.Value.Available {
+		service.sent <- result.Value.Provision
+	}
 	return nil
 }
+func (*customDeckRecordingService) Stop(context.Context) error { return nil }
+func (*customDeckRecordingService) Close() error               { return nil }
 
-func (*customDeckRecordingRuntime) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
-	return nil, errInvalidCustomDeckRequest
+func newCustomDeckRunnerTestRuntime(t *testing.T) (*gsr.Runtime, *customDeckRecordingService, gsr.ServiceRef) {
+	t.Helper()
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "test"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	receiver := &customDeckRecordingService{sent: make(chan ProvideCustomDeckRequest, 1)}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: receiver})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtime, receiver, ref
 }
 
 func sequentialCustomDeckLine() string { return customDeckValues(104) }

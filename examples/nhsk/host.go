@@ -422,9 +422,13 @@ func (host *NHSKHostService) applyDiagnosticResult(ctx gsr.CommandContext, paylo
 	if ctx.Source().Node != ctx.Self().Node || ctx.Source().ID != 0 {
 		return game.ErrUnauthorized
 	}
-	result, ok := payload.(diagnosticExportResult)
+	runnerResult, ok := payload.(gsr.RunnerResult[diagnosticExportResult])
 	if !ok {
 		return gsr.ErrInvalidClusterEnvelope
+	}
+	result := runnerResult.Value
+	if runnerResult.Err != nil && result.Error == "" {
+		result.Error = runnerResult.Err.Error()
 	}
 	retained := host.quarantine[result.BattleID]
 	if retained == nil || retained.snapshot.Ref != result.Ref {

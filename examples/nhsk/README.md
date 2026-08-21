@@ -43,31 +43,35 @@ flowchart LR
 | `BattleFactoryService` | 创建/停止任务、Runtime 中已创建的精确 Ref | Host 业务索引、玩法状态 |
 | `NHSKBattleService` | 一桌全部玩法、Timeline、结算、回放事实 | TCP、Redis、文件、另一个 Service 指针 |
 | `GameOutputService` | 当前连接代际的输出能力 | 玩家会话和牌局状态 |
-| 外围 runner | 固定有界外部工作及其生命周期 | 在 Handler 外修改 Battle 状态 |
+| Core Runner 与领域适配器 | 固定有界外部工作及其 Runtime 生命周期 | 在 Handler 外修改 Battle 状态 |
 
 MySQL 和 Redis 都不是牌局权威状态。当前权威状态在 Service 内存中，进程崩溃后不承诺恢复旧 Battle。
 
-### 为什么外围 runner 不是 Service
+### 为什么 Runner 不是 Service
 
-Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；外围 runner 只负责执行 HTTP、Redis、文件系统或 Runtime 生命周期等可能阻塞的工作。runner 拥有的是固定 worker、有限队列、取消和关闭能力，不拥有牌局状态，也不需要通过 ServiceRef 被业务寻址。把它再包装成 Service 不会消除阻塞：若在 Handler 内执行 I/O，会占住该 Service 的 Mailbox 和 Runtime worker；若 Handler 再启动 goroutine，最终仍需要相同的队列、取消、回收和结果投递机制，只是额外增加一层无业务价值的 Service。
+Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；Core Runner 只负责执行 HTTP、Redis、文件系统等可能阻塞的工作。Runner 拥有固定 worker、有限队列、取消、关闭和 Inspection，不拥有牌局状态，也不需要通过 ServiceRef 被业务寻址。把它包装成 Service 不会消除阻塞：在 Handler 内执行 I/O 会占住 Mailbox；Handler 自己启动 goroutine 又会重复实现同一套队列和生命周期。
 
 因此边界固定为：
 
-- Service 在 Handler 内先记录 pending 阶段或业务身份，再把深拷贝的不可变任务提交给 runner。
-- runner 只执行外部工作，不读取或修改 Service 状态，不保存 `ServiceContext`。
-- runner 完成后把结果包装成 Command，发送到任务中冻结的精确 ServiceRef。
+- Service 在 Handler 内先记录 pending 阶段或业务身份，再把深拷贝的不可变任务提交给领域适配器；AI、回放、自定义牌堆和诊断适配器都复用 Core `Runner.Submit`。
+- Core Runner 只执行外部工作，不读取或修改 Service 状态，不保存 `CommandContext` 或 `ServiceContext`。
+- Core Runner 完成后把 `RunnerResult` 包装成 Command，发送到任务中冻结的精确本地 ServiceRef。
 - 只有目标 Service 再次在 Mailbox Handler 中核对结果并修改权威状态。
-- 进程组合根拥有 runner；`Close` 会取消任务、停止接收并等待固定 worker 真实返回。
+- Runtime 拥有 Runner；显式 `Close` 与 `Runtime.Close` 都会取消任务、停止接收并等待固定 worker 真实返回，超时后仍可从 `Runtime.Inspect().Runners` 观察。
 
 如果某项外围能力以后拥有需要串行维护的权威状态、独立 Command API、跨节点寻址或业务调度策略，可以增加一个协调 Service；真正阻塞的 provider/I/O 部分仍留在 runner。例如未来可以由 `AIService` 管理额度和路由，再由 `AIProviderRunner` 执行 HTTP 请求。
 
-### runner 如何不阻塞 Mailbox
+### Submit 与 Await 如何处理 Mailbox
 
-Service 调用的 `Submit...` 不是执行任务，而是一次有界、非阻塞的队列提交：它只校验输入、深拷贝必要数据，并用带 `default` 的 channel `select` 尝试入队。成功表示 runner 已接收任务；队列已满或已经关闭会立即返回稳定错误，不等待空位。真正的 HTTP、Redis、文件写入和 Runtime Create/Stop 都在固定 worker 中执行。
+NHSK 使用的 `Submit...` 最终调用 Core `Runner.Submit`：它只校验输入、深拷贝必要数据并非阻塞尝试入队。成功表示 Runner 已接收任务；队列满或已关闭会立即返回稳定错误。真正的 HTTP、Redis 和文件写入在固定 worker 中执行。
+
+Core 还提供 `Runner.Await`：它接收本次 Handler 仍有效的 `CommandContext`；等待外部结果时归还全局 Scheduler 许可，其他 Service 可以继续运行，但同一 Service 仍保持 busy，下一条 Mailbox Command 不会重入；结果返回后代码从原 `Await` 调用点继续。NHSK 当前的 AI、回放、自定义牌堆和诊断都需要等待期间继续响应牌局消息，因此使用 `Submit`，不使用 `Await`。
 
 这保证的是“Handler 不发生无上限等待”，不是宣称提交调用耗时为零。提交路径不得进行网络/磁盘 I/O，也不得等待外部结果。提交失败由当前 Handler 立即按该业务的降级规则处理，例如 AI 保留硬超时回退、回放进入失败收敛、生命周期创建返回失败、诊断保留可人工重试状态。
 
-结果可能在原 Handler 返回前就被 runner 发送回来，但它只能排入 Mailbox，不能重入当前 Handler；同一 Service 的下一次 `Handle` 必须等当前 Handler 返回后才能执行。
+结果可能在原 Handler 返回前就被 Runner 发送回来，但它只能排入 Mailbox，不能重入当前 Handler；同一 Service 的下一次 `Handle` 必须等当前 Handler 返回后才能执行。
+
+Battle 创建/停止仍保留专用生命周期执行器，因为它包含创建结果投递失败后的 orphan Stop、删除屏障、诊断捕获和停止补偿，不是“processor 返回一个结果 Command”可以完整表达的单步任务。Supervisor 等带多阶段 Call、重试和补偿的执行器同理；不为表面统一删除这些状态机，也不把其业务补偿塞入 Core Runner。
 
 ### 异步完成如何保证正确时序
 
@@ -109,7 +113,7 @@ examples/nhsk/
 ├── internal/legacywire/        最小 Legacy codec 与 golden
 ├── ai.go                       AI request、runner、本地 provider
 ├── ai_legacy.go                旧 RobotTran HTTP/JSON/base64 adapter
-├── custom_deck.go              参数化 catalog、旧 grammar、外围 runner
+├── custom_deck.go              参数化 catalog、旧 grammar、Core Runner 适配器
 ├── custom_deck_redis.go        标准库 RESP GET 兼容 adapter
 ├── replay_document.go          不可变回放快照与文档
 ├── replay_xml.go               确定性旧 XML 序列化

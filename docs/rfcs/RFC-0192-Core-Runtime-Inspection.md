@@ -40,6 +40,7 @@ type RuntimeInspection struct {
     Node         NodeID
     Status       RuntimeStatus
     Services     []ServiceInspection
+    Runners      []RunnerInspection
     Tasks        []RuntimeTaskInspection
     PendingCalls int
     Timers       int
@@ -51,6 +52,19 @@ type ServiceInspection struct {
     Name         ServiceName
     Status       ServiceStatus
     MailboxDepth int
+}
+
+type RunnerInspection struct {
+    Name           RunnerName
+    Status         RunnerStatus
+    Workers        int
+    QueueDepth     int
+    Active         int
+    Submitted      uint64
+    Completed      uint64
+    Failed         uint64
+    Rejected       uint64
+    DeliveryFailed uint64
 }
 
 type RuntimeTaskInspection struct {
@@ -88,9 +102,10 @@ Runtime 关闭超时后，尚未真实返回的 Init、Dispatch、Stop 或 Close
 返回结果必须满足：
 
 - 不包含 Service、Mailbox、PendingCall、Timer、Task、Registry、channel、取消函数或 Transport 指针。
-- `Services`、`Tasks` 和 `Metrics` 是独立副本。调用方修改自己的结果不能影响 Runtime 或后续 Inspection。
+- `Services`、`Runners`、`Tasks` 和 `Metrics` 是独立副本。调用方修改自己的结果不能影响 Runtime 或后续 Inspection。
 - Metrics 枚举方法返回的 map 也是独立副本，不暴露 collector 或写接口。
 - `Services` 按 `ServiceRef.Node`、`ServiceRef.ID` 排序。
+- `Runners` 按 `RunnerName` 排序。
 - `Tasks` 按任务 ID 排序。
 
 稳定顺序属于公开行为，不能依赖 Go map 遍历顺序。

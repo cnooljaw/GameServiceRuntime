@@ -71,16 +71,13 @@ type LedgerStore interface {
 }
 type LedgerTask struct { Wallet, Source gsr.ServiceRef; Request SettlementRequest }
 type LedgerExecutor interface { Submit(LedgerTask) error }
-type LedgerRuntime interface {
-    Send(gsr.ServiceRef, gsr.CommandID, any) error
-}
 type LedgerRunnerConfig struct {
     Store     LedgerStore
     Workers   int
     QueueSize int
     Timeout   time.Duration
 }
-func NewLedgerRunner(LedgerRuntime, LedgerRunnerConfig) (*LedgerRunner, error)
+func NewLedgerRunner(*gsr.Runtime, LedgerRunnerConfig) (*LedgerRunner, error)
 func (*LedgerRunner) Submit(LedgerTask) error
 func (*LedgerRunner) Close(context.Context) error
 type WalletConfig struct {
@@ -121,7 +118,7 @@ Runner 的未知 I/O 超时不写 rejected：它通过 Lookup 收敛；若 Looku
 
 ## 并发与所有权
 
-WalletService 不创建 goroutine，也不在 Handler 做 Store I/O。LedgerRunner 是唯一允许的 worker pool：组合根拥有固定 Workers、有限 Queue、每任务 Timeout 和 Close；Close 停止接收、取消未开始任务、等待所有已开始 Commit/Lookup 返回，并经 Command 交还能交还的结果。Store 必须自行保证跨 runner/process 的原子 Commit；MemoryLedgerStore 通过锁实现仅进程内一致性。
+WalletService 不创建 goroutine，也不在 Handler 做 Store I/O。LedgerRunner 是对 [RFC-0193](RFC-0193-Core-Runner.md) Core Runner 的领域适配：组合根配置固定 Workers、有限 Queue 和每任务 Timeout，Runtime 统一拥有关闭与真实返回追踪；完成结果经 Command 交回 Wallet。Store 必须自行保证跨 runner/process 的原子 Commit；MemoryLedgerStore 通过锁实现仅进程内一致性。
 
 Balances、Entries、Requests、Results 和 LedgerRecord 均深拷贝。Runner 不保存 ServiceContext，不改 Wallet map，不把 Store error 文本或敏感账目写到日志。
 

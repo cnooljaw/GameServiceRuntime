@@ -25,7 +25,7 @@ func TestWriteJSONUsesStableFieldsAndNonNilEmptyCollections(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "{\"captured_at\":\"2026-07-22T10:30:00Z\",\"node\":\"node-a\",\"status\":\"running\",\"service_count\":0,\"services\":[],\"task_count\":0,\"tasks\":[],\"pending_calls\":0,\"timers\":0,\"metrics\":{\"counters\":{},\"gauges\":{},\"durations_ns\":{}}}\n"
+	want := "{\"captured_at\":\"2026-07-22T10:30:00Z\",\"node\":\"node-a\",\"status\":\"running\",\"service_count\":0,\"services\":[],\"runner_count\":0,\"runners\":[],\"task_count\":0,\"tasks\":[],\"pending_calls\":0,\"timers\":0,\"metrics\":{\"counters\":{},\"gauges\":{},\"durations_ns\":{}}}\n"
 	if got := output.String(); got != want {
 		t.Fatalf("JSON = %s, want %s", got, want)
 	}
@@ -46,6 +46,7 @@ func TestWriteJSONUsesStableNestedFields(t *testing.T) {
 			Status:       gsr.ServiceStopping,
 			MailboxDepth: 3,
 		}},
+		Runners: []gsr.RunnerInspection{{Name: "external", Status: gsr.RunnerClosing, Workers: 2, QueueDepth: 3, Active: 1, Submitted: 10, Completed: 6, Failed: 2, Rejected: 4, DeliveryFailed: 1}},
 		Tasks: []gsr.RuntimeTaskInspection{{
 			ID:        11,
 			Owner:     gsr.ServiceRef{Node: "node-a", ID: 7},
@@ -66,7 +67,7 @@ func TestWriteJSONUsesStableNestedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "{\"captured_at\":\"2026-07-22T10:30:00Z\",\"node\":\"node-a\",\"status\":\"closing\",\"service_count\":1,\"services\":[{\"ref\":{\"node\":\"node-a\",\"id\":7},\"name\":\"lobby\",\"status\":\"stopping\",\"mailbox_depth\":3}],\"task_count\":1,\"tasks\":[{\"id\":11,\"owner\":{\"node\":\"node-a\",\"id\":7},\"kind\":\"stop\",\"started_at\":\"2026-07-22T10:29:00Z\",\"timed_out\":true}],\"pending_calls\":2,\"timers\":5,\"metrics\":{\"counters\":{},\"gauges\":{},\"durations_ns\":{}}}\n"
+	want := "{\"captured_at\":\"2026-07-22T10:30:00Z\",\"node\":\"node-a\",\"status\":\"closing\",\"service_count\":1,\"services\":[{\"ref\":{\"node\":\"node-a\",\"id\":7},\"name\":\"lobby\",\"status\":\"stopping\",\"mailbox_depth\":3}],\"runner_count\":1,\"runners\":[{\"name\":\"external\",\"status\":\"closing\",\"workers\":2,\"queue_depth\":3,\"active\":1,\"submitted\":10,\"completed\":6,\"failed\":2,\"rejected\":4,\"delivery_failed\":1}],\"task_count\":1,\"tasks\":[{\"id\":11,\"owner\":{\"node\":\"node-a\",\"id\":7},\"kind\":\"stop\",\"started_at\":\"2026-07-22T10:29:00Z\",\"timed_out\":true}],\"pending_calls\":2,\"timers\":5,\"metrics\":{\"counters\":{},\"gauges\":{},\"durations_ns\":{}}}\n"
 	if got := output.String(); got != want {
 		t.Fatalf("JSON = %s, want %s", got, want)
 	}

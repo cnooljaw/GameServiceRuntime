@@ -24,6 +24,7 @@
 - [Timer：未来仍然是一条 Command](02-第二篇-Runtime内核/06-Timer.md)
 - [Lifecycle：超时以后，函数可能还活着](02-第二篇-Runtime内核/07-Lifecycle.md)
 - [Runtime Inspection：只读快照，不是控制台后门](02-第二篇-Runtime内核/08-Inspection.md)
+- [Core Runner：等待外部工作，但不放弃 Service 顺序](02-第二篇-Runtime内核/09-Runner.md)
 
 ## 第三篇：Cluster 与寻址
 

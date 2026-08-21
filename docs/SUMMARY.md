@@ -36,6 +36,7 @@
 - [RFC-0190：Cluster Data Plane](rfcs/RFC-0190-Core-Cluster-Data-Plane.md)
 - [RFC-0191：Cluster Transport](rfcs/RFC-0191-Core-Cluster-Transport.md)
 - [RFC-0192：Runtime Inspection](rfcs/RFC-0192-Core-Runtime-Inspection.md)
+- [RFC-0193：Core Runner](rfcs/RFC-0193-Core-Runner.md)
 
 ## Layer 2：Runtime Tooling（工具与工程化层）
 

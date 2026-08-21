@@ -38,6 +38,15 @@ func (m *Monitor) Capture() Report {
 			MailboxDepth: service.MailboxDepth,
 		}
 	}
+	runners := make([]RunnerReport, len(inspection.Runners))
+	for index, runner := range inspection.Runners {
+		runners[index] = RunnerReport{
+			Name: runner.Name, Status: runnerStatus(runner.Status), Workers: runner.Workers,
+			QueueDepth: runner.QueueDepth, Active: runner.Active, Submitted: runner.Submitted,
+			Completed: runner.Completed, Failed: runner.Failed, Rejected: runner.Rejected,
+			DeliveryFailed: runner.DeliveryFailed,
+		}
+	}
 	tasks := make([]TaskReport, len(inspection.Tasks))
 	for index, task := range inspection.Tasks {
 		tasks[index] = TaskReport{
@@ -59,6 +68,8 @@ func (m *Monitor) Capture() Report {
 		Status:       runtimeStatus(inspection.Status),
 		ServiceCount: len(services),
 		Services:     services,
+		RunnerCount:  len(runners),
+		Runners:      runners,
 		TaskCount:    len(tasks),
 		Tasks:        tasks,
 		PendingCalls: inspection.PendingCalls,
@@ -68,6 +79,19 @@ func (m *Monitor) Capture() Report {
 			Gauges:         inspection.Metrics.Gauges(),
 			DurationsNanos: durationsNanos,
 		},
+	}
+}
+
+func runnerStatus(status gsr.RunnerStatus) string {
+	switch status {
+	case gsr.RunnerRunning:
+		return "running"
+	case gsr.RunnerClosing:
+		return "closing"
+	case gsr.RunnerClosed:
+		return "closed"
+	default:
+		return "unknown"
 	}
 }
 

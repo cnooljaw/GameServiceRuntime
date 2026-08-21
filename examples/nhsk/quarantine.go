@@ -14,7 +14,6 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
@@ -79,28 +78,15 @@ type DiagnosticSubmitter interface {
 	SubmitDiagnostic(DiagnosticArtifact) error
 }
 
-// DiagnosticRuntime is the narrow process capability used by fixed diagnostic workers.
-type DiagnosticRuntime interface {
-	game.CommandRuntime
-	Inspect() gsr.RuntimeInspection
-}
-
 // DiagnosticRunnerConfig bounds diagnostic filesystem work.
 type DiagnosticRunnerConfig struct {
 	QueueSize int
 	Workers   int
 }
 
-// DiagnosticRunner owns fixed exporter workers outside every Service handler.
+// DiagnosticRunner adapts evidence export to the Runtime-owned Core Runner.
 type DiagnosticRunner struct {
-	runtime   DiagnosticRuntime
-	exporter  DiagnosticExporter
-	queue     chan DiagnosticArtifact
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	lifecycle sync.RWMutex
+	core *gsr.Runner[DiagnosticArtifact, diagnosticExportResult]
 }
 
 type diagnosticExportResult struct {
@@ -111,7 +97,7 @@ type diagnosticExportResult struct {
 }
 
 // NewDiagnosticRunner starts fixed, bounded diagnostic workers.
-func NewDiagnosticRunner(runtime DiagnosticRuntime, exporter DiagnosticExporter, config DiagnosticRunnerConfig) (*DiagnosticRunner, error) {
+func NewDiagnosticRunner(runtime *gsr.Runtime, exporter DiagnosticExporter, config DiagnosticRunnerConfig) (*DiagnosticRunner, error) {
 	if runtime == nil || exporter == nil {
 		return nil, errInvalidDiagnosticArtifact
 	}
@@ -121,13 +107,19 @@ func NewDiagnosticRunner(runtime DiagnosticRuntime, exporter DiagnosticExporter,
 	if config.Workers <= 0 {
 		config.Workers = 1
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	runner := &DiagnosticRunner{runtime: runtime, exporter: exporter, queue: make(chan DiagnosticArtifact, config.QueueSize), ctx: ctx, cancel: cancel}
-	runner.wg.Add(config.Workers)
-	for index := 0; index < config.Workers; index++ {
-		go runner.worker()
+	core, err := gsr.NewRunner(runtime, gsr.RunnerConfig{Name: "nhsk-diagnostic", Workers: config.Workers, QueueSize: config.QueueSize}, func(ctx context.Context, artifact DiagnosticArtifact) (diagnosticExportResult, error) {
+		artifact.RuntimeInspection = runtime.Inspect()
+		receipt, exportErr := exporter.ExportDiagnostic(ctx, artifact)
+		result := diagnosticExportResult{BattleID: artifact.BattleID, Ref: artifact.Ref, Receipt: receipt}
+		if exportErr != nil {
+			result.Error = exportErr.Error()
+		}
+		return result, exportErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	return runner, nil
+	return &DiagnosticRunner{core: core}, nil
 }
 
 // SubmitDiagnostic copies and enqueues evidence without blocking a Host Mailbox.
@@ -135,18 +127,16 @@ func (runner *DiagnosticRunner) SubmitDiagnostic(artifact DiagnosticArtifact) er
 	if runner == nil || artifact.BattleID == 0 || artifact.Ref.ID == 0 || artifact.Host.ID == 0 {
 		return errInvalidDiagnosticArtifact
 	}
-	runner.lifecycle.RLock()
-	defer runner.lifecycle.RUnlock()
 	artifact.Evidence.LastStableSnapshot = cloneBattleSnapshot(artifact.Evidence.LastStableSnapshot)
 	artifact.Evidence.Commands = cloneCommandRecords(artifact.Evidence.Commands)
-	select {
-	case <-runner.ctx.Done():
-		return context.Canceled
-	case runner.queue <- artifact:
-		return nil
-	default:
+	err := runner.core.Submit(context.Background(), artifact.Host, applyDiagnosticExportResultCommand, artifact)
+	if errors.Is(err, gsr.ErrRunnerQueueFull) {
 		return errDiagnosticQueueFull
 	}
+	if errors.Is(err, gsr.ErrRunnerClosed) {
+		return context.Canceled
+	}
+	return err
 }
 
 // Close cancels queued work and waits for active workers to return.
@@ -154,34 +144,7 @@ func (runner *DiagnosticRunner) Close() error {
 	if runner == nil {
 		return nil
 	}
-	runner.closeOnce.Do(func() {
-		runner.lifecycle.Lock()
-		defer runner.lifecycle.Unlock()
-		runner.cancel()
-		runner.wg.Wait()
-	})
-	return nil
-}
-
-func (runner *DiagnosticRunner) worker() {
-	defer runner.wg.Done()
-	for {
-		select {
-		case <-runner.ctx.Done():
-			return
-		case artifact := <-runner.queue:
-			if runner.ctx.Err() != nil {
-				return
-			}
-			artifact.RuntimeInspection = runner.runtime.Inspect()
-			receipt, err := runner.exporter.ExportDiagnostic(runner.ctx, artifact)
-			result := diagnosticExportResult{BattleID: artifact.BattleID, Ref: artifact.Ref, Receipt: receipt}
-			if err != nil {
-				result.Error = err.Error()
-			}
-			_ = runner.runtime.Send(artifact.Host, applyDiagnosticExportResultCommand, result)
-		}
-	}
+	return runner.core.Close(context.Background())
 }
 
 type retryDiagnosticRequest struct {

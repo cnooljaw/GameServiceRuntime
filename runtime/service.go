@@ -102,12 +102,15 @@ func (c *serviceContext) Logger() *slog.Logger {
 func (c *serviceContext) Metrics() Metrics { return c.runtime.metrics }
 
 type commandContext struct {
-	self    ServiceRef
-	source  ServiceRef
-	runtime *Runtime
-	session SessionID
-	command CommandID
-	replied atomic.Bool
+	self     ServiceRef
+	source   ServiceRef
+	runtime  *Runtime
+	instance *serviceInstance
+	session  SessionID
+	command  CommandID
+	replied  atomic.Bool
+	active   atomic.Bool
+	awaiting atomic.Bool
 }
 
 func (c *commandContext) Self() ServiceRef   { return c.self }

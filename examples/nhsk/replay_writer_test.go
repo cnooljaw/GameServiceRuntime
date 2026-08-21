@@ -38,7 +38,13 @@ func TestFileReplayWriterRejectsEscapingPath(t *testing.T) {
 }
 
 func TestReplayWriterRunnerReportsExactIdentityAndOwnsXMLCopy(t *testing.T) {
-	runtime := &replayWriterTestRuntime{sent: make(chan replayWriteResult, 1)}
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	receiver := &replayRunnerResultService{sent: make(chan replayWriteResult, 1)}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: receiver})
+	if err != nil {
+		t.Fatal(err)
+	}
 	writer := &recordingReplayWriter{written: make(chan ReplayArtifact, 1)}
 	runner, err := NewReplayWriterRunner(runtime, writer, ReplayWriterRunnerConfig{QueueSize: 1, Workers: 1})
 	if err != nil {
@@ -46,6 +52,7 @@ func TestReplayWriterRunnerReportsExactIdentityAndOwnsXMLCopy(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = runner.Close() })
 	artifact := testReplayArtifact()
+	artifact.Target = ref
 	wantXML := append([]byte(nil), artifact.XML...)
 	if err := runner.SubmitReplay(artifact); err != nil {
 		t.Fatalf("SubmitReplay: %v", err)
@@ -60,7 +67,7 @@ func TestReplayWriterRunnerReportsExactIdentityAndOwnsXMLCopy(t *testing.T) {
 		t.Fatal("writer did not receive artifact")
 	}
 	select {
-	case got := <-runtime.sent:
+	case got := <-receiver.sent:
 		if got.BattleID != 7 || got.GameNum != 2 || got.SubgameNum != 3 || got.ReplayName != "NHSK.xml" || got.Error != "" {
 			t.Fatalf("result = %#v", got)
 		}
@@ -72,7 +79,13 @@ func TestReplayWriterRunnerReportsExactIdentityAndOwnsXMLCopy(t *testing.T) {
 func TestReplayWriterRunnerBoundsQueueWithoutBlockingBattle(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	runtime := &replayWriterTestRuntime{sent: make(chan replayWriteResult, 3)}
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	receiver := &replayRunnerResultService{sent: make(chan replayWriteResult, 3)}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: receiver})
+	if err != nil {
+		t.Fatal(err)
+	}
 	writer := replayWriterFunc(func(context.Context, ReplayArtifact) error {
 		select {
 		case <-started:
@@ -87,6 +100,7 @@ func TestReplayWriterRunnerBoundsQueueWithoutBlockingBattle(t *testing.T) {
 		t.Fatalf("NewReplayWriterRunner: %v", err)
 	}
 	artifact := testReplayArtifact()
+	artifact.Target = ref
 	if err := runner.SubmitReplay(artifact); err != nil {
 		t.Fatalf("submit active: %v", err)
 	}
@@ -114,23 +128,22 @@ func testReplayArtifact() ReplayArtifact {
 	}
 }
 
-type replayWriterTestRuntime struct{ sent chan replayWriteResult }
+type replayRunnerResultService struct{ sent chan replayWriteResult }
 
-func (runtime *replayWriterTestRuntime) Send(_ gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if command != applyReplayResultCommand {
+func (*replayRunnerResultService) Init(gsr.ServiceContext) error { return nil }
+func (service *replayRunnerResultService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID != applyReplayResultCommand {
 		return errors.New("unexpected command")
 	}
-	result, ok := payload.(replayWriteResult)
-	if !ok {
-		return errors.New("unexpected payload")
+	result, ok := command.Payload.(gsr.RunnerResult[replayWriteResult])
+	if !ok || result.Err != nil {
+		return errors.New("unexpected replay runner payload")
 	}
-	runtime.sent <- result
+	service.sent <- result.Value
 	return nil
 }
-
-func (*replayWriterTestRuntime) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
-	return nil, errors.New("unexpected call")
-}
+func (*replayRunnerResultService) Stop(context.Context) error { return nil }
+func (*replayRunnerResultService) Close() error               { return nil }
 
 type recordingReplayWriter struct{ written chan ReplayArtifact }
 

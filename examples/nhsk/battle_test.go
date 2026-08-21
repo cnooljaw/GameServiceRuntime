@@ -486,14 +486,14 @@ func TestBattleFencesReplayCompletionBeforeRoundStatAndGameOver(t *testing.T) {
 		t.Fatalf("artifact = %#v", artifact)
 	}
 	wrong := replayWriteResult{BattleID: 39, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
-	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: wrong}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: gsr.RunnerResult[replayWriteResult]{Value: wrong}}); err != nil {
 		t.Fatal(err)
 	}
 	if service.phase != NHSKBattleFinalizingReplay || len(output.sends) != 1 {
 		t.Fatalf("wrong completion changed phase=%s outputs=%d", service.phase, len(output.sends))
 	}
 	correct := replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}
-	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: correct}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: gsr.RunnerResult[replayWriteResult]{Value: correct}}); err != nil {
 		t.Fatal(err)
 	}
 	if service.phase != NHSKBattleFinished || len(output.sends) != 3 {
@@ -505,7 +505,7 @@ func TestBattleFencesReplayCompletionBeforeRoundStatAndGameOver(t *testing.T) {
 	if _, ok := output.sends[2].(GameOutputBatch).Outputs[0].(GameOverOutput); !ok {
 		t.Fatalf("third output = %#v, want GameOverOutput", output.sends[2])
 	}
-	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: correct}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: gsr.RunnerResult[replayWriteResult]{Value: correct}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(output.sends) != 3 {
@@ -832,7 +832,7 @@ func TestBattleForceFinishFencesSettlementAndDefersNoticeUntilReplay(t *testing.
 		t.Fatal("late settlement produced output")
 	}
 	artifact := replay.artifacts[0]
-	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}}); err != nil {
+	if err := service.Handle(ctx, gsr.Command{ID: applyReplayResultCommand, Payload: gsr.RunnerResult[replayWriteResult]{Value: replayWriteResult{BattleID: artifact.BattleID, GameNum: artifact.GameNum, SubgameNum: artifact.SubgameNum, ReplayName: artifact.ReplayName}}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(output.sends) != 5 {
@@ -877,8 +877,8 @@ func TestBattleDeleteBarrierFencesOutputsAndLateResults(t *testing.T) {
 	player := service.bySeat[service.activeSeat]
 	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: PlayCardsCommand, Payload: PlayCardsRequest{Player: player, Cards: []byte{service.hands[player][0]}, VerifyCode: service.verifyCode}})
 	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: ForceFinishSubgameCommand, Payload: struct{}{}})
-	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: aiResult{BattleID: 54}})
-	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyReplayResultCommand, Payload: replayWriteResult{BattleID: 54}})
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: gsr.RunnerResult[aiResult]{Value: aiResult{BattleID: 54}}})
+	_ = service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyReplayResultCommand, Payload: gsr.RunnerResult[replayWriteResult]{Value: replayWriteResult{BattleID: 54}}})
 	if len(output.sends) != before {
 		t.Fatalf("post-barrier outputs = %d, want %d", len(output.sends), before)
 	}

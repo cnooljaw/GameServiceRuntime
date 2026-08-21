@@ -625,7 +625,7 @@ Runtime 只通过 `Runtime.Inspect()` 提供 Core 观测。NHSK 业务 Snapshot 
 - Battle 牌规层已实现参考 `Logic.GetCardType/CompareCardType` 的单牌、对子、三张、三带二和 4～8 张炸弹；发牌、新手/散牌调整、自定义牌堆与逐墩抓分均由 Battle 独立状态完成。对家出完时先结清当前分牌，再按旧 `CalcSuccessResult` 的名次与 `100/105/200` 阈值计算单扣/双扣、胜组和倍数；托管责任按 GameRule 前两项的原乘法公式认定并修正失败组负分。结果转换为类型化 SettlementRequestOutput，Legacy egress 编码 0x8650 固定体和两段 suffix；玩家、普通超时、托管、本地机器人、外部 AI 与 AI 超时来源均已进入同一动作校验、统计和结算路径。
 - Battle 当前墩已按参考累计 5/10/K 抓分；三家过牌后提交 `TurnEnd`，把本墩分值归属给最后出牌者，并清空本墩牌、过牌计数和上次出牌投影；`GameScene` 暴露当前墩牌、上次出牌和累计抓分。
 - 连接 Ready 时按 ConnectionGeneration 创建 `GameOutputService` 并绑定 Factory；GM 断线后由 Factory 有界 runner 停止该代际普通 Battle，旧输出不跨代提交。
-- Battle 的唯一 `ActionDeadline` fencing 已覆盖普通玩家、托管、机器人、外部 AI 与 AI 硬超时；默认本地 AI 不访问网络，可选 Legacy HTTP adapter 精确保留旧 RobotTran JSON/base64 envelope。AI 请求在固定 worker 外执行，结果携带完整小局/行动机会身份投回原 Battle Mailbox；非法或迟到结果不改变当前期限。托管状态仍通过旧 `0x8000720A` 广播/确认，并进入结算与回放来源统计。
+- Battle 的唯一 `ActionDeadline` fencing 已覆盖普通玩家、托管、机器人、外部 AI 与 AI 硬超时；默认本地 AI 不访问网络，可选 Legacy HTTP adapter 精确保留旧 RobotTran JSON/base64 envelope。AI 请求由 Runtime-owned Core Runner 的固定 worker 执行，结果携带完整小局/行动机会身份投回原 Battle Mailbox；非法或迟到结果不改变当前期限。托管状态仍通过旧 `0x8000720A` 广播/确认，并进入结算与回放来源统计。
 - `CompleteSettlement` 终态入口。
 - `MATCH_STOP` 已在 Battle Mailbox 内废止当前行动或外部结算，按本地 Success 结果完成 ShowCards、GameResult、回放、ROUND_STAT、GAME_OVER 和 NOTICE；后到 `0x8650` 稳定无副作用。
 - `DEL_GAME` 的正常路径先把 Host 绑定置为 Stopping，再由固定生命周期 runner Call Battle 删除屏障；屏障后禁止输出并 fence 迟到 AI/回放/结算结果，随后 Runtime Stop，只有真实 Stop 成功才删除绑定。`0x7218 BROADCAST_USE_PROP` 只作为 `RecordPropUse` 事实追加旧 Prop 回放节点。

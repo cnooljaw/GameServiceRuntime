@@ -13,7 +13,8 @@ GSR 是一个借鉴 Skynet 设计思想、使用 Go 实现的游戏 Service Runt
 - Send、Call、Reply、Session 和 PendingCall。
 - Timer 到 Command 的统一投递。
 - Service 生命周期、超时、panic 隔离、任务追踪和基础指标。
-- `Runtime.Inspect` 只读运行状态观测。
+- Runtime-owned [Core Runner](docs/rfcs/RFC-0193-Core-Runner.md)：固定 worker、有限队列、`Submit` 结果入箱，以及传入当前 `CommandContext`、不重入同一 Mailbox 的 `Await` 原栈恢复。
+- `Runtime.Inspect` 对 Service、Runtime Task、Runner 和指标提供统一只读观测。
 - WireEnvelope、远程 Send/Call/Reply 和跨节点调用环检测。
 - `CommandContext.Source` 调用来源和按节点本地名字查询的 `Runtime.ResolveRemote`。
 - TCP Transport、版本握手、受限帧、连接复用和断线通知。
@@ -102,7 +103,7 @@ go run ./examples/drain-runtime
 go run ./examples/monitor-runtime
 ```
 
-示例输出一行 JSON，包含本节点 Runtime 状态、Service、Mailbox、Runtime Task、PendingCall、Timer 和 Metrics。`tooling/monitor` 只消费 `Runtime.Inspect()` 的独立副本，不启动 HTTP、不创建后台任务，也不提供远程管理命令。
+示例输出一行 JSON，包含本节点 Runtime 状态、Service、Mailbox、Runtime Task、Runner、PendingCall、Timer 和 Metrics。`tooling/monitor` 只消费 `Runtime.Inspect()` 的独立副本，不启动 HTTP、不创建后台任务，也不提供远程管理命令。
 
 ## Snapshot 示例
 

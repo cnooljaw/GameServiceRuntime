@@ -27,7 +27,13 @@ func TestLocalAIProviderLeadsSmallestSingleAndPassesWhenFollowing(t *testing.T) 
 }
 
 func TestAIRunnerOwnsRequestAndReportsExactOpportunity(t *testing.T) {
-	runtime := &aiTestRuntime{sent: make(chan aiResult, 1)}
+	runtime := gsr.NewRuntime(gsr.Config{NodeID: "node-a"})
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	receiver := &aiRunnerResultService{sent: make(chan aiResult, 1)}
+	ref, err := runtime.CreateService(gsr.ServiceSpec{Service: receiver})
+	if err != nil {
+		t.Fatal(err)
+	}
 	provider := &recordingAIProvider{requests: make(chan AIRequest, 1)}
 	runner, err := NewAIRunner(runtime, provider)
 	if err != nil {
@@ -35,6 +41,7 @@ func TestAIRunnerOwnsRequestAndReportsExactOpportunity(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = runner.Close() })
 	request := validLegacyAIRequest()
+	request.Target = ref
 	request.Scene.OutedCards = [][]byte{{4}}
 	if err := runner.SubmitAI(request); err != nil {
 		t.Fatal(err)
@@ -50,7 +57,7 @@ func TestAIRunnerOwnsRequestAndReportsExactOpportunity(t *testing.T) {
 		t.Fatal("provider did not receive request")
 	}
 	select {
-	case got := <-runtime.sent:
+	case got := <-receiver.sent:
 		if got.BattleID != 1 || got.GameNum != 1 || got.SubgameNum != 1 || got.UserID != 1 || got.SeatID != 0 || got.TurnRevision != 1 || got.VerifyCode != 1 || !reflect.DeepEqual(got.Cards, []byte{3}) {
 			t.Fatalf("result = %#v", got)
 		}
@@ -72,7 +79,7 @@ func TestBattleRobotUsesSingleAIHardDeadlineAndAppliesValidResult(t *testing.T) 
 	}
 	before := len(service.hands[service.bySeat[service.activeSeat]])
 	result := aiResult{BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, UserID: request.UserID, SeatID: request.SeatID, TurnRevision: request.TurnRevision, VerifyCode: request.VerifyCode, StartedAt: request.StartedAt, Cards: []byte{request.Scene.Hand[0]}}
-	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: result}); err != nil {
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: gsr.RunnerResult[aiResult]{Value: result}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(service.hands[service.bySeat[int(request.SeatID)]]); got != before-1 {
@@ -98,7 +105,7 @@ func TestBattleOfflineAIResultReplacesHardDeadlineWithMinimumDelay(t *testing.T)
 	request := ai.requests[len(ai.requests)-1]
 	clock.now = request.StartedAt.Add(200 * time.Millisecond)
 	result := aiResult{BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, UserID: request.UserID, SeatID: request.SeatID, TurnRevision: request.TurnRevision, VerifyCode: request.VerifyCode, StartedAt: request.StartedAt, Cards: []byte{request.Scene.Hand[0]}}
-	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: result}); err != nil {
+	if err := service.Handle(&battleTestCommandContext{}, gsr.Command{ID: applyAIResultCommand, Payload: gsr.RunnerResult[aiResult]{Value: result}}); err != nil {
 		t.Fatal(err)
 	}
 	timer := output.timers[len(output.timers)-1]
@@ -129,19 +136,22 @@ func (provider *recordingAIProvider) Move(_ context.Context, request AIRequest) 
 	return []byte{request.Scene.Hand[0]}, nil
 }
 
-type aiTestRuntime struct{ sent chan aiResult }
+type aiRunnerResultService struct{ sent chan aiResult }
 
-func (runtime *aiTestRuntime) Send(_ gsr.ServiceRef, command gsr.CommandID, payload any) error {
-	if command != applyAIResultCommand {
+func (*aiRunnerResultService) Init(gsr.ServiceContext) error { return nil }
+func (service *aiRunnerResultService) Handle(_ gsr.CommandContext, command gsr.Command) error {
+	if command.ID != applyAIResultCommand {
 		return errors.New("unexpected command")
 	}
-	runtime.sent <- payload.(aiResult)
+	result, ok := command.Payload.(gsr.RunnerResult[aiResult])
+	if !ok || result.Err != nil {
+		return errors.New("unexpected AI runner payload")
+	}
+	service.sent <- result.Value
 	return nil
 }
-
-func (*aiTestRuntime) Call(context.Context, gsr.ServiceRef, gsr.CommandID, any) (any, error) {
-	return nil, errors.New("unexpected call")
-}
+func (*aiRunnerResultService) Stop(context.Context) error { return nil }
+func (*aiRunnerResultService) Close() error               { return nil }
 
 func newBattleForTestWithAI(t *testing.T, id game.BattleID, rules *NHSKConfig, automated [4]bool, ai AISubmitter) (*NHSKBattleService, *recordingBattleTestServiceContext) {
 	return newBattleForTestWithAIClock(t, id, rules, automated, ai, &nhskTestClock{now: time.Unix(1, 0)})

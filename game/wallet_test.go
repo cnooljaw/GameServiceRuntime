@@ -53,11 +53,21 @@ func TestWalletAppliesOnlyTrustedLedgerResultAndNotifiesBattle(t *testing.T) {
 	if len(executor.tasks) != 1 {
 		t.Fatalf("executor tasks = %#v", executor.tasks)
 	}
+	runnerFailure := gsr.RunnerResult[ledgerResult]{Err: gsr.ErrRunnerClosed}
+	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "other"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: runnerFailure}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("untrusted Runner failure error = %v, want ErrUnauthorized", err)
+	}
+	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "runner"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: runnerFailure}); err != nil {
+		t.Fatalf("trusted Runner failure error = %v, want nil", err)
+	}
+	if wallet.results[request.RequestID].State != SettlementPending || len(serviceContext.sent) != 0 {
+		t.Fatalf("Runner failure changed Wallet state: result=%#v sent=%#v", wallet.results[request.RequestID], serviceContext.sent)
+	}
 	result := SettlementResult{RequestID: "settle-42", State: SettlementCommitted, Currency: "coin", Balances: []Balance{{Player: "alice", Currency: "coin", Amount: 5}}}
-	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "other"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: ledgerResult{Request: request, Result: result, Terminal: true}}); !errors.Is(err, ErrUnauthorized) {
+	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "other"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: gsr.RunnerResult[ledgerResult]{Value: ledgerResult{Request: request, Result: result, Terminal: true}}}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("untrusted Apply error = %v, want ErrUnauthorized", err)
 	}
-	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "runner"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: ledgerResult{Request: request, Result: result, Terminal: true}}); err != nil {
+	if err := wallet.Handle(&walletTestCommandContext{source: gsr.ServiceRef{Node: "runner"}}, gsr.Command{ID: commandApplyLedgerResult, Payload: gsr.RunnerResult[ledgerResult]{Value: ledgerResult{Request: request, Result: result, Terminal: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(serviceContext.sent) != 1 || serviceContext.sent[0].target != request.Source || serviceContext.sent[0].command != ApplySettlementResultCommand {

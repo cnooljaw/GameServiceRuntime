@@ -273,6 +273,8 @@ func (battle *NHSKBattleService) Handle(ctx gsr.CommandContext, command gsr.Comm
 		return battle.start(ctx, command.Payload)
 	case ProvideCustomDeckCommand:
 		return battle.provideCustomDeck(ctx, command.Payload)
+	case applyCustomDeckLoadResultCommand:
+		return battle.applyCustomDeckLoadResult(ctx, command.Payload)
 	case UpdateRoundContextCommand:
 		return battle.updateRoundContext(ctx, command.Payload)
 	case ExitPlayerCommand:
@@ -584,6 +586,17 @@ func (battle *NHSKBattleService) provideCustomDeck(ctx gsr.CommandContext, paylo
 	}
 	battle.customDeckCatalog = request.Catalog.clone()
 	return battle.reply(ctx, CommandResult{Accepted: true})
+}
+
+func (battle *NHSKBattleService) applyCustomDeckLoadResult(ctx gsr.CommandContext, payload any) error {
+	if ctx.Source() != (gsr.ServiceRef{Node: ctx.Self().Node}) {
+		return game.ErrUnauthorized
+	}
+	result, ok := payload.(gsr.RunnerResult[customDeckLoadResult])
+	if !ok || result.Err != nil || !result.Value.Available {
+		return nil
+	}
+	return battle.provideCustomDeck(ctx, result.Value.Provision)
 }
 
 func (battle *NHSKBattleService) customDeckForSubgame() *CustomDeck {
@@ -984,7 +997,11 @@ func (battle *NHSKBattleService) beginReplayFinalization(ctx gsr.CommandContext)
 }
 
 func (battle *NHSKBattleService) applyReplayResult(ctx gsr.CommandContext, payload any) error {
-	result, ok := payload.(replayWriteResult)
+	runnerResult, ok := payload.(gsr.RunnerResult[replayWriteResult])
+	result := runnerResult.Value
+	if runnerResult.Err != nil && result.Error == "" {
+		result.Error = runnerResult.Err.Error()
+	}
 	if !ok || result.BattleID != battle.id || result.GameNum != battle.gameNum || result.SubgameNum != battle.subgameNum || result.ReplayName != battle.currentReplayName() || battle.phase != NHSKBattleFinalizingReplay {
 		return nil
 	}
@@ -1411,7 +1428,11 @@ func (battle *NHSKBattleService) buildAIRequest(target gsr.ServiceRef, player ga
 }
 
 func (battle *NHSKBattleService) applyAIResult(ctx gsr.CommandContext, payload any) error {
-	result, ok := payload.(aiResult)
+	runnerResult, ok := payload.(gsr.RunnerResult[aiResult])
+	result := runnerResult.Value
+	if runnerResult.Err != nil && result.Error == "" {
+		result.Error = runnerResult.Err.Error()
+	}
 	if !ok || result.Error != "" || battle.phase != NHSKBattlePlaying || result.BattleID != battle.id || result.GameNum != battle.gameNum || result.SubgameNum != battle.subgameNum || result.TurnRevision != battle.turnRevision || result.VerifyCode != battle.verifyCode || !result.StartedAt.Equal(battle.actionStartedAt) || int(result.SeatID) != battle.activeSeat {
 		return nil
 	}

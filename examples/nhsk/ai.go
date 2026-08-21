@@ -3,7 +3,6 @@ package nhsk
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/lijiawang/GameServiceRuntime/game"
@@ -95,28 +94,28 @@ type aiResult struct {
 	Error        string
 }
 
-// AIRunner owns a fixed worker pool for provider calls.
+// AIRunner adapts NHSK AI requests to the Runtime-owned Core Runner.
 type AIRunner struct {
-	runtime   game.CommandRuntime
-	provider  AIProvider
-	queue     chan AIRequest
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	lifecycle sync.RWMutex
+	core *gsr.Runner[AIRequest, aiResult]
 }
 
 // NewAIRunner starts the fixed-capacity AI runner.
-func NewAIRunner(runtime game.CommandRuntime, provider AIProvider) (*AIRunner, error) {
+func NewAIRunner(runtime *gsr.Runtime, provider AIProvider) (*AIRunner, error) {
 	if runtime == nil || provider == nil {
 		return nil, errInvalidAIRequest
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	runner := &AIRunner{runtime: runtime, provider: provider, queue: make(chan AIRequest, 128), ctx: ctx, cancel: cancel}
-	runner.wg.Add(1)
-	go runner.worker()
-	return runner, nil
+	core, err := gsr.NewRunner(runtime, gsr.RunnerConfig{Name: "nhsk-ai", Workers: 1, QueueSize: 128}, func(ctx context.Context, request AIRequest) (aiResult, error) {
+		cards, moveErr := provider.Move(ctx, request)
+		result := aiResult{BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, UserID: request.UserID, SeatID: request.SeatID, TurnRevision: request.TurnRevision, VerifyCode: request.VerifyCode, StartedAt: request.StartedAt, Cards: append([]byte(nil), cards...)}
+		if moveErr != nil {
+			result.Error = moveErr.Error()
+		}
+		return result, moveErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &AIRunner{core: core}, nil
 }
 
 // SubmitAI deep-copies and queues one request.
@@ -124,17 +123,15 @@ func (runner *AIRunner) SubmitAI(request AIRequest) error {
 	if runner == nil || !validAIRequest(request) {
 		return errInvalidAIRequest
 	}
-	runner.lifecycle.RLock()
-	defer runner.lifecycle.RUnlock()
 	request = cloneAIRequest(request)
-	select {
-	case <-runner.ctx.Done():
-		return context.Canceled
-	case runner.queue <- request:
-		return nil
-	default:
+	err := runner.core.Submit(context.Background(), request.Target, applyAIResultCommand, request)
+	if errors.Is(err, gsr.ErrRunnerQueueFull) {
 		return errAIQueueFull
 	}
+	if errors.Is(err, gsr.ErrRunnerClosed) {
+		return context.Canceled
+	}
+	return err
 }
 
 // Close cancels provider work and waits for the worker to return.
@@ -142,33 +139,7 @@ func (runner *AIRunner) Close() error {
 	if runner == nil {
 		return nil
 	}
-	runner.closeOnce.Do(func() {
-		runner.lifecycle.Lock()
-		defer runner.lifecycle.Unlock()
-		runner.cancel()
-		runner.wg.Wait()
-	})
-	return nil
-}
-
-func (runner *AIRunner) worker() {
-	defer runner.wg.Done()
-	for {
-		select {
-		case <-runner.ctx.Done():
-			return
-		case request := <-runner.queue:
-			if runner.ctx.Err() != nil {
-				return
-			}
-			cards, err := runner.provider.Move(runner.ctx, request)
-			result := aiResult{BattleID: request.BattleID, GameNum: request.GameNum, SubgameNum: request.SubgameNum, UserID: request.UserID, SeatID: request.SeatID, TurnRevision: request.TurnRevision, VerifyCode: request.VerifyCode, StartedAt: request.StartedAt, Cards: append([]byte(nil), cards...)}
-			if err != nil {
-				result.Error = err.Error()
-			}
-			_ = runner.runtime.Send(request.Target, applyAIResultCommand, result)
-		}
-	}
+	return runner.core.Close(context.Background())
 }
 
 func validAIRequest(request AIRequest) bool {

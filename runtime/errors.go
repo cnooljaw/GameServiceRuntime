@@ -47,4 +47,18 @@ var (
 	ErrPayloadEncode = errors.New("gsr: cluster payload encode failed")
 	// ErrPayloadDecode indicates that ClusterCodec could not decode a payload.
 	ErrPayloadDecode = errors.New("gsr: cluster payload decode failed")
+	// ErrInvalidRunnerConfig indicates that a Runner configuration is incomplete or invalid.
+	ErrInvalidRunnerConfig = errors.New("gsr: invalid runner config")
+	// ErrRunnerNameConflict indicates that a RunnerName is already registered in this Runtime.
+	ErrRunnerNameConflict = errors.New("gsr: runner name conflict")
+	// ErrInvalidRunnerTarget indicates that Submit received a non-local target or zero CommandID.
+	ErrInvalidRunnerTarget = errors.New("gsr: invalid runner target")
+	// ErrRunnerQueueFull indicates that a Runner queue cannot immediately accept a task.
+	ErrRunnerQueueFull = errors.New("gsr: runner queue full")
+	// ErrRunnerClosed indicates that a Runner is closing or closed.
+	ErrRunnerClosed = errors.New("gsr: runner closed")
+	// ErrRunnerAwaitNotAllowed indicates Await was used outside the current serial Handler path.
+	ErrRunnerAwaitNotAllowed = errors.New("gsr: runner await not allowed in this context")
+	// ErrRunnerPanic indicates that a Runner processor panicked.
+	ErrRunnerPanic = errors.New("gsr: runner processor panicked")
 )

@@ -3,7 +3,7 @@
 > 状态：已接受
 > 接受日期：2026-07-22
 > 范围：Runtime Tooling
-> 依赖：[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)
+> 依赖：[RFC-0192](RFC-0192-Core-Runtime-Inspection.md)、[RFC-0193](RFC-0193-Core-Runner.md)
 
 ## 目的
 
@@ -16,7 +16,7 @@ Monitor 消费 Core `Runtime.Inspect()` 的只读副本，把内部观测模型�
 Phase 7C 实现：
 
 - `tooling/monitor` 本地适配器。
-- Runtime、Service、Mailbox、Task、PendingCall 和 Timer 报告。
+- Runtime、Service、Mailbox、Runner、Task、PendingCall 和 Timer 报告。
 - Runtime 与业务通过 `Metrics` 写入的 counter、gauge 和 duration 输出。
 - 标准库 `encoding/json` 输出到 `io.Writer`。
 - 远程 Call 成功和失败计数。
@@ -123,11 +123,26 @@ type Report struct {
     Status       string
     ServiceCount int
     Services     []ServiceReport
+    RunnerCount  int
+    Runners      []RunnerReport
     TaskCount    int
     Tasks        []TaskReport
     PendingCalls int
     Timers       int
     Metrics      MetricsReport
+}
+
+type RunnerReport struct {
+    Name           gsr.RunnerName
+    Status         string
+    Workers        int
+    QueueDepth     int
+    Active         int
+    Submitted      uint64
+    Completed      uint64
+    Failed         uint64
+    Rejected       uint64
+    DeliveryFailed uint64
 }
 
 type ServiceReport struct {
@@ -176,6 +191,8 @@ restarting
 unknown
 ```
 
+Runner 状态固定为 `running`、`closing`、`closed`、`unknown`。
+
 Task Kind 使用 Core 的 `init`、`dispatch`、`stop`、`close`；未知值输出 `unknown`。未知枚举不得导致 Capture 或 JSON 输出失败。
 
 ## 副本与一致性
@@ -217,7 +234,7 @@ Prometheus/OpenMetrics exporter 作为独立 adapter 后续实现。它可以消
 - MetricsSnapshot 三类 map 的枚举与独立副本。
 - 远程 Call 成功、失败和本地 Call 不计数。
 - Runtime、Service 和 Task 状态字符串转换。
-- Service、Mailbox、PendingCall、Timer 和 Task 报告。
+- Service、Mailbox、Runner、PendingCall、Timer 和 Task 报告。
 - Report 切片和 Metrics map 的独立副本。
 - 空集合 JSON 不为 null，字段使用稳定 `snake_case`。
 - writer 错误原样返回，nil writer 返回稳定错误。

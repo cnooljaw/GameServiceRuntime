@@ -1,12 +1,12 @@
 # GSR 待办列表
 
-> 更新时间：2026-08-20
+> 更新时间：2026-08-21
 >
 > 作用：记录已实现里程碑的工程欠账和收口项；尚未开始的新能力仍以 `RFC-0500` 为准。
 
 ## 当前结论
 
-**Core Runtime** 已经完成 `RFC-0100` 至 `RFC-0192` 的功能实现，覆盖：
+**Core Runtime** 已经完成 `RFC-0100` 至 `RFC-0193` 的功能实现，覆盖：
 
 - Service、ServiceRef、ServiceName、Registry 和单一 `Handle` Command 分发入口。
 - Mailbox、ReadyQueue、固定执行许可池和串行 Handler。
@@ -16,6 +16,7 @@
 - 本地端到端示例及并发、生命周期一致性测试。
 - Cluster Router、WireEnvelope、远程 Send/Call/Reply 和跨节点调用环检测。
 - TCP 握手、受限长度帧、连接复用、断线通知及双节点端到端示例。
+- 固定容量 Core Runner、`Await` 原栈恢复、`Submit` 结果入箱、统一关闭与只读观测。
 
 当前状态定义为：**Core Runtime 功能闭环，并发布首个 major 0 基线 `v0.1.0`**。Runtime Tooling 和业务模板属于后续里程碑，不计入 Core 未完成项。
 
@@ -51,6 +52,7 @@ Cluster 前的 P2 工程门禁、Phase 5 Cluster Data Plane、Phase 6 Core Runti
 
 | CF-010 | 已完成 | 同步教程和 RFC 状态 | 以实现为准回填 `docs/GSR-Book` 的 Core Runtime 章节；完成 API 冻结评审后，把 `RFC-0100` 至 `RFC-0192` 从“草案”更新为明确的已接受状态。 |
 | CF-011 | 已完成 | 发布首个 Core 版本 | P1、P2 清零后整理变更说明，执行全量质量命令并建立首个版本标签；标签前不承诺公开 API 稳定性。 |
+| CF-012 | 已完成 | 收敛 Core Runner 与 Service 外部工作 | 已实现固定 worker、有限队列、`Await` 原栈恢复、`Submit` 结果入箱、Runtime 生命周期和 Inspection；已迁移通用账本及 NHSK 的 AI、回放、自定义牌堆和诊断 runner，并通过关闭、panic、取消、乱序和 Race 测试。带多阶段 Call、补偿或投递失败清理的执行器仍保留专用状态机。 |
 
 ## P4：业务模板性能基线
 

@@ -190,8 +190,11 @@ func (r *Runtime) savedCloseResult() error {
 func (r *Runtime) closeRuntime(ctx context.Context) error {
 	closeCtx, cancel := context.WithTimeoutCause(ctx, r.shutdownTimeout, ErrCloseTimeout)
 	defer cancel()
-	r.pending.failAll(ErrRuntimeClosed)
 	var result error
+	if err := r.runners.closeAll(closeCtx); err != nil {
+		result = errors.Join(result, err)
+	}
+	r.pending.failAll(ErrRuntimeClosed)
 	if r.cluster != nil {
 		if err := r.cluster.transport.Close(closeCtx); err != nil {
 			result = errors.Join(result, err)

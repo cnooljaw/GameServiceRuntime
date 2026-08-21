@@ -87,6 +87,8 @@ Service handler 不应直接执行长时间阻塞操作。
 
 `ServiceContext.Call` 是受 Runtime 管理的例外：handler 等待 Reply 时让出有限执行许可，但保持该 Service busy；Reply 返回后重新获取许可并继续。这样不会把同步等待计入可运行 handler 的并发上限。
 
+`Runner.Await` 使用同一条执行许可让出与恢复机制：可能阻塞的工作在 Core Runner 固定 worker 中执行，当前 handler 保持 Service busy，同一 Mailbox 不重入；其他 Service 可以继续使用被归还的许可。`Runner.Submit` 则要求当前 handler 返回，完成结果以后续 Command 重新进入 Mailbox。完整契约见 [RFC-0193](RFC-0193-Core-Runner.md)。
+
 ## Runtime Task 追踪
 
 固定的是同时执行 Service 代码的许可数量，不是 Go goroutine 的绝对数量。Runtime 可以为 ready Service 创建执行任务，但每个任务必须登记：
@@ -109,6 +111,7 @@ Service handler 不应直接执行长时间阻塞操作。
 - 慢 Command 统计。
 - 非阻塞 ReadyQueue 入队。
 - Call 等待期间执行许可让出与恢复。
+- Runner Await 等待期间执行许可让出与恢复。
 
 暂不实现：
 

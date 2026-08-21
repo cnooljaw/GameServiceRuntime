@@ -34,7 +34,7 @@ description: 当实现或评审 GSR 的 Service、Command、Mailbox、Scheduler�
 - 系统 Service 同样使用动态 `ServiceID` 加稳定 `ServiceName`，不引入 `SystemServiceID`；只有 `ServiceID(0)` 是 Core 的节点端点，不分发给 Service。
 - Discovery 保存节点 lease 和长期 ServiceName，不保存 ServiceSet、不选择路由、不引入 Gossip。ServiceGroup 的事实由 `DirectoryService` 持有，Router 只路由调用方显式持有的 ServiceSet。
 - Timer 只在未来投递 Command；不要把 Timer Wheel 包装成 Service，也不要让 Timer 执行业务回调。
-- 生产代码中的直接 `go` 默认禁止。只有 Runtime 内部任务、Transport/连接 Adapter 的 I/O owner、或固定上限的外部 worker pool 可以例外；例外必须有明确生命周期 owner、取消或关闭入口、真实返回等待和泄漏测试，且不得在 Handler 外修改 Service 状态或使用保存的 `ServiceContext`。
+- 生产代码中的直接 `go` 默认禁止。外部阻塞工作优先使用 Core Runner：必须保持当前 Service 串行快照时把本次 `CommandContext` 传给 `Await`，允许继续处理 Mailbox 时用 `Submit` 并在结果 Command 中做业务 fencing。只有 Runtime 内部任务、Transport/连接 Adapter 的 I/O owner、或 Core Runner 无法表达且经 RFC 裁决的固定外部任务可以例外；例外必须有明确生命周期 owner、取消或关闭入口、真实返回等待和泄漏测试，且不得在 Handler 外修改 Service 状态或保存、使用 `CommandContext`、`ServiceContext`。
 - Supervisor 是可选 Tooling 的故障恢复组件，不替代 Runtime 的 Create/Stop 生命周期，也不假设 Erlang/OTP 的 Supervisor Tree。只有实际承担监控、恢复和重启策略的组件才使用该名称。
 - Phase 8 的 Discovery/Observer 描述 Observed State；Phase 10 才引入 Desired State、Controller、Reconcile 与 NodeAgent 执行动作。Controller 决策，NodeAgent 执行，Runtime 只提供能力。
 

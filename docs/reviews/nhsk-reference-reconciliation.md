@@ -1262,6 +1262,27 @@
 | RFC/决策 | RFC-0410、RFC-0500；TODO CARD-012、CARD-065。 |
 | 备注 | 参考业务源码、配置和资源未修改。 |
 
+### 4.62 Core Runner 与 NHSK 外部工作收敛
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将 AI、回放写盘、自定义牌堆、隔离诊断和通用 Wallet Ledger 的重复 worker pool 收敛到 Runtime-owned Core Runner；同时冻结 `Await` 原栈恢复与 `Submit` 结果入箱两种模式。 |
+| GSR 文件/测试 | `runtime/runner.go`、`runner_registry.go`、`runner_conformance_test.go`、`examples/nhsk/ai.go`、`replay_writer.go`、`custom_deck.go`、`quarantine.go`、`game/ledger_runner.go` 及对应测试；覆盖队列满、同名、Source、同 Service 不重入、其他 Service 继续、panic、取消、关闭超时、Inspection、投递失败和 Submit/Close race。 |
+| 参考入口 | `gamelogic/internal/game/game.go:NewBaseGame/StartMsgProcessor/PushMsg`、`game_api.go:SendMsgToRobotScene`、`roundmanager/round.go:stopEventLoop/ClearRound`、`services/cacheservice/gameconfigservice.go:StartSync`；玩法/回放/牌堆的具体入口沿用前述 4.41、4.43、4.54、4.56。 |
+| 参考测试/配置/录包 | 旧 BaseGame 为每局建立 `msgChan`，AI 使用临时 goroutine 后再 PushMsg；Round 和配置同步也各自拥有 goroutine/channel。参考没有统一 worker 生命周期、Runtime Inspection 或 Await API，因此本切片不改变任何 Legacy wire fixture。 |
+| Legacy MessageID | 无新增、删除或重定义。AI、回放、自定义牌堆和诊断结果仍只进入既有私有 Command；客户端与 GM 的 TCP MessageID、顺序和 payload 不变。 |
+| 输入与校验 | Submit 前继续深拷贝手牌、历史动作、XML、牌堆 lookup 和诊断 Snapshot/Record。Core 只接受当前 Runtime 的精确非零 ServiceRef；Battle/Host 收到 `RunnerResult` 后仍校验小局、行动、阶段、ReplayName、隔离 Ref 和 receipt。 |
+| 权威状态变化 | Runner processor 不持有 ServiceContext、不修改 Battle/Host/Wallet 状态；`Submit` 结果只经 Mailbox Command 应用。`Await` 只归还 Scheduler 许可，仍持有当前 Service 串行权，本 NHSK 切片没有使用 Await。 |
+| Timer/Timeline | AI 硬期限、回放 finalize deadline 和玩法 TurnRevision 不变。Runner 不创建业务 Timer，也不增加通用 Revision。 |
+| 输出目标与顺序 | provider/I/O 完成顺序仍不构成业务顺序；结果进入目标 Mailbox 后按现有 fencing 决定应用。processor error 进入 `RunnerResult.Err`，原领域错误文本和失败收敛保持不变。 |
+| 生命周期结果 | Runtime 注册唯一 RunnerName，统一关闭、取消、等待真实 worker 返回并在 `Inspect().Runners` 暴露状态。关闭超时不伪造 worker 已退出。Battle 创建/停止保留专用生命周期执行器，因为它还承担 orphan Stop、屏障、诊断捕获和投递失败补偿；Supervisor 等多阶段重试/补偿执行器也不硬塞进单结果 Core Runner。 |
+| 已一致 | AI/外部结果必须重新进入游戏串行消息队列后才能改变玩法状态，与旧 `SendMsgToRobotScene -> PushMsg -> msgChan` 的可观察串行意图一致；回放、牌堆和诊断的业务结果与此前核对一致。 |
+| 有意偏差 | 参考按对象分散创建 goroutine/channel，且 AI goroutine 可能在 Round 清理后迟到并依赖 recover；新实现使用 Runtime 统一的固定 worker、有限队列、精确 ServiceRef 和关闭观测。该差异由 RFC-0193/D-102 裁决，不改变 Legacy 业务协议。 |
+| 发现遗漏 | 未发现新的玩法或 wire 遗漏。专用生命周期执行器的补偿语义超出 Core Runner 单结果契约，明确保留而非制造通用回调。 |
+| 结论 | 外部 I/O 的执行资源和生命周期已收敛为 Core 能力；NHSK 的状态应用与旧串行意图一致，分散 goroutine 的实现方式为有意改进。 |
+| RFC/决策 | RFC-0193、RFC-0410、RFC-0500、D-102；TODO CF-012、CARD-015、022、023、013。 |
+| 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务源码、配置和资源未修改。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

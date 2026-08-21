@@ -34,7 +34,7 @@ Layer 3: Business Layer
 
 ## 当前执行状态
 
-截至 2026-07-23，**Core Runtime** 首版已经完成。它覆盖 `RFC-0100` 至 `RFC-0192`、本路线图的 Phase 1 至 Phase 7A，包括错误模型、性能基线、生命周期与任务观测、本地和双节点端到端示例。
+截至 2026-08-21，**Core Runtime** 已覆盖 `RFC-0100` 至 `RFC-0193`、本路线图的 Phase 1 至 Phase 7A，并在 Phase 14 反馈中补入固定容量 Runner、`Await` 原栈恢复与 `Submit` 结果入箱能力。
 
 历史讨论中的“第一阶段”默认指 Cluster 之前的 Core Foundation，不等同于本路线图狭义的 Phase 1。Phase 5 Cluster Data Plane 后续独立实施，并已完成。
 
@@ -48,6 +48,7 @@ Layer 3: Business Layer
 
 | RFC | 阶段 | 状态 | 审核结论 |
 |---|---|---|---|
+| RFC-0193 Core Runner | 14 | 已接受 | 已实现固定 worker、有限队列、Await 保持同一 Service 串行、Submit 结果入箱、Runtime Close 和 Inspection；通用账本及 NHSK 的 AI、回放、自定义牌堆和诊断 runner 已迁移，专用多阶段工作流执行器按非目标保留。 |
 | RFC-0210 Snapshot | 7D | 已接受 | 已实现 Capture Command、外部 Store、Revision 冲突保护、Cluster Codec 和组合根恢复。 |
 | RFC-0220 Supervisor | 7E | 已接受 | 已实现 panic Decorator、Source/Generation fencing、有界 Runner、恢复预算、两阶段发布和 Snapshot 纵向切片。 |
 | RFC-0290 客户端入口 | 7F | 已接受 | 已实现内存 SessionRegistry、SingleSession LoginService、固定 proof 线格式、TCP Login/Gateway Adapter、ProtocolMapper seam 与端到端验收。 |

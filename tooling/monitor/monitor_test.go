@@ -44,6 +44,10 @@ func TestCaptureConvertsRuntimeInspection(t *testing.T) {
 			Status:       gsr.ServiceRunning,
 			MailboxDepth: 3,
 		}},
+		Runners: []gsr.RunnerInspection{{
+			Name: "external", Status: gsr.RunnerClosing, Workers: 2, QueueDepth: 3, Active: 1,
+			Submitted: 10, Completed: 6, Failed: 2, Rejected: 4, DeliveryFailed: 1,
+		}},
 		Tasks: []gsr.RuntimeTaskInspection{{
 			ID:        11,
 			Owner:     gsr.ServiceRef{Node: "node-a", ID: 7},
@@ -74,6 +78,13 @@ func TestCaptureConvertsRuntimeInspection(t *testing.T) {
 	if service.Ref != (Ref{Node: "node-a", ID: 7}) || service.Name != "lobby" || service.Status != "running" || service.MailboxDepth != 3 {
 		t.Fatalf("service report = %#v", service)
 	}
+	if report.RunnerCount != 1 || len(report.Runners) != 1 {
+		t.Fatalf("runner count = %d/%d, want 1/1", report.RunnerCount, len(report.Runners))
+	}
+	runner := report.Runners[0]
+	if runner.Name != "external" || runner.Status != "closing" || runner.Workers != 2 || runner.QueueDepth != 3 || runner.Active != 1 || runner.Submitted != 10 || runner.Completed != 6 || runner.Failed != 2 || runner.Rejected != 4 || runner.DeliveryFailed != 1 {
+		t.Fatalf("runner report = %#v", runner)
+	}
 	if report.TaskCount != 1 || len(report.Tasks) != 1 {
 		t.Fatalf("task count = %d/%d, want 1/1", report.TaskCount, len(report.Tasks))
 	}
@@ -88,9 +99,10 @@ func TestCaptureConvertsRuntimeInspection(t *testing.T) {
 		t.Fatal("Capture returned nil metric maps")
 	}
 	report.Services[0].Name = "changed"
+	report.Runners[0].Name = "changed"
 	report.Tasks[0].Kind = "changed"
 	second := monitor.Capture()
-	if second.Services[0].Name != "lobby" || second.Tasks[0].Kind != "dispatch" {
+	if second.Services[0].Name != "lobby" || second.Runners[0].Name != "external" || second.Tasks[0].Kind != "dispatch" {
 		t.Fatalf("second report reused mutable slices: %#v", second)
 	}
 	if inspector.calls != 2 {
@@ -138,6 +150,25 @@ func TestCaptureUsesStableStatusStrings(t *testing.T) {
 		}
 		if got := monitor.Capture().Services[0].Status; got != test.want {
 			t.Fatalf("ServiceStatus(%d) = %q, want %q", test.status, got, test.want)
+		}
+	}
+
+	runnerCases := []struct {
+		status gsr.RunnerStatus
+		want   string
+	}{
+		{gsr.RunnerRunning, "running"},
+		{gsr.RunnerClosing, "closing"},
+		{gsr.RunnerClosed, "closed"},
+		{gsr.RunnerStatus(99), "unknown"},
+	}
+	for _, test := range runnerCases {
+		monitor, err := New(&stubInspector{inspection: gsr.RuntimeInspection{Runners: []gsr.RunnerInspection{{Status: test.status}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := monitor.Capture().Runners[0].Status; got != test.want {
+			t.Fatalf("RunnerStatus(%d) = %q, want %q", test.status, got, test.want)
 		}
 	}
 

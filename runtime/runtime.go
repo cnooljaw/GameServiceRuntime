@@ -40,6 +40,7 @@ type Runtime struct {
 	pending              *pendingCalls
 	timers               *timerManager
 	tasks                *taskTracker
+	runners              *runnerRegistry
 	cluster              *clusterRuntime
 	metrics              *metricCollector
 	logger               *slog.Logger
@@ -86,7 +87,7 @@ func NewRuntime(config Config) *Runtime {
 		config.Now = time.Now
 	}
 	metrics := newMetricCollector()
-	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, slowCommandThreshold: config.SlowCommandThreshold, shutdownTimeout: config.ShutdownTimeout, pending: newPendingCalls(), timers: newTimerManager(), metrics: metrics, logger: config.Logger, now: config.Now, closeDone: make(chan struct{})}
+	runtime := &Runtime{node: config.NodeID, mailboxSize: config.MailboxSize, slowCommandThreshold: config.SlowCommandThreshold, shutdownTimeout: config.ShutdownTimeout, pending: newPendingCalls(), timers: newTimerManager(), runners: newRunnerRegistry(), metrics: metrics, logger: config.Logger, now: config.Now, closeDone: make(chan struct{})}
 	runtime.registry = newLocalRegistry(config.TombstoneTTL, config.TombstoneLimit, config.Now)
 	runtime.tasks = newTaskTracker(metrics, config.Now)
 	runtime.state.Store(runtimeRunning)
@@ -272,7 +273,8 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 	started := r.now()
 	instance.setPath(envelope.CallPath)
 	defer instance.setPath(nil)
-	ctx := &commandContext{self: instance.ref, source: envelope.Source, runtime: r, session: envelope.Session, command: envelope.Command}
+	ctx := &commandContext{self: instance.ref, source: envelope.Source, runtime: r, instance: instance, session: envelope.Session, command: envelope.Command}
+	ctx.active.Store(true)
 	defer func() {
 		elapsed := r.now().Sub(started)
 		r.metrics.Inc("commands_handled_total")
@@ -290,6 +292,7 @@ func (r *Runtime) executeEnvelope(instance *serviceInstance, envelope Envelope) 
 			r.closeAfterFailure(instance)
 		}
 	}()
+	defer ctx.active.Store(false)
 	if err := instance.service.Handle(ctx, Command{ID: envelope.Command, Payload: envelope.Payload}); err != nil {
 		r.metrics.Inc("handler_errors_total")
 		r.logger.Error("service handler error", "service", instance.ref, "command", envelope.Command, "error", err)

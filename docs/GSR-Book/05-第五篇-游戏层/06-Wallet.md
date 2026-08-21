@@ -33,7 +33,7 @@ runner, err := game.NewLedgerRunner(runtime, game.LedgerRunnerConfig{
 defer runner.Close(context.Background())
 ```
 
-Runner 属于组合根，是允许使用固定 goroutine 的外部 worker pool。它有有界队列、取消和 Close 等待。
+`LedgerRunner` 属于组合根，但它只是领域适配器；固定 worker、有限队列、取消、Close 等待和 Inspection 由 Runtime-owned Core Runner 统一实现。
 
 ## 创建 Wallet
 
