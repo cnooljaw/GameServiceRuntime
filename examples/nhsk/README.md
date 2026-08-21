@@ -20,21 +20,60 @@
 
 ## 架构与状态所有权
 
+先只看 Service 主链。调用方可以是当前的 Legacy adapter，也可以是以后装配完成的 Cluster Service；两者进入 GSR 后的区别到这里结束。
+
+```mermaid
+flowchart TD
+    Caller["输入 adapter / Service"]
+    Sink["外围输出 sink"]
+
+    subgraph Runtime["GSR Runtime"]
+        Host["NHSKHostService<br/>整桌索引与生命周期状态"]
+        Factory["BattleFactoryService<br/>执行创建与停止流程"]
+        Battle["NHSKBattleService<br/>一桌玩法权威状态"]
+        Output["GameOutputService<br/>当前连接代际输出"]
+    end
+
+    Caller -->|"Create / Resolve"| Host
+    Host -->|"生命周期 Command"| Factory
+    Factory -->|"Create / 删除屏障 / Stop"| Battle
+    Caller -->|"取得 BattleRef 后直接 Send / Call"| Battle
+    Battle -->|"GameOutputBatch Command"| Output
+    Output -->|"按连接代际交付"| Sink
+```
+
+Host 与 Battle 的边界只有一句话：**Host 管整桌实例，Battle 管桌内玩法。** Host 创建或解析出 `BattleRef` 后，调用方直接访问 Battle；正常出牌不再绕回 Host。Factory 是 Host 的生命周期执行者，不是玩法入口。
+
+Runner 是另一条完全不同的关系。它是组合根注入给 Service 的进程内能力，不是 Service：
+
 ```mermaid
 flowchart LR
-    GM["旧 GameMaster"] <-->|"单条 Legacy TCP"| Conn["LegacyGMConnection"]
-    Conn -->|"类型化 Command"| Host["NHSKHostService"]
-    Conn -->|"缓存 BattleRef 后直投"| Battle["NHSKBattleService"]
-    Cluster["Cluster Service"] -->|"ResolveBattle"| Host
-    Cluster -->|"Send / Call"| Battle
-    Battle -->|"GameOutputBatch"| Output["GameOutputService"]
-    Output --> Conn
-    Factory["BattleFactoryService"] -->|"创建 / 停止"| Battle
-    Deck["CustomDeckRunner"] -->|"ProvideCustomDeck"| Battle
-    AI["AIRunner"] -->|"AI 结果 Command"| Battle
-    Replay["ReplayWriterRunner"] <-->|"不可变文档 / 结果 Command"| Battle
-    Diag["DiagnosticRunner"] <-->|"证据 / receipt"| Host
+    Handler["Service Handler<br/>先冻结阶段与任务身份"]
+    Runner["Core Runner<br/>固定 worker + 有限队列"]
+    IO["HTTP / Redis / 文件系统"]
+    Mailbox["目标 Service Mailbox"]
+
+    Handler -->|"普通 Go 接口 Submit"| Runner
+    Runner -->|"执行阻塞 I/O"| IO
+    IO -->|"返回结果"| Runner
+    Runner -->|"Runtime.Send 结果 Command"| Mailbox
+    Mailbox -->|"下一次 Handle 校验 fencing"| Handler
 ```
+
+这里没有 `ServiceRef -> Runner`，也没有 `Runner -> Service` 对象调用。Service 只在当前 Handler 中调用一个窄的 `Submit...` Go 接口；Runner 完成后借助 Runtime 把结果 Command 投递给任务里冻结的目标 `ServiceRef`，权威状态仍只能在下一次 Mailbox Handler 中修改。
+
+相关外围工作的真实 owner 是：
+
+| 工作 | 谁提交 | 谁接收结果 | 说明 |
+|---|---|---|---|
+| AI | Battle 调用 `AISubmitter.SubmitAI` | 同一个 Battle | 结果带行动身份，迟到时丢弃 |
+| 回放写盘 | Battle 调用 `ReplaySubmitter.SubmitReplay` | 同一个 Battle | Battle 处于 `FinalizingReplay`，结果或期限负责收敛 |
+| 隔离诊断 | Host 调用 `DiagnosticSubmitter.SubmitDiagnostic` | 同一个 Host | Runner 在外围补入 `Runtime.Inspect()` 并写诊断文件 |
+| Legacy 自定义牌堆 | 连接 owner 调用 `CustomDeckRunner.LoadAndProvide` | 目标 Battle | 这是外围有界等待，不经过 Core Runner；成功后以公开 `ProvideCustomDeck` Command 入箱 |
+
+`CustomDeckRunner` 这个类型同时提供两条入口，名称容易造成误解：`SubmitCustomDeck` 使用 Core Runner，但当前生产组合根没有调用；Legacy 路径为了严格保持 `UPDATE_GAME -> ProvideCustomDeck -> START` 顺序，使用 `LoadAndProvide` 在连接 owner 中带超时等待 provider。两条路径都不会在 Battle Handler 中读取 Redis。
+
+Factory 的创建/停止 worker 也不是 Core Runner。它是 `BattleFactoryService` 自己拥有的特殊生命周期执行器，因为整个流程包含 `CreateService`、删除屏障、诊断捕获、`Stop`、orphan Stop 和结果补偿，不能压成一次普通外部 I/O。worker 不直接修改任何 Service 字段；执行结果先作为 Command 回到 Factory Mailbox，再由 Factory 向 Host 报告，Host 和 Battle 的权威状态始终在各自 Handler 中修改。
 
 | 组件 | 权威状态 | 明确不拥有 |
 |---|---|---|
@@ -64,7 +103,7 @@ MySQL 和 Redis 都不是牌局权威状态。当前权威状态在 Service 内�
 | `CommandContext.Source()` | Factory 校验内部 Command 必须来自 Host、本节点 Runtime 根或精确 Battle Ref | 内部生命周期能力不能仅靠伪造 payload 调用 |
 | `ServiceContext.After` | Battle 为出牌机会和回放收尾投递未来 Timer Command | Timer 不执行玩法回调；到期动作仍回到同一 Mailbox 串行处理 |
 | Service 生命周期 | Factory 使用 `CreateService` 动态创建每桌 Battle，删除屏障后使用 `Stop`；进程退出最终 `Runtime.Close` | Create、Handle、Stop、Close 有统一接受边界，停止时 Runtime 清理 Mailbox、Timer 和注册信息 |
-| Core `Runner.Submit` | AI HTTP、回放写盘、自定义牌堆读取和诊断导出在固定 worker、有限队列中执行，结果以 Command 返回 | 阻塞 I/O 不占住 Battle Mailbox；任务可取消、可关闭并等待真实返回 |
+| Core `Runner.Submit` | AI HTTP、回放写盘和诊断导出在固定 worker、有限队列中执行，结果以 Command 返回 | 阻塞 I/O 不占住 Battle Mailbox；任务可取消、可关闭并等待真实返回 |
 | 背压与稳定错误 | Mailbox 满、Runner 队列满、Service 已关闭、Call 超时等错误由调用处显式处理 | 超载不会悄悄变成无限 goroutine 或无限内存队列 |
 | Logger 与 Metrics | Service 通过 Context 记录 AI、回放、协议丢弃、隔离等指标和结构化日志 | 业务观测复用 Runtime 上下文，不维护另一套全局可变统计对象 |
 | `Runtime.Inspect()` | 健康检查读取 Metrics；诊断导出保存 Runtime、Service、Mailbox、Timer、任务和 Runner 的只读快照 | 观测不直接读取或修改 Service 私有状态，异常现场可以随 Battle 证据一起保存 |
@@ -89,7 +128,7 @@ MySQL 和 Redis 都不是牌局权威状态。当前权威状态在 Service 内�
 - 当前 `GameLogicProcess` 只创建本地 Runtime，没有装配 Cluster Transport 和 NHSK Cluster Codec。公开 Command 和 `ServiceRef` 契约可以被未来远程 Cluster 调用复用，但当前进程并未实际监听 GSR 集群端口。
 - 没有使用 `ResolveRemote`、Discovery、ServiceGroup、Router、Drain、Controller 或 NodeAgent；第一阶段仍由旧 GameMaster 和当前连接代际决定路由。
 - 没有使用 Snapshot Store 恢复或 Supervisor 自动重建。进程崩溃后旧 Battle 不恢复；单桌缺陷选择保留隔离证据。
-- 没有使用 Core `Runner.Await`。AI、回放、自定义牌堆和诊断都要求等待期间 Battle 继续处理 Mailbox，因此统一使用 `Submit`。
+- 没有使用 Core `Runner.Await`。AI、回放和诊断要求等待期间 Service 继续处理 Mailbox，因此使用 `Submit`；Legacy 自定义牌堆则在 Service 外的连接 owner 中有界等待，不占用 Battle Mailbox。
 - 没有使用 GSR 的 Login、Gateway、Room、PlayerService 或 Wallet 模板。本阶段冻结这些上游职责，只替换旧 GameLogic。
 
 因此，这个例子主要验证的是：**Service/ServiceRef/Command、Mailbox/Scheduler、Send/Call/Reply、Timer、生命周期、Runner、Inspection 和失败隔离，能否共同承载一套可兼容旧系统的完整棋牌游戏 GameLogic。**
@@ -100,7 +139,7 @@ Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；Core R
 
 因此边界固定为：
 
-- Service 在 Handler 内先记录 pending 阶段或业务身份，再把深拷贝的不可变任务提交给领域适配器；AI、回放、自定义牌堆和诊断适配器都复用 Core `Runner.Submit`。
+- Service 在 Handler 内先记录 pending 阶段或业务身份，再把深拷贝的不可变任务提交给领域适配器；当前 AI、回放和诊断适配器复用 Core `Runner.Submit`。
 - Core Runner 只执行外部工作，不读取或修改 Service 状态，不保存 `CommandContext` 或 `ServiceContext`。
 - Core Runner 完成后把 `RunnerResult` 包装成 Command，发送到任务中冻结的精确本地 ServiceRef。
 - 只有目标 Service 再次在 Mailbox Handler 中核对结果并修改权威状态。
@@ -110,9 +149,9 @@ Service 负责保存权威状态、按 Mailbox 顺序执行业务决定；Core R
 
 ### Submit 与 Await 如何处理 Mailbox
 
-NHSK 使用的 `Submit...` 最终调用 Core `Runner.Submit`：它只校验输入、深拷贝必要数据并非阻塞尝试入队。成功表示 Runner 已接收任务；队列满或已关闭会立即返回稳定错误。真正的 HTTP、Redis 和文件写入在固定 worker 中执行。
+NHSK 当前由 Service Handler 调用的 `SubmitAI`、`SubmitReplay` 和 `SubmitDiagnostic` 最终进入 Core `Runner.Submit`：它只校验输入、深拷贝必要数据并非阻塞尝试入队。成功表示 Runner 已接收任务；队列满或已关闭会立即返回稳定错误。真正的 HTTP 和文件写入在固定 worker 中执行。
 
-Core 还提供 `Runner.Await`：它接收本次 Handler 仍有效的 `CommandContext`；等待外部结果时归还全局 Scheduler 许可，其他 Service 可以继续运行，但同一 Service 仍保持 busy，下一条 Mailbox Command 不会重入；结果返回后代码从原 `Await` 调用点继续。NHSK 当前的 AI、回放、自定义牌堆和诊断都需要等待期间继续响应牌局消息，因此使用 `Submit`，不使用 `Await`。
+Core 还提供 `Runner.Await`：它接收本次 Handler 仍有效的 `CommandContext`；等待外部结果时归还全局 Scheduler 许可，其他 Service 可以继续运行，但同一 Service 仍保持 busy，下一条 Mailbox Command 不会重入；结果返回后代码从原 `Await` 调用点继续。NHSK 当前的 AI、回放和诊断需要等待期间继续响应 Mailbox，因此使用 `Submit`，不使用 `Await`。Legacy 自定义牌堆的顺序等待发生在连接 owner，不属于 `Runner.Await` 场景。
 
 这保证的是“Handler 不发生无上限等待”，不是宣称提交调用耗时为零。提交路径不得进行网络/磁盘 I/O，也不得等待外部结果。提交失败由当前 Handler 立即按该业务的降级规则处理，例如 AI 保留硬超时回退、回放进入失败收敛、生命周期创建返回失败、诊断保留可人工重试状态。
 

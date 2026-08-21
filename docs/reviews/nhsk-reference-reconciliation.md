@@ -1334,10 +1334,26 @@
 | 未使用能力 | 明确列出 ResolveRemote、Discovery、ServiceGroup、Router、Drain、Controller、NodeAgent、Snapshot 恢复、Supervisor、Runner.Await 和上游 Login/Gateway/Room/Wallet 当前均未使用。 |
 | 已一致 | 所列能力均有当前源码或测试使用证据；异步结果仍通过 Command 入箱并由业务 fencing 判断应用资格。 |
 | 有意偏差 | 无新增设计偏差；该节只把既有 Runtime/Business 边界解释为可学习的综合示例。 |
-| 发现遗漏 | 无运行时代码遗漏；此前 README 没有集中说明示例覆盖的 GSR 能力和未覆盖边界，本切片已补齐。 |
+| 发现遗漏 | 首次说明把当前 Legacy 自定义牌堆读取误列为 Core Runner.Submit；该路径实际由连接 owner 调用 LoadAndProvide 有界等待，已在 4.66 纠正。 |
 | 结论 | 示例现在既能说明宁海双扣业务，也能作为 GSR Core 能力组合的阅读入口，同时不夸大未装配的 Tooling 和远程 Cluster 能力。 |
 | RFC/决策 | RFC-0100、0110、0120、0130、0150、0160、0170、0180、0192、0193、0410；D-001 至 D-005、D-020、D-024。 |
 | 备注 | CodeGraph 已同步并确认索引最新，最终结论以源码、测试和 RFC 复核。参考目录未修改。 |
+
+### 4.66 Service 主链与 Runner 关系图修正
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 重画 README 架构图，拆分 Service 主链和 Runner 异步工作模式，删除把多种依赖混成同类连线的原图。 |
+| GSR 文件/测试 | `process.go`、`host.go`、`battle.go`、`output_service.go`、`ai.go`、`replay_writer.go`、`custom_deck.go`、`quarantine.go`；以 RFC-0193 和 RFC-0410 复核。 |
+| Service 主链 | 输入 adapter/Service→Host→Factory→Battle 表达创建/停止；调用方拿到 BattleRef 后直投 Battle；Battle→Output Service→外围 sink 表达输出。Host→Factory 不再遗漏。 |
+| Runner 边界 | Runner 没有 ServiceRef 和 Mailbox，也不通过 Send/Call 接收任务。Service Handler 通过窄 Go 接口 Submit；固定 worker 完成 I/O 后由 Runtime.Send 将结果 Command 投回目标 Service Mailbox。 |
+| 外围工作 owner | AI、回放由 Battle 通过 Core Runner 提交并返回 Battle；诊断由 Host 通过 Core Runner 提交并返回 Host；Legacy 自定义牌堆由连接 owner 调用 LoadAndProvide 有界等待，不经过 Core Runner，结果以公开 ProvideCustomDeck Command 进入 Battle。 |
+| 生命周期例外 | BattleFactoryService 的固定创建/停止 worker 是 RFC 已接受的多阶段生命周期执行器，不是 Core Runner；它负责 Runtime Create/Stop、删除屏障、诊断捕获、orphan Stop 和补偿。 |
+| 权威状态变化 | Runner 和 Factory worker 均不能在 Handler 外修改 Host/Battle 权威状态；结果必须通过 Command 入箱后提交。 |
+| 发现遗漏 | 原图漏掉 Host→Factory，并错误地把 Runner、Service、adapter 和外部 I/O 画成同一种可寻址关系；README 还把 Legacy LoadAndProvide 误写成 Core Runner.Submit，本切片均已纠正。 |
+| 结论 | 架构图现在先说明 Service 生命周期与消息主链，再独立说明 Runner 任务流；两种机制不再混图。 |
+| RFC/决策 | RFC-0193、RFC-0410；D-003、D-004、D-100、D-102。 |
+| 备注 | CodeGraph 已同步且索引最新；结论以源码和测试复核，参考目录未修改。 |
 
 ## 5. 切片追加模板
 
