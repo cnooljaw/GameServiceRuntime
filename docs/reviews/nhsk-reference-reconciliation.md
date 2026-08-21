@@ -1283,6 +1283,27 @@
 | RFC/决策 | RFC-0193、RFC-0410、RFC-0500、D-102；TODO CF-012、CARD-015、022、023、013。 |
 | 备注 | 已回查 `nhsk`、`gamelogic`、`gamemaster`、`gamecore`、`protocol`、`baison_middle/protocol`、`nbgame_core`；参考业务源码、配置和资源未修改。 |
 
+### 4.63 核心玩法主流程文档复核
+
+| 字段 | 内容 |
+|---|---|
+| 切片 | 将示例 README 的主流程从 Host、连接和进程组合外围改为 Battle 核心：初始化、104 张发牌、合法出牌、一墩轮转、固定对家结束、单双扣、Timer/AI fencing、综合结算和回放收尾。 |
+| GSR 文件/测试 | `examples/nhsk/README.md`；逐项以 `battle.go`、`card_rules.go`、`settlement.go`、`replay_document.go` 和既有对应测试复核，没有修改运行时代码。 |
+| 参考入口 | `nhsk/game/interface.go:StartGame/ResetForNextGame`、`game/flow_core.go:DoOutCard/CalcSuccessResult`、`game/helpers.go:IsGameOver/advanceTurnAfterOut/endCurrentRound`、`logic/logic.go:GetCardType/CompareCardType/GetScoreCard/SwapSingleCard`。 |
+| 参考测试/配置/录包 | `nhsk/game/game_flow_test.go`、`logic/logic_test.go`、`replay/replay_test.go`；确认固定对家结束、跳过已出完座位、pass 计数、分牌归属、牌型和 5/10/K 抓分。 |
+| Legacy MessageID | 文档不修改 MessageID；核心只描述 MessageID 映射为 Command 以后发生的状态迁移。 |
+| 输入与校验 | 玩家、Timer、托管和 AI 共用 `playWithSource`；阶段、active seat、VerifyCode、最大 8 张、手牌实际次数、牌型和压制关系均在提交状态前校验。 |
+| 权威状态变化 | Battle Mailbox 串行拥有手牌、当前一墩、名次、抓分、行动身份和回放事实；Snapshot 与重连场景只投影同一权威状态。 |
+| Timer/Timeline | 文档明确 VerifyCode 面向客户端，TurnRevision fencing Timer/AI；每次行动只有一个逻辑上有效的 Deadline，迟到结果无副作用。 |
+| 输出目标与顺序 | 开局为 GAME_START→GAME_STARTED→GAME_INFO→DEAL×4→ASK；结算为玩法结果→综合结算→GAME_RESULT→回放→ROUND_STAT→GAME_OVER，MATCH_STOP 额外 NOTICE。 |
+| 生命周期结果 | 单次小局完成只进入 Finished，可继续 Prepare/Start；DEL_GAME 才进入 Stopping 并销毁 Battle。 |
+| 已一致 | 104 张双副牌、每座 26 张、支持牌型、A/2 逻辑点数、三家过牌结束一墩、最后出牌者抓分、固定对家两人均出完即结束以及单双扣计算均与参考入口一致。 |
+| 有意偏差 | GSR 用显式 BattlePhase、Mailbox、TurnRevision 和异步回放收尾替代旧 TurnEngine、多 Timer 回调和对象内 goroutine；均为 RFC-0410 已接受差异，本次只把既有裁决解释清楚。 |
+| 发现遗漏 | 未发现新的核心玩法或文档遗漏。 |
+| 结论 | 核心玩法说明已由当前源码和旧参考双向复核；外围创建、连接和 Host 细节留在后续专门章节，不再占用主流程。 |
+| RFC/决策 | RFC-0410、D-017、D-024、D-033、D-035、D-045、D-066、D-067。 |
+| 备注 | 参考目录只读核对，未修改原业务源码、配置或资源。 |
+
 ## 5. 切片追加模板
 
 复制下表并填写，不修改以前已经完成切片的证据：

@@ -93,177 +93,244 @@ GSR 不保证多个外部任务按照提交顺序完成，也不靠 worker 完�
 
 唯一需要保持 Legacy 输入先后关系的自定义牌堆兼容路径由连接 owner 在 `UPDATE_GAME` 处有界等待 provider，并保证 `ProvideCustomDeck` 已经入箱后才读取紧随其后的 START；它不发生在 Battle Service Handler 中。新的 Cluster 调用者应直接传入参数化 catalog，不复制这段 Redis 中介兼容流程。
 
-## 主流程：从进程启动到一桌回收
+## 核心玩法主流程
 
-下面先描述当前第一阶段最重要的 Legacy 正常路径。新 Cluster 调用模式只替换“连接、解包和寻址”部分，创建完成后同样直接向同一个 `NHSKBattleService` 发送类型化 Command，玩法和输出逻辑不分叉。
+外围只做一件事：把 Legacy TCP 或 Cluster 请求翻译成类型化 Command，送进某一桌 `NHSKBattleService`。从第一条初始化到结算完成，所有权威玩法状态都由这个 Battle 的一个 Mailbox 串行维护。
+
+阅读核心代码时可以先抓住三个入口：
+
+- `Handle`：所有 Command 的唯一分发入口。
+- `start`：构造一小局的初始状态并发牌。
+- `playWithSource`：玩家、超时、托管和 AI 共用的唯一出牌状态迁移。
 
 ```mermaid
-sequenceDiagram
-    participant Main as GameLogic 进程
-    participant GM as 旧 GameMaster
-    participant Conn as LegacyGMConnection
-    participant Host as NHSKHostService
-    participant Factory as BattleFactoryService
-    participant Battle as NHSKBattleService
-    participant Output as GameOutputService
-    participant Runner as Core Runner
-
-    Main->>Main: 加载配置并创建 Runtime、Runner、Factory、Host
-    Main->>Conn: 启动连接 owner
-    Conn->>GM: TCP 连接 + origin=107
-    GM-->>Conn: origin=100
-    Conn->>Output: 为本 ConnectionGeneration 创建输出 Service
-    Conn->>Factory: 绑定当前输出 ServiceRef
-
-    GM->>Conn: NEW_GAME(BattleID)
-    Conn->>Host: BeginCreateBattle
-    Host->>Factory: 异步创建 Battle Service
-    Factory-->>Host: 完整 BattleRef
-    Host-->>Conn: CreateBattleOperation Completed
-    Conn->>Conn: 缓存 BattleID -> BattleRef
-    Conn-->>GM: NEW_GAME ACK 成功
-
-    GM->>Conn: INIT / UPDATE_PLAYER
-    Conn->>Battle: Initialize / UpdatePlayers
-    GM->>Conn: UPDATE_GAME / START
-    Conn->>Battle: PrepareSubgame / StartSubgame
-    Battle->>Output: GAME_START、GAME_INFO、DEAL、ASK_OUT_CARD
-    Output->>Conn: GameOutputBatch
-    Conn-->>GM: 0x8644 Legacy 输出帧
-
-    loop 每次行动
-        GM->>Conn: 0x8605 + 玩家玩法消息
-        Conn->>Battle: PlayCards / Auto / Reconnect 等 Command
-        Battle->>Battle: 校验、修改手牌、推进 Timeline
-        Battle->>Output: 定向或广播 GameOutput
-        opt 托管、离线 AI 或外围 I/O
-            Battle->>Runner: Submit 不可变任务
-            Runner-->>Battle: RunnerResult Command
-            Battle->>Battle: 核对当前阶段和窄 fencing
-        end
-    end
-
-    Battle->>Output: 综合结算请求 0x8650
-    GM->>Conn: 0x80008650 结算 ACK
-    Conn->>Battle: CompleteSettlement
-    Battle->>Output: GAME_RESULT
-    Battle->>Runner: 提交回放文件写入
-    Runner-->>Battle: 回放完成 Command
-    Battle->>Output: ROUND_STAT + GAME_OVER
-
-    GM->>Conn: DEL_GAME
-    Conn->>Conn: 先删除当前代际路由缓存
-    Conn->>Host: RequestDeleteBattle
-    Host->>Factory: 停止精确 BattleRef
-    Factory->>Battle: Runtime Stop / Close
-    Factory-->>Host: 删除 Operation 完成
+stateDiagram-v2
+    [*] --> AwaitingInit
+    AwaitingInit --> Preparing: PrepareSubgame
+    Finished --> Preparing: 下一小局 PrepareSubgame
+    Preparing --> Playing: StartSubgame
+    Playing --> Playing: 出牌 / 过牌 / Timer / AI
+    Playing --> AwaitingSettlement: 固定对家的两人均出完
+    AwaitingSettlement --> FinalizingReplay: 综合结算完成
+    Playing --> FinalizingReplay: MATCH_STOP 强制收敛
+    AwaitingSettlement --> FinalizingReplay: MATCH_STOP 强制收敛
+    FinalizingReplay --> Finished: 回放写入完成或超时
+    AwaitingInit --> Stopping: DEL_GAME
+    Preparing --> Stopping: DEL_GAME
+    Playing --> Stopping: DEL_GAME
+    AwaitingSettlement --> Stopping: DEL_GAME
+    FinalizingReplay --> Stopping: DEL_GAME
+    Finished --> Stopping: DEL_GAME
 ```
 
-### 1. 进程组合与启动
+### 1. Battle 内部保存什么
 
-`cmd/gamelogic/main.go` 读取 JSON 配置，调用 `NewGameLogicProcess`，然后用进程信号控制 `Run`。组合根按以下顺序创建对象：
+`NHSKBattleService` 不是一组无状态函数。它就是“一桌牌”的权威内存对象，核心状态可以分成五组：
 
-1. 创建一个 GSR `Runtime`。
-2. 创建诊断、回放、AI，以及可选自定义牌堆 Core Runner 领域适配器。
-3. 创建具名 `.nhsk-battle-factory`，负责在 Runtime 中创建和停止 Battle Service。
-4. 创建具名 `.nhsk-game-host`，保存 Battle 索引、容量、Operation 和隔离记录。
-5. 创建唯一的 `LegacyGMConnection` 和本地诊断 Unix socket；此时还没有任何 Battle。
+| 状态组 | 主要字段 | 作用 |
+|---|---|---|
+| 小局阶段 | `phase`、`gameNum`、`subgameNum` | 决定当前允许初始化、开局、出牌还是结算 |
+| 玩家与牌 | `players`、`bySeat`、`hands`、`finished`、`ranks` | 保存四个座位、每人手牌、出完顺序 |
+| 当前一墩 | `activeSeat`、`lastCards`、`preOutSeat`、`passCount`、`scoreCards` | 决定轮到谁、当前要压什么、谁暂时赢得本墩 |
+| 行动身份 | `verifyCode`、`turnRevision`、`actionStartedAt`、`deadlineAt` | 拒绝客户端旧动作以及迟到 Timer/AI 结果 |
+| 结果与回放 | `capturedPoints`、`pendingResult`、`replayDocument` | 计算单双扣、生成综合结算、保存可落盘事实 |
 
-进程收到 `SIGINT` 或 `SIGTERM` 后，先停止 Legacy 连接，避免继续接收新输入；再关闭诊断入口和 Runner，最后关闭 Runtime 及全部 Service。Runner 或 Service 只有在真实执行返回后才算关闭。
+这些字段只在 `Handle` 调用链中修改，不加业务锁。`Snapshot`、重连场景和输出 payload 都由同一份状态构造，不维护另一份“客户端状态”。
 
-### 2. 建立当前连接代际
+这里有三个不同层次的版本或校验值：
 
-`LegacyGMConnection` 主动拨号旧 GameMaster，完成 `origin=107 -> origin=100` 握手。每次成功连接产生新的 `ConnectionGeneration`，并创建一个只属于该代际的 `GameOutputService`，再把输出 Ref 绑定给 Factory。
+- `VerifyCode` 发给客户端，用于拒绝上一轮 ASK 对应的迟到出牌。
+- `TurnRevision` 留在服务端，用于让旧 Timer 和旧 AI 结果自动失效。
+- `revision` 是 Snapshot 中开局、出牌和结果提交的局部玩法版本，不参与 Service 实例寻址，也不是通用幂等机制。
 
-连接代际同时限定两类外围能力：
+### 2. 初始化一桌与准备一小局
 
-- 输入侧的 `BattleID -> BattleRef` 路由缓存只对当前连接有效。
-- 输出侧只允许仍绑定的 `GameOutputService` 向当前 socket 写数据。
+Battle 创建后是 `AwaitingInit`，此时只有 `BattleID` 和外围输出能力已经存在，玩法身份尚未建立。
 
-因此旧连接迟到的输入或输出不能穿透到新连接。连接失败时进程持续退避重连，不重启 Runtime。
+`InitializeBattle` 首次成功时冻结：
 
-### 3. NEW_GAME 创建一桌
+- `BattleIdentity`：BattleID、ProductID、MatchID、RoundID、RoundUniCode。
+- 最大大局/小局数、服务费、基础分和分母。
+- 当前可达的 `NHSKConfig` 规则投影。
+- 回放需要的玩法、房间和规则元数据。
 
-旧 GM 发送 `NEW_GAME(0x86c1)` 后，连接 adapter 将 `GameInnerID` 直接作为当前阶段的 `BattleID`，调用 Host 开始创建：
+重复初始化只有在完整内容完全相同时才接受，不能在中途把这一桌改成另一场比赛。`UpdatePlayers` 可以在开局前分批建立或刷新玩家，但同一批和累计结果中的玩家、SeatID 都不能冲突；`StartSubgame` 最终要求 SeatID 0..3 四座齐全。固定对家由座位决定：0/2 一队，1/3 一队。
+
+`PrepareSubgame(GameNum, SubgameNum)` 把 Battle 推进到 `Preparing`，清空上一小局的自定义牌堆选择，但保留这一桌已经建立的玩家和比赛身份。只有在这个阶段才能提供与当前 GameNum/SubgameNum 完全匹配的自定义牌堆。
+
+### 3. 发牌与开局
+
+`StartSubgame` 只接受 `Preparing` 阶段且必须已经有四名玩家。开局过程在一次 Handler 内完成：
+
+1. 随机选择庄家座位；若本小局有自定义牌堆和合法 `BankerSeat`，则使用外部指定座位。
+2. 生成两副不含大小王的牌：四种花色 × A..K × 2，共 104 张。
+3. 使用 Battle 私有随机源洗牌。随机种子保存在诊断证据中，固定种子测试可以复现同一牌局。
+4. 普通局按旧逻辑交换过多的单张；新手局执行原有的新手牌调整。自定义牌堆则跳过洗牌和这些调整。
+5. 从庄家开始按座位顺序，每人连续取得 26 张牌。
+6. 清空上一小局的一墩、排名、抓分、行动统计和回放状态，进入 `Playing`。
+7. 庄家成为第一位行动者，生成新的 `VerifyCode` 和 `TurnRevision`。
+
+开局输出顺序固定为：
 
 ```text
-LegacyGMConnection
-  -> NHSKHostService：冻结 Creating Operation 和容量槽
-  -> BattleFactoryService：在 Mailbox 外执行 Runtime.CreateService
-  -> NHSKBattleService：以 AwaitingInit 状态进入 Runtime
-  -> NHSKHostService：登记 Active BattleID -> BattleRef
-  -> LegacyGMConnection：缓存当前代际路由
-  -> GameMaster：发送成功 ACK
+GAME_START
+GAME_STARTED（GM 控制事实，带 ReplayName）
+GAME_INFO
+DEAL × 4（每名玩家只收到自己的 26 张牌）
+ASK_OUT_CARD
 ```
 
-只有创建 Operation 到达终态、Host 已登记完整 `BattleRef`、连接也成功缓存路由后，才向 GM 回复成功。这样 ACK 之后紧随而来的 INIT 或玩法包不会遇到“桌号存在但 Service 尚未可达”的半成品状态。
+Battle 先完成状态提交，再发送类型化输出；Legacy adapter 只负责把输出编码成原 MessageID，不能参与发牌或裁剪权威手牌。
 
-普通创建遇到仍活动的同号 Battle 返回占用错误。只有 Legacy 同号 `NEW_GAME` 兼容路径会记录告警、完整停止旧 Ref 后再用同一 `BattleID` 创建新 Ref；它不是公开 Cluster API。
+### 4. 所有出牌来源共用一次合法性检查
 
-### 4. 初始化并开始小局
+玩家出牌、客户端过牌、普通超时、托管和 AI 最终都进入 `playWithSource`。区别只记录在回放的 `ReplayMoveSource` 中，不能因为动作来自服务器就绕过规则。
 
-创建后的 Battle 初始阶段是 `AwaitingInit`。旧 GM 后续消息通过当前连接缓存直接投递，不再逐帧查询 Host：
+一次动作按下面顺序检查：
+
+1. Battle 必须处于 `Playing`。
+2. `Player` 必须等于当前 `activeSeat` 对应玩家。
+3. `VerifyCode` 必须非零并等于当前 ASK 的值。
+4. 一次最多出 8 张牌。
+5. 首出时不能用空牌过牌。
+6. 每张牌必须真实存在于该玩家当前手牌中；使用临时手牌逐张扣除，因此同一字节出现次数不能超过手牌持有次数。双副牌中真实存在的两张同花色同点数牌仍可合法提交。
+7. 非空牌必须是当前支持的牌型；跟牌时必须能够压过 `lastCards`。
+
+当前实现支持的牌型和比较规则是：
+
+| 牌型 | 结构 | 比较方式 |
+|---|---|---|
+| 单张 | 1 张 | 同牌型比较逻辑点数 |
+| 对子 | 相同点数 2 张 | 同牌型比较逻辑点数 |
+| 三张 | 相同点数 3 张 | 同牌型比较逻辑点数 |
+| 三带二 | 三张同点数 + 一对 | 比较三张部分的逻辑点数 |
+| 炸弹 | 相同点数至少 4 张 | 压非炸弹；炸弹先比较张数，再比较逻辑点数 |
+
+点数顺序使用 `3 < ... < K < A < 2`。不同普通牌型之间不能互压。校验通过后才真正从 `hands[player]` 删除牌；失败只回复拒绝，并可向该玩家输出 `OUT_CARD` 失败，不部分修改状态。
+
+核心调用路径只有一条：
 
 ```text
-INIT_GAME       -> InitializeBattle：冻结 ProductID、MatchID、RoundID 和规则
-UPDATE_PLAYER   -> UpdatePlayers：建立四个玩家与固定座位
-UPDATE_GAME     -> PrepareSubgame：进入 Preparing，冻结 GameNum/SubgameNum
-自定义牌堆      -> ProvideCustomDeck：可选，只能在同一 Preparing 小局内生效
-COMMAND START   -> StartSubgame：发牌并进入 Playing
+Handle(PlayCards)       -> play --------------------┐
+Handle(Timer)           -> timer -------------------┼-> playWithSource
+Handle(AIResult)        -> applyAIResult -----------┘
+
+playWithSource
+  -> 校验阶段 / 玩家 / VerifyCode / 手牌 / 牌型 / 压制关系
+  -> 原子提交本次动作状态
+  -> 输出 OUT_CARD_INFO
+  -> 已满足固定对家结束条件？
+       是 -> 冻结玩法结果并请求综合结算
+       否 -> advanceTurn -> 必要时 finishTrick -> startAction
 ```
 
-START 后 Battle 依次产生 `GAME_START`、`GAME_INFO`、每名玩家自己的 `DEAL` 和第一条 `ASK_OUT_CARD`。这些都先是协议无关的 `GameOutput`，由 `GameOutputService` 交给连接 adapter 编码成旧 `0x8644` TCP 帧。
+### 5. 一次合法动作怎样推进牌局
 
-### 5. 行动循环
+合法动作提交后，`playWithSource` 同步更新所有相关事实：
 
-客户端动作仍按“客户端 → Agent → GameMaster → GameLogic”到达。`LegacyGMConnection` 只负责拆除 `GLHeader + BSHeader + GameHeader`，校验路由字段并把 MessageID 映射为 Command；合法性和状态变化只在 Battle Mailbox 中执行。
+- 从当前玩家手牌删除已出的牌。
+- 非空出牌成为新的 `lastCards`，当前座位成为 `preOutSeat`，并把 `passCount` 清零。
+- 空牌表示过牌，只增加 `passCount`，不改变当前领牌者和领牌牌型。
+- 本次出现的 5、10、K 放进当前一墩的 `scoreCards`；这些牌分别记 5、10、10 分。
+- 记录出牌耗时、动作来源、牌型、托管次数和回放动作。
+- 增加状态 `revision`，广播 `OUT_CARD_INFO`。
 
-每次行动的业务顺序是：
-
-1. 核对当前阶段、行动玩家和 `VerifyCode`。
-2. 校验牌属于当前手牌、没有重复、牌型合法，并在需要时能够压过上家；空牌表示过牌，但首出不能过。
-3. 修改手牌、桌面牌、抓分牌、排名和回放事实。
-4. 产生 `OUT_CARD_INFO`、一墩结束或亮牌等输出。
-5. 增加 `TurnRevision`，为下一位玩家设置唯一当前行动期限并发送新的 `ASK_OUT_CARD`。
-
-托管、本地自动和外部 AI 最终也调用同一个 `playWithSource`，不会绕过出牌校验。AI 请求由 Core Runner 执行；返回时必须同时匹配 BattleID、GameNum、SubgameNum、TurnRevision、VerifyCode、行动开始时间、座位和玩家，迟到结果直接忽略。Timer 同样携带 `TurnRevision`，所以被后续行动取代的旧期限没有副作用。
-
-重连不创建新 Battle。`USER_RECONNECT` 更新在线事实并恢复必要推送，`GAME_SCENE` 只生成请求者视角的当前权威场景；两者仍进入同一个 Battle Mailbox。
-
-### 6. 结算、回放和下一小局
-
-固定对家的两名玩家都出完后，Battle 进入 `AwaitingSettlement`，停止行动期限，展示剩余手牌并向 GM 输出一次 `0x8650` 综合结算请求。GM 返回 `0x80008650` 后，Battle 校验四名玩家、TeamID 和交易矩阵，应用最终分数并输出 `GAME_RESULT`。
-
-随后 Battle 进入 `FinalizingReplay`：不可变 XML 文档交给 Replay Runner 落盘，Battle Mailbox 继续可运行。匹配的写入结果或回放超时 Command 会收敛该阶段，并按原线序输出 `ROUND_STAT` 和 `GAME_OVER`，最后进入 `Finished`。
-
-`GAME_RESULT`、`GAME_OVER` 或单次小局结束都不会停止 Battle Service。旧 GM 可以继续发送下一组 `UPDATE_GAME -> START`，复用同一桌和玩家关系；只有 `DEL_GAME` 才进入整桌停止流程。
-
-### 7. DEL_GAME 与异常路径
-
-正常删除时，连接先移除当前代际的路由缓存，避免停止期间继续向旧 Ref 投递；Host 再建立删除 Operation，由 Factory 穿过 Battle 的删除屏障并调用 Runtime Stop。停止完成后 Host 才释放索引和容量槽，`BattleID` 以后可以重新分配。
-
-GM 连接断开时，当前代际的输出绑定和全部路由缓存立即失效；该连接关联的 Creating、Active、Stopping Battle 走异常停止，新连接只接收新局。已经 `Quarantined` 的 Battle 保留，等待诊断取证和人工凭 receipt 局部释放。
-
-单个 Battle 发生代码缺陷时只隔离该桌并继续占用容量槽。节点健康状态变为 Degraded，但其他桌和新建桌仍可运行，直到 `Active + Quarantined` 达到配置上限。框架不会自动回收缺陷现场，也不会因为一桌异常整体回切进程。
-
-### 8. 新 Cluster 调用从哪里接入
-
-新调用方不需要构造 Legacy header。它通过 `.nhsk-game-host` 创建或解析一次 Battle，取得完整 `BattleRef` 后直接 `Send`/`Call` Battle Command：
+之后分三种情况：
 
 ```text
-Cluster 调用方 -> Host：BeginCreate / ResolveBattle
-Cluster 调用方 <- Host：完整 BattleRef
-Cluster 调用方 -> BattleRef：Initialize / Prepare / Start / Play / Snapshot ...
+玩家仍有牌
+  -> advanceTurn
+  -> 找到下一位仍有手牌且未退出的玩家
+  -> startAction
+
+玩家首次出完，但固定对家仍有牌
+  -> 标记 finished 和名次
+  -> 向该玩家展示对家手牌
+  -> 跳过已出完玩家，继续当前小局
+
+玩家出完，且固定对家也已经出完
+  -> 当前小局停止行动
+  -> 进入 AwaitingSettlement
 ```
 
-Cluster 和 Legacy 的差别只到 adapter 与路由层为止。进入 Mailbox 后使用相同 Command、相同阶段、相同规则、相同 Timer 和相同 `GameOutput` 类型；不能增加一套“Cluster 专用玩法逻辑”。
+一墩不是每四次动作机械结束，而是当前最后一次非空出牌之后，其他仍可行动玩家都过牌。`preOutSeat` 是这一墩最后成功出牌者；当 `passCount` 达到有效的三家后：
 
-第一阶段有两种 Cluster 用法需要区分：
+1. 把 `scoreCards` 中的分数记到 `preOutSeat` 的 `capturedPoints`。
+2. 输出一次 `TURN_END` 和本墩赢家、抓分。
+3. 清空 `lastCards`、`passCount` 和本墩分牌。
+4. 由赢家首出下一墩；若赢家已经出完，则改由其固定对家首出。
 
-- Resolve 由旧 GM 创建的非零 ConnectionGeneration Battle，再直接 Send/Call；它的类型化输出仍回到创建该桌的当前 Legacy 连接。
-- 使用 `ConnectionGeneration=0` 独立创建 Battle；它用于验证 Host/Battle API、规则和 Reply，当前组合根没有为它装配输出目的地，不能宣称已经可以独立承载客户端流量。以后替换 GM 时由新的协调层显式装配类型化输出 Service。
+`advanceSeat` 会跳过已经出完、已经退出或没有手牌的座位，同时补足这些跳过座位对应的 pass 语义，避免牌局卡在不可行动玩家上。
 
-主流程中几个容易混淆的编号保持以下含义：
+### 6. 出完顺序、单双扣和综合结算
+
+某玩家第一次把手牌出完时，按当前已经出完的人数取得 Rank 1..4。座位 0/2 和 1/3 是固定对家；只要刚出完玩家的对家也已经没有手牌，小局立即结束，不要求另外一队继续把牌全部打完。
+
+结束瞬间先把当前一墩尚未归属的分牌记给最后成功出牌者，再冻结：
+
+- 四个座位的名次；尚未取得名次的座位按 Rank 4 参与结果计算。
+- 每个座位已经抓到的 5、10、K 分数。
+- 每个座位是否达到结算规则定义的自动操作比例或次数。
+- 由这些事实计算出的单扣/双扣、初始胜方和每座输赢倍数。
+
+`calculateSubgameResult` 是本地玩法结果的唯一计算入口。它先按出完顺序判断同队是否取得前两名，再结合双方抓分以及 100、105、200 分边界决定单扣、双扣和最终胜方。单扣基础倍数是 1，双扣是 2；若败方只有一人被判定为自动操作，该座承担本队两人的负倍数，固定对家变为 0。
+
+Battle 不直接把这些倍数当成最终账户分数，而是构造一次有向交易矩阵发送给外部综合结算：
+
+```text
+本地权威玩法事实
+  -> SubgameResult（单双扣、胜方、名次、抓分、自动状态）
+  -> SettlementRequest（四个 TeamID + pay/gain 交易矩阵）
+  -> 外部综合结算
+  -> CompleteSettlement（最终交易结果）
+  -> Battle 校验并应用 GAME_RESULT
+```
+
+返回结果必须完整覆盖当前四名 UserID，且 `TeamID == SeatID`；同一玩家或同一 pay/gain 边不能重复，分数必须为正且汇总不能溢出。整包任一处非法就全部拒绝，不部分应用。`PlayerFlag` 中的 Break/Seal 只在此处解码成最终玩家事实；未被玩法使用的 ScoreChangeReason 等字段不建立无意义状态。
+
+### 7. 行动期限、托管和 AI 为什么不会乱序
+
+`startAction` 每次都同时更新 `VerifyCode`、`TurnRevision`、行动开始时间和当前有效截止时间，然后只为这次行动投递 Timer Command。
+
+普通玩家超时后，如果规则允许 `TimeoutAutoMove`，Battle 先把玩家切到托管，再选择本地自动动作。当前本地策略很保守：首出选择手中逻辑点数最小的一张，跟牌时选择过牌；最终仍经过完整的 `playWithSource` 校验。
+
+托管机器人或满足离线 AI 条件的玩家可以把不可变场景提交给 `AIRunner`。Battle 不等待 HTTP/AI 返回，Mailbox 可以继续处理重连、取消托管或其他控制 Command。AI 结果回来时必须同时匹配：
+
+```text
+BattleID
+GameNum / SubgameNum
+TurnRevision
+VerifyCode
+actionStartedAt
+SeatID / UserID
+当前仍处于 Playing
+```
+
+任一字段不一致都说明这已经不是原来的出牌机会，结果直接忽略。通过身份检查后还要再次检查返回牌仍在当前手牌中、牌型合法并能压过上家。
+
+Timer 也携带 `TurnRevision`。旧 Timer 即使已经排队，在新的行动开始后也无法生效。因此逻辑上每次行动只有一个当前有效 Deadline；不需要同时维护“AI Timer + 硬超时 Timer”两套互相竞争的业务回调。
+
+重连同样不绕开状态机。`GAME_SCENE` 从当前 Battle 状态生成请求者视角：本人手牌可见；本人已经出完时才额外展示固定对家手牌；其他玩家只暴露剩余张数。若请求者正好是当前行动者，再补发当前 `ASK_OUT_CARD`，但不会创建或延长 Deadline。
+
+### 8. 回放收尾、强制结束与下一小局
+
+正常综合结算应用后，Battle 先输出 `GAME_RESULT`，再把本小局已经冻结的开始信息、每一步动作、出牌统计、抓分、最终结果和玩家快照组成不可变 `ReplayDocument`。
+
+XML 序列化成功后进入 `FinalizingReplay`，把文件写入交给 Replay Runner。结果 Command 必须匹配 BattleID、GameNum、SubgameNum、ReplayName 和当前阶段；旧小局或迟到结果不能结束新小局。写入失败或达到回放期限只记录失败并继续收敛，不把整桌永久卡在等待状态。
+
+回放收敛后的输出线序是：
+
+```text
+ROUND_STAT（只发给未退出且 clientReady 的玩家）
+GAME_OVER（四座最终 Score / Exp / Auto + ReplayName）
+NOTICE_ROUND_OVER（仅 MATCH_STOP 强制结束路径）
+```
+
+`MATCH_STOP` 是有意保留的 Legacy 差异路径：在 `Playing` 或 `AwaitingSettlement` 中使当前行动和旧 Timer 失效，展示全部剩余手牌，使用当前本地玩法事实直接生成结果，不再等待外部综合结算，然后仍经过相同的回放收尾。
+
+收尾后 Battle 进入 `Finished`，但 Service 不销毁。协调者可以继续发送新的 `PrepareSubgame -> StartSubgame`，复用同一桌的玩家和比赛身份；新小局会重置手牌、一墩、名次、统计和回放。只有整桌 `DEL_GAME` 才进入 `Stopping`，穿过删除屏障后禁止继续输出并由 Runtime 销毁实例。
+
+核心代码里几个容易混淆的身份保持以下含义：
 
 | 名称 | 含义 | 生命周期 |
 |---|---|---|
